@@ -1,0 +1,129 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum EsitoVerifica {
+  NC
+  OSS
+  NESSUN_RILIEVO
+  ESITO_MANCANTE
+  ESITO_INCOERENTE
+}
+
+enum StatoVerifica {
+  NON_VERIFICATO
+  IN_VERIFICA
+  VERIFICATO
+  DA_RIVERIFICARE
+}
+
+enum Severita {
+  CRITICA
+  ALTA
+  MEDIA
+  BASSA
+}
+
+enum Semaforo {
+  VERDE
+  GIALLO
+  ROSSO
+}
+
+enum StatoDocumento {
+  BOZZA
+  EMESSO
+  ARCHIVIATO
+}
+
+model Commessa {
+  id           String         @id @default(cuid())
+  codice       String         @unique
+  nome         String
+  cliente      String?
+  pm           String?
+  createdAt    DateTime       @default(now())
+  elaborati    Elaborato[]
+  importazioni Importazione[]
+  rapporti     Rapporto[]
+}
+
+model Elaborato {
+  id            String     @id @default(cuid())
+  commessaId    String
+  codice        String
+  titolo        String
+  revisione     String?
+  disciplina    String?
+  gruppoTrimble String?
+  dataRicezione DateTime?
+  commessa      Commessa   @relation(fields: [commessaId], references: [id], onDelete: Cascade)
+  verifiche     Verifica[]
+  createdAt     DateTime   @default(now())
+
+  @@unique([commessaId, codice, revisione])
+}
+
+model Verifica {
+  id                 String          @id @default(cuid())
+  elaboratoId         String
+  importazioneId      String?
+  trimbleId           String?
+  ispettore           String?
+  statoTrimble        String?
+  statoVerifica       StatoVerifica  @default(NON_VERIFICATO)
+  esito               EsitoVerifica  @default(ESITO_MANCANTE)
+  descrizione         String?
+  categoriaProblema   String?
+  tipologiaProblema   String?
+  severita            Severita?
+  scadenza            DateTime?
+  dataCreazione       DateTime?
+  dataVerifica        DateTime?
+  semaforo            Semaforo       @default(ROSSO)
+  completo            Boolean        @default(false)
+  notePm              String?
+  elaborato           Elaborato      @relation(fields: [elaboratoId], references: [id], onDelete: Cascade)
+  importazione        Importazione?  @relation(fields: [importazioneId], references: [id])
+  immagini            Immagine[]
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+}
+
+model Importazione {
+  id          String     @id @default(cuid())
+  commessaId  String
+  nomeFile    String
+  righeTotali Int        @default(0)
+  righeValide Int        @default(0)
+  errori      Json?
+  createdAt   DateTime   @default(now())
+  commessa    Commessa   @relation(fields: [commessaId], references: [id], onDelete: Cascade)
+  verifiche   Verifica[]
+}
+
+model Immagine {
+  id         String   @id @default(cuid())
+  verificaId String
+  url        String
+  didascalia String?
+  autore     String?
+  createdAt  DateTime @default(now())
+  verifica   Verifica @relation(fields: [verificaId], references: [id], onDelete: Cascade)
+}
+
+model Rapporto {
+  id         String         @id @default(cuid())
+  commessaId String
+  tipo       String
+  stato      StatoDocumento @default(BOZZA)
+  contenuto  Json?
+  fileUrl    String?
+  createdAt  DateTime       @default(now())
+  commessa   Commessa       @relation(fields: [commessaId], references: [id], onDelete: Cascade)
+}

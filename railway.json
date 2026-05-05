@@ -1,0 +1,1 @@
+{"build":{"builder":"RAILPACK"},"deploy":{"preDeployCommand":"npx prisma migrate deploy","startCommand":"npm run start","restartPolicyType":"ON_FAILURE","restartPolicyMaxRetries":10}}

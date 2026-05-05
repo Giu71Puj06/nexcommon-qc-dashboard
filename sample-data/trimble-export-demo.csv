@@ -1,0 +1,5 @@
+ID,Elaborato,Revisione,Gruppo,Status,Tags,Assignee,Description,Categoria problema,Tipologia problema,Severita
+T-001,A-001,Rev01,Architettonico,Closed,NC,Mario Rossi,Quota porta non coerente,Problemi tecnici progettuali,Quota errata o mancante,ALTA
+T-002,S-010,Rev02,Strutturale,Closed,OSS,Laura Bianchi,Dettaglio armatura da chiarire,Problemi informativi,Informazione incompleta,MEDIA
+T-003,M-100,Rev01,Impianti meccanici,Open,,Gianni Verdi,,,
+T-004,E-050,Rev03,Impianti elettrici,Closed,Nessun rilievo,Anna Neri,,,,
