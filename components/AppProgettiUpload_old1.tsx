@@ -30,10 +30,18 @@ function KPI({ title, value, subtitle, onClick, active, colorValue }: any) {
   return (
     <Card onClick={onClick} active={active}>
       <div style={{ fontSize: 13, color: "#64748b" }}>{title}</div>
-      <div style={{ fontSize: 34, fontWeight: 800, color: colorValue || "#0f172a" }}>
+      <div
+        style={{
+          fontSize: 34,
+          fontWeight: 800,
+          color: colorValue || "#0f172a",
+        }}
+      >
         {value}
       </div>
-      {subtitle && <div style={{ fontSize: 12, color: "#64748b" }}>{subtitle}</div>}
+      {subtitle && (
+        <div style={{ fontSize: 12, color: "#64748b" }}>{subtitle}</div>
+      )}
     </Card>
   );
 }
@@ -46,7 +54,9 @@ function BarList({ title, data, onClick, activeKey }: any) {
       <h3 style={{ marginTop: 0 }}>{title}</h3>
 
       {data.length === 0 && (
-        <div style={{ color: "#64748b", fontSize: 13 }}>Nessun dato disponibile</div>
+        <div style={{ color: "#64748b", fontSize: 13 }}>
+          Nessun dato disponibile
+        </div>
       )}
 
       {data.map((d: any) => (
@@ -61,7 +71,13 @@ function BarList({ title, data, onClick, activeKey }: any) {
             padding: 6,
           }}
         >
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              fontSize: 13,
+            }}
+          >
             <span>{d.label}</span>
             <b>{d.value}</b>
           </div>
@@ -99,7 +115,8 @@ function ImportSummary({ importedFiles }: any) {
           <div key={`${f.fileName}-${i}`} style={{ fontSize: 13 }}>
             <b>{f.fileName}</b>{" "}
             <span style={{ color: "#64748b" }}>
-              {f.type === "xlsx" && `- Excel letto: ${f.rows || 0} righe`}
+              {f.type === "xlsx" &&
+                `- Excel letto: ${f.rows || 0} righe`}
               {f.type === "bcfzip" &&
                 `- BCF letto: ${f.markupCount || 0} topic, ${f.comments || 0} commenti`}
             </span>
@@ -239,7 +256,9 @@ export default function AppProgettiUpload() {
   const controlliIncompleti = enrichedRows.filter((r) => !r.controlloIspettoreCompleto);
 
   const completezzaControlloIspettori =
-    enrichedRows.length > 0 ? Math.round((controlliCompleti / enrichedRows.length) * 100) : 0;
+    enrichedRows.length > 0
+      ? Math.round((controlliCompleti / enrichedRows.length) * 100)
+      : 0;
 
   const rilieviNCOSS = enrichedRows.filter(
     (r) => r.tipo === "NC" || r.tipo === "OSS" || r.tipo === "Da NC a OSS"
@@ -248,7 +267,9 @@ export default function AppProgettiUpload() {
   const rilieviConRiscontroPRG = rilieviNCOSS.filter((r) => r.hasPrgComment).length;
 
   const completezzaRisoluzioneProgettisti =
-    rilieviNCOSS.length > 0 ? Math.round((rilieviConRiscontroPRG / rilieviNCOSS.length) * 100) : 0;
+    rilieviNCOSS.length > 0
+      ? Math.round((rilieviConRiscontroPRG / rilieviNCOSS.length) * 100)
+      : 0;
 
   const daVerificareISP = enrichedRows.filter((r) => r.chiDeveAgire === "ISP").length;
   const daRisponderePRG = enrichedRows.filter((r) => r.chiDeveAgire === "PRG").length;
@@ -334,7 +355,11 @@ export default function AppProgettiUpload() {
       <div style={{ display: "flex", justifyContent: "space-between", gap: 20 }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <img src="/logo_nexcommon.png" alt="Nexcommon" style={{ height: 34, objectFit: "contain" }} />
+            <img
+              src="/logo_nexcommon.png"
+              alt="Nexcommon"
+              style={{ height: 34, objectFit: "contain" }}
+            />
             <div style={{ fontSize: 13, color: "#64748b" }}>
               Piattaforma creata da Nexcommon S.r.l.
             </div>
@@ -354,7 +379,9 @@ export default function AppProgettiUpload() {
             />
 
             <div>
-              <h1 style={{ margin: 0, fontSize: 30 }}>ITS Controlli Tecnici S.p.A.</h1>
+              <h1 style={{ margin: 0, fontSize: 30 }}>
+                ITS Controlli Tecnici S.p.A.
+              </h1>
               <div style={{ color: "#64748b", fontSize: 14 }}>
                 Dashboard verifiche elaborati / NC / OSS
               </div>
@@ -423,41 +450,72 @@ export default function AppProgettiUpload() {
         }}
       >
         {[
-          {
-            title: "Nota di Ricezione Elaborati",
-            subtitle: "Modulo operativo attivo",
-            url: "https://verifica-elaborati-production.up.railway.app",
-            active: true,
-          },
-          { title: "Verifiche preliminari", subtitle: "Coming soon", url: "", active: false },
-          { title: "Schede ispettive", subtitle: "Coming soon", url: "", active: false },
-          { title: "Rapporto intermedio", subtitle: "Coming soon", url: "", active: false },
-          { title: "Rapporto conclusivo", subtitle: "Coming soon", url: "", active: false },
-          { title: "Dashboard PM", subtitle: "Coming soon", url: "", active: false },
-        ].map((m) => (
-          <Card
-            key={m.title}
-            active={m.active}
-            onClick={() => {
-              if (m.active && m.url) {
-                window.open(m.url, "_blank", "noopener,noreferrer");
-              }
-            }}
-          >
-            <b>{m.title}</b>
-            <div style={{ marginTop: 6, color: "#64748b", fontSize: 13 }}>
-              {m.subtitle}
-            </div>
+  {
+    title: "Nota di Ricezione Elaborati",
+    subtitle: "Modulo operativo attivo",
+    url: "https://verifica-elaborati-production.up.railway.app",
+    active: true,
+  },
+  {
+    title: "Verifiche preliminari",
+    subtitle: "Coming soon",
+    url: "",
+    active: false,
+  },
+  {
+    title: "Schede ispettive",
+    subtitle: "Coming soon",
+    url: "",
+    active: false,
+  },
+  {
+    title: "Rapporto intermedio",
+    subtitle: "Coming soon",
+    url: "",
+    active: false,
+  },
+  {
+    title: "Rapporto conclusivo",
+    subtitle: "Coming soon",
+    url: "",
+    active: false,
+  },
+  {
+    title: "Dashboard PM",
+    subtitle: "Coming soon",
+    url: "",
+    active: false,
+  },
+].map((m) => (
+  <Card
+    key={m.title}
+    active={m.active}
+    onClick={() => {
+      if (m.active && m.url) {
+        window.open(m.url, "_blank", "noopener,noreferrer");
+      }
+    }}
+  >
+    <b>{m.title}</b>
 
-            {m.active && (
-              <div style={{ marginTop: 12, fontSize: 12, fontWeight: 700, color: "#0284c7" }}>
-                Apri modulo →
-              </div>
-            )}
-          </Card>
-        ))}
+    <div style={{ marginTop: 6, color: "#64748b", fontSize: 13 }}>
+      {m.subtitle}
+    </div>
+
+    {m.active && (
+      <div
+        style={{
+          marginTop: 12,
+          fontSize: 12,
+          fontWeight: 700,
+          color: "#0284c7",
+        }}
+      >
+        Apri modulo →
       </div>
-
+    )}
+  </Card>
+))}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 12 }}>
         <KPI title="Elaborati totali" value={elaboratiTot} onClick={() => setSelection({ type: "kpi", value: "totali", label: "KPI", valueLabel: "Elaborati totali" })} />
         <KPI title="Elaborati con NC" value={elaboratiNC} onClick={() => setSelection({ type: "kpi", value: "nc", label: "KPI", valueLabel: "Elaborati con NC" })} />
@@ -466,20 +524,101 @@ export default function AppProgettiUpload() {
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 24 }}>
-        <KPI title="Completezza controllo ispettori" value={`${completezzaControlloIspettori}%`} colorValue={getKpiColor(completezzaControlloIspettori)} subtitle={`${controlliCompleti}/${enrichedRows.length} controlli completi`} active={selection?.value === "controllo-incompleto"} onClick={() => setSelection({ type: "kpi", value: "controllo-incompleto", label: "KPI", valueLabel: "Controlli ispettori incompleti" })} />
-        <KPI title="Completezza risoluzione progettisti" value={`${completezzaRisoluzioneProgettisti}%`} colorValue={getKpiColor(completezzaRisoluzioneProgettisti)} subtitle={`${rilieviConRiscontroPRG}/${rilieviNCOSS.length} NC/OSS con riscontro PRG`} onClick={() => setSelection({ type: "kpi", value: "risoluzione-prg", label: "KPI", valueLabel: "Rilievi con riscontro PRG" })} />
-        <KPI title="In attesa di riscontro dell'ispettore" value={daVerificareISP} subtitle="Ultimo commento PRG" onClick={() => setSelection({ type: "kpi", value: "da-verificare-isp", label: "KPI", valueLabel: "Da verificare ISP" })} />
-        <KPI title="In attesa di risposta del progettista" value={daRisponderePRG} subtitle="Nessun PRG o ultimo ISP" onClick={() => setSelection({ type: "kpi", value: "da-rispondere-prg", label: "KPI", valueLabel: "Da rispondere PRG" })} />
+        <KPI
+          title="Completezza controllo ispettori"
+          value={`${completezzaControlloIspettori}%`}
+          colorValue={getKpiColor(completezzaControlloIspettori)}
+          subtitle={`${controlliCompleti}/${enrichedRows.length} controlli completi`}
+          active={selection?.value === "controllo-incompleto"}
+          onClick={() =>
+            setSelection({
+              type: "kpi",
+              value: "controllo-incompleto",
+              label: "KPI",
+              valueLabel: "Controlli ispettori incompleti",
+            })
+          }
+        />
+
+        <KPI
+          title="Completezza risoluzione progettisti"
+          value={`${completezzaRisoluzioneProgettisti}%`}
+          colorValue={getKpiColor(completezzaRisoluzioneProgettisti)}
+          subtitle={`${rilieviConRiscontroPRG}/${rilieviNCOSS.length} NC/OSS con riscontro PRG`}
+          onClick={() =>
+            setSelection({
+              type: "kpi",
+              value: "risoluzione-prg",
+              label: "KPI",
+              valueLabel: "Rilievi con riscontro PRG",
+            })
+          }
+        />
+
+       <KPI
+  title="In attesa di riscontro dell'ispettore"
+  value={daVerificareISP}
+  subtitle="Ultimo commento PRG"
+          onClick={() =>
+            setSelection({
+              type: "kpi",
+              value: "da-verificare-isp",
+              label: "KPI",
+              valueLabel: "Da verificare ISP",
+            })
+          }
+        />
+
+        <KPI
+  title="In attesa di risposta del progettista"
+  value={daRisponderePRG}
+  subtitle="Nessun PRG o ultimo ISP"
+          onClick={() =>
+            setSelection({
+              type: "kpi",
+              value: "da-rispondere-prg",
+              label: "KPI",
+              valueLabel: "Da rispondere PRG",
+            })
+          }
+        />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
-        <BarList title="Elaborati per disciplina" data={disciplineData} activeKey={selection?.type === "disciplina" ? selection.value : ""} onClick={(value: string) => setSelection({ type: "disciplina", value, label: "Disciplina" })} />
-        <BarList title="NC / OSS / Nessun rilievo" data={esitiData} activeKey={selection?.type === "tipo" ? selection.value : ""} onClick={(value: string) => setSelection({ type: "tipo", value, label: "Esito" })} />
-        <BarList title="Tipologie NC / OSS" data={tipologieData} activeKey={selection?.type === "tipologia" ? selection.value : ""} onClick={(value: string) => setSelection({ type: "tipologia", value, label: "Tipologia" })} />
+        <BarList
+          title="Elaborati per disciplina"
+          data={disciplineData}
+          activeKey={selection?.type === "disciplina" ? selection.value : ""}
+          onClick={(value: string) =>
+            setSelection({ type: "disciplina", value, label: "Disciplina" })
+          }
+        />
+
+        <BarList
+          title="NC / OSS / Nessun rilievo"
+          data={esitiData}
+          activeKey={selection?.type === "tipo" ? selection.value : ""}
+          onClick={(value: string) =>
+            setSelection({ type: "tipo", value, label: "Esito" })
+          }
+        />
+
+        <BarList
+          title="Tipologie NC / OSS"
+          data={tipologieData}
+          activeKey={selection?.type === "tipologia" ? selection.value : ""}
+          onClick={(value: string) =>
+            setSelection({ type: "tipologia", value, label: "Tipologia" })
+          }
+        />
       </div>
 
-      <div style={{ marginTop: 24 }}>
-        <DetailPanel title={selectionTitle} rows={filteredRows} onReset={() => setSelection(null)} />
+            <div style={{ marginTop: 24 }}>
+        <DetailPanel
+          title={selectionTitle}
+          rows={filteredRows}
+          onReset={() => setSelection(null)}
+        />
       </div>
 
       <div
@@ -494,9 +633,11 @@ export default function AppProgettiUpload() {
         }}
       >
         <div style={{ fontWeight: 600 }}>Nexcommon S.r.l.</div>
+
         <div style={{ opacity: 0.8 }}>
           © {new Date().getFullYear()} – Tutti i diritti riservati
         </div>
+
         <div style={{ marginTop: 6, opacity: 0.7 }}>
           Piattaforma Quality Control per ITS Controlli Tecnici S.p.A.
         </div>
