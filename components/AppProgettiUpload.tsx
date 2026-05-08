@@ -2,10 +2,16 @@
 
 import React, { useMemo, useState } from "react";
 
-function getKpiColor(value: number) {
-  if (value >= 80) return "#16a34a";
-  if (value >= 50) return "#f59e0b";
-  return "#dc2626";
+function getElaboratoKey(r: any) {
+  return (
+    r.elaborato ||
+    r.codiceElaborato ||
+    r.codice_elaborato ||
+    r.codice ||
+    r.titolo ||
+    r.id ||
+    ""
+  );
 }
 
 function Card({ children, onClick, active = false }: any) {
@@ -66,12 +72,19 @@ function BarList({ title, data, onClick, activeKey }: any) {
             <b>{d.value}</b>
           </div>
 
+          {(d.nc !== undefined || d.oss !== undefined) && (
+            <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>
+              NC: {d.nc || 0} · OSS: {d.oss || 0}
+            </div>
+          )}
+
           <div
             style={{
               height: 12,
               background: "#e2e8f0",
               borderRadius: 99,
               overflow: "hidden",
+              marginTop: 4,
             }}
           >
             <div
@@ -159,7 +172,7 @@ function DetailPanel({ rows, title, onReset }: any) {
                 <td style={td}>{r.tipo}</td>
                 <td style={td}>{r.tipologiaNcOss || r.tipologiaDocumento || ""}</td>
                 <td style={td}>{r.disciplina}</td>
-                <td style={td}>{r.elaborato || r.titolo}</td>
+                <td style={td}>{getElaboratoKey(r)}</td>
                 <td style={td}>{r.descrizione}</td>
                 <td style={td}>{r.stato}</td>
                 <td style={td}>{r.ispettore || r.creatoDa || r.assegnatari}</td>
@@ -190,6 +203,14 @@ const td = {
 };
 
 export default function AppProgettiUpload() {
+  React.useEffect(() => {
+    const isAuthenticated = localStorage.getItem("nexcommon_verify_auth");
+
+    if (isAuthenticated !== "true") {
+      window.location.href = "/login";
+    }
+  }, []);
+
   const [files, setFiles] = useState<File[]>([]);
   const [rows, setRows] = useState<any[]>([]);
   const [selection, setSelection] = useState<any>(null);
@@ -227,28 +248,22 @@ export default function AppProgettiUpload() {
       ...r,
       tipologiaNcOss: r.tipologiaNcOss || r.tipologiaDocumento || "",
       tipologia: r.tipologiaNcOss || r.tipologiaDocumento || "",
+      elaboratoKey: getElaboratoKey(r),
     }));
   }, [rows]);
 
-  const elaboratiTot = new Set(enrichedRows.map((r) => r.id).filter(Boolean)).size;
-  const elaboratiNC = new Set(enrichedRows.filter((r) => r.tipo === "NC").map((r) => r.id)).size;
-  const elaboratiOSS = new Set(enrichedRows.filter((r) => r.tipo === "OSS").map((r) => r.id)).size;
-  const elaboratiOK = new Set(enrichedRows.filter((r) => r.tipo === "Nessun rilievo").map((r) => r.id)).size;
+  const elaboratiTot = new Set(enrichedRows.map((r) => r.elaboratoKey).filter(Boolean)).size;
+  const elaboratiNC = new Set(enrichedRows.filter((r) => r.tipo === "NC").map((r) => r.elaboratoKey).filter(Boolean)).size;
+  const elaboratiOSS = new Set(enrichedRows.filter((r) => r.tipo === "OSS").map((r) => r.elaboratoKey).filter(Boolean)).size;
+  const elaboratiOK = new Set(enrichedRows.filter((r) => r.tipo === "Nessun rilievo").map((r) => r.elaboratoKey).filter(Boolean)).size;
 
-  const controlliCompleti = enrichedRows.filter((r) => r.controlloIspettoreCompleto).length;
-  const controlliIncompleti = enrichedRows.filter((r) => !r.controlloIspettoreCompleto);
-
-  const completezzaControlloIspettori =
-    enrichedRows.length > 0 ? Math.round((controlliCompleti / enrichedRows.length) * 100) : 0;
+  const totaleNC = enrichedRows.filter((r) => r.tipo === "NC").length;
+  const totaleOSS = enrichedRows.filter((r) => r.tipo === "OSS").length;
+  const totaleNCOSS = totaleNC + totaleOSS;
 
   const rilieviNCOSS = enrichedRows.filter(
     (r) => r.tipo === "NC" || r.tipo === "OSS" || r.tipo === "Da NC a OSS"
   );
-
-  const rilieviConRiscontroPRG = rilieviNCOSS.filter((r) => r.hasPrgComment).length;
-
-  const completezzaRisoluzioneProgettisti =
-    rilieviNCOSS.length > 0 ? Math.round((rilieviConRiscontroPRG / rilieviNCOSS.length) * 100) : 0;
 
   const daVerificareISP = enrichedRows.filter((r) => r.chiDeveAgire === "ISP").length;
   const daRisponderePRG = enrichedRows.filter((r) => r.chiDeveAgire === "PRG").length;
@@ -261,7 +276,6 @@ export default function AppProgettiUpload() {
       if (selection.value === "nc") return enrichedRows.filter((r) => r.tipo === "NC");
       if (selection.value === "oss") return enrichedRows.filter((r) => r.tipo === "OSS");
       if (selection.value === "nessun") return enrichedRows.filter((r) => r.tipo === "Nessun rilievo");
-      if (selection.value === "controllo-incompleto") return controlliIncompleti;
       if (selection.value === "risoluzione-prg") return rilieviNCOSS.filter((r) => r.hasPrgComment);
       if (selection.value === "da-verificare-isp") return enrichedRows.filter((r) => r.chiDeveAgire === "ISP");
       if (selection.value === "da-rispondere-prg") return enrichedRows.filter((r) => r.chiDeveAgire === "PRG");
@@ -269,6 +283,8 @@ export default function AppProgettiUpload() {
 
     if (selection.type === "tipo") return enrichedRows.filter((r) => r.tipo === selection.value);
     if (selection.type === "disciplina") return enrichedRows.filter((r) => r.disciplina === selection.value);
+    if (selection.type === "elaborato") return enrichedRows.filter((r) => r.elaboratoKey === selection.value);
+
     if (selection.type === "tipologia") {
       return enrichedRows.filter(
         (r) =>
@@ -278,11 +294,12 @@ export default function AppProgettiUpload() {
     }
 
     return [];
-  }, [enrichedRows, selection, controlliIncompleti, rilieviNCOSS]);
+  }, [enrichedRows, selection, rilieviNCOSS]);
 
   const discipline: any = {};
   const tipologie: any = {};
   const esiti: any = {};
+  const rilieviPerElaborato: any = {};
 
   enrichedRows.forEach((r) => {
     const d = r.disciplina || "Non assegnata";
@@ -295,6 +312,27 @@ export default function AppProgettiUpload() {
 
     const e = r.tipo || "Esito mancante";
     esiti[e] = (esiti[e] || 0) + 1;
+
+    const elaborato = r.elaboratoKey || "Elaborato non identificato";
+
+    if (!rilieviPerElaborato[elaborato]) {
+      rilieviPerElaborato[elaborato] = {
+        label: elaborato,
+        value: 0,
+        nc: 0,
+        oss: 0,
+      };
+    }
+
+    if (r.tipo === "NC") {
+      rilieviPerElaborato[elaborato].value += 1;
+      rilieviPerElaborato[elaborato].nc += 1;
+    }
+
+    if (r.tipo === "OSS") {
+      rilieviPerElaborato[elaborato].value += 1;
+      rilieviPerElaborato[elaborato].oss += 1;
+    }
   });
 
   const disciplineData = Object.entries(discipline)
@@ -318,6 +356,10 @@ export default function AppProgettiUpload() {
     .map(([label, value]) => ({ label, value }))
     .sort((a: any, b: any) => b.value - a.value);
 
+  const rilieviPerElaboratoData = Object.values(rilieviPerElaborato)
+    .filter((d: any) => d.value > 0)
+    .sort((a: any, b: any) => b.value - a.value);
+
   const selectionTitle = selection
     ? `${selection.label}: ${selection.valueLabel || selection.value}`
     : "";
@@ -331,7 +373,14 @@ export default function AppProgettiUpload() {
         fontFamily: "Arial, sans-serif",
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 20 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 20,
+          alignItems: "flex-start",
+        }}
+      >
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <img src="/logo_nexcommon.png" alt="Nexcommon" style={{ height: 34, objectFit: "contain" }} />
@@ -354,7 +403,9 @@ export default function AppProgettiUpload() {
             />
 
             <div>
-              <h1 style={{ margin: 0, fontSize: 30 }}>ITS Controlli Tecnici S.p.A.</h1>
+              <h1 style={{ margin: 0, fontSize: 30 }}>
+                ITS Controlli Tecnici S.p.A.
+              </h1>
               <div style={{ color: "#64748b", fontSize: 14 }}>
                 Dashboard verifiche elaborati / NC / OSS
               </div>
@@ -362,36 +413,57 @@ export default function AppProgettiUpload() {
           </div>
         </div>
 
-        <Card>
-          <input
-            type="file"
-            multiple
-            accept=".xlsx,.xls,.bcfzip,.zip,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
-            onChange={(e) => setFiles(Array.from(e.target.files || []))}
-          />
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <button
-            onClick={generaDashboard}
-            disabled={!files.length}
+            onClick={() => {
+              localStorage.removeItem("nexcommon_verify_auth");
+              window.location.href = "/login";
+            }}
             style={{
-              marginTop: 10,
-              width: "100%",
-              padding: 10,
-              background: "#0f172a",
+              alignSelf: "flex-end",
+              background: "#dc2626",
               color: "white",
-              borderRadius: 10,
               border: "none",
-              cursor: files.length ? "pointer" : "not-allowed",
+              borderRadius: 10,
+              padding: "10px 14px",
+              fontWeight: 700,
+              cursor: "pointer",
             }}
           >
-            Leggi XLSX + BCFZIP
+            Logout
           </button>
 
-          {files.length > 0 && (
-            <div style={{ marginTop: 10, color: "#64748b", fontSize: 12 }}>
-              File selezionati: {files.map((f) => f.name).join(", ")}
-            </div>
-          )}
-        </Card>
+          <Card>
+            <input
+              type="file"
+              multiple
+              accept=".xlsx,.xls,.bcfzip,.zip,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+              onChange={(e) => setFiles(Array.from(e.target.files || []))}
+            />
+            <button
+              onClick={generaDashboard}
+              disabled={!files.length}
+              style={{
+                marginTop: 10,
+                width: "100%",
+                padding: 10,
+                background: "#0f172a",
+                color: "white",
+                borderRadius: 10,
+                border: "none",
+                cursor: files.length ? "pointer" : "not-allowed",
+              }}
+            >
+              Leggi XLSX + BCFZIP
+            </button>
+
+            {files.length > 0 && (
+              <div style={{ marginTop: 10, color: "#64748b", fontSize: 12 }}>
+                File selezionati: {files.map((f) => f.name).join(", ")}
+              </div>
+            )}
+          </Card>
+        </div>
       </div>
 
       {error && (
@@ -416,7 +488,7 @@ export default function AppProgettiUpload() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(6, 1fr)",
+          gridTemplateColumns: "repeat(7, 1fr)",
           gap: 12,
           marginTop: 24,
           marginBottom: 24,
@@ -428,20 +500,37 @@ export default function AppProgettiUpload() {
             subtitle: "Modulo operativo attivo",
             url: "https://verifica-elaborati-production.up.railway.app",
             active: true,
+            external: true,
           },
-          { title: "Verifiche preliminari", subtitle: "Coming soon", url: "", active: false },
-          { title: "Schede ispettive", subtitle: "Coming soon", url: "", active: false },
-          { title: "Rapporto intermedio", subtitle: "Coming soon", url: "", active: false },
-          { title: "Rapporto conclusivo", subtitle: "Coming soon", url: "", active: false },
-          { title: "Dashboard PM", subtitle: "Coming soon", url: "", active: false },
+          { title: "Verifiche preliminari", subtitle: "Coming soon", url: "", active: false, external: false },
+          {
+            title: "Schede ispettive",
+            subtitle: "Modulo operativo attivo",
+            url: "/schede-ispettive",
+            active: true,
+            external: false,
+          },
+          {
+            title: "Controllo ToDo ispettori",
+            subtitle: "Verifica Title, Tags, disciplina e codici",
+            url: "/controllo-todo-ispettori",
+            active: true,
+            external: false,
+          },
+          { title: "Rapporto intermedio", subtitle: "Coming soon", url: "", active: false, external: false },
+          { title: "Rapporto conclusivo", subtitle: "Coming soon", url: "", active: false, external: false },
+          { title: "Dashboard PM", subtitle: "Coming soon", url: "", active: false, external: false },
         ].map((m) => (
           <Card
             key={m.title}
             active={m.active}
             onClick={() => {
-              if (m.active && m.url) {
+              if (!m.active || !m.url) return;
+              if (m.external) {
                 window.open(m.url, "_blank", "noopener,noreferrer");
+                return;
               }
+              window.location.href = m.url;
             }}
           >
             <b>{m.title}</b>
@@ -458,24 +547,26 @@ export default function AppProgettiUpload() {
         ))}
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12, marginBottom: 12 }}>
         <KPI title="Elaborati totali" value={elaboratiTot} onClick={() => setSelection({ type: "kpi", value: "totali", label: "KPI", valueLabel: "Elaborati totali" })} />
         <KPI title="Elaborati con NC" value={elaboratiNC} onClick={() => setSelection({ type: "kpi", value: "nc", label: "KPI", valueLabel: "Elaborati con NC" })} />
         <KPI title="Elaborati con OSS" value={elaboratiOSS} onClick={() => setSelection({ type: "kpi", value: "oss", label: "KPI", valueLabel: "Elaborati con OSS" })} />
         <KPI title="Elaborati senza rilievi" value={elaboratiOK} onClick={() => setSelection({ type: "kpi", value: "nessun", label: "KPI", valueLabel: "Elaborati senza rilievi" })} />
+        <KPI title="Totale NC" value={totaleNC} onClick={() => setSelection({ type: "tipo", value: "NC", label: "Esito" })} />
+        <KPI title="Totale OSS" value={totaleOSS} onClick={() => setSelection({ type: "tipo", value: "OSS", label: "Esito" })} />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 24 }}>
-        <KPI title="Completezza controllo ispettori" value={`${completezzaControlloIspettori}%`} colorValue={getKpiColor(completezzaControlloIspettori)} subtitle={`${controlliCompleti}/${enrichedRows.length} controlli completi`} active={selection?.value === "controllo-incompleto"} onClick={() => setSelection({ type: "kpi", value: "controllo-incompleto", label: "KPI", valueLabel: "Controlli ispettori incompleti" })} />
-        <KPI title="Completezza risoluzione progettisti" value={`${completezzaRisoluzioneProgettisti}%`} colorValue={getKpiColor(completezzaRisoluzioneProgettisti)} subtitle={`${rilieviConRiscontroPRG}/${rilieviNCOSS.length} NC/OSS con riscontro PRG`} onClick={() => setSelection({ type: "kpi", value: "risoluzione-prg", label: "KPI", valueLabel: "Rilievi con riscontro PRG" })} />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 24 }}>
+        <KPI title="Totale NC + OSS" value={totaleNCOSS} onClick={() => setSelection({ type: "kpi", value: "totali", label: "KPI", valueLabel: "Tutti i rilievi" })} />
         <KPI title="In attesa di riscontro dell'ispettore" value={daVerificareISP} subtitle="Ultimo commento PRG" onClick={() => setSelection({ type: "kpi", value: "da-verificare-isp", label: "KPI", valueLabel: "Da verificare ISP" })} />
         <KPI title="In attesa di risposta del progettista" value={daRisponderePRG} subtitle="Nessun PRG o ultimo ISP" onClick={() => setSelection({ type: "kpi", value: "da-rispondere-prg", label: "KPI", valueLabel: "Da rispondere PRG" })} />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 16 }}>
         <BarList title="Elaborati per disciplina" data={disciplineData} activeKey={selection?.type === "disciplina" ? selection.value : ""} onClick={(value: string) => setSelection({ type: "disciplina", value, label: "Disciplina" })} />
         <BarList title="NC / OSS / Nessun rilievo" data={esitiData} activeKey={selection?.type === "tipo" ? selection.value : ""} onClick={(value: string) => setSelection({ type: "tipo", value, label: "Esito" })} />
         <BarList title="Tipologie NC / OSS" data={tipologieData} activeKey={selection?.type === "tipologia" ? selection.value : ""} onClick={(value: string) => setSelection({ type: "tipologia", value, label: "Tipologia" })} />
+        <BarList title="NC / OSS per elaborato" data={rilieviPerElaboratoData} activeKey={selection?.type === "elaborato" ? selection.value : ""} onClick={(value: string) => setSelection({ type: "elaborato", value, label: "Elaborato" })} />
       </div>
 
       <div style={{ marginTop: 24 }}>

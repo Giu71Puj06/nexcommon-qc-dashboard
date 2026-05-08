@@ -1,4 +1,4 @@
-import AppProgettiUpload from "@/components/AppProgettiUpload";
+import AppProgettiUpload from "@/components/APPProgettiUpload";
 
 export default function Home() {
   return <AppProgettiUpload />;

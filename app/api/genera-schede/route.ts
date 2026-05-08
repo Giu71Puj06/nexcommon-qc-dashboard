@@ -13,6 +13,8 @@ type BcfTopicData = {
   titolo: string;
   descrizione: string;
   ispettore: string;
+  labels: string;
+  stato: string;
   commentiPRG: string;
   commentiISP: string;
   ultimoCommento: string;
@@ -45,8 +47,8 @@ function normalizeText(value: string) {
 function findValue(row: any, names: string[]) {
   for (const name of names) {
     if (
-      row[name] !== undefined &&
-      row[name] !== null &&
+      row?.[name] !== undefined &&
+      row?.[name] !== null &&
       String(row[name]).trim() !== ""
     ) {
       return String(row[name]).trim();
@@ -76,11 +78,26 @@ function labelToTR(label: string) {
   return value.replace(/^.{5}/, "TR-");
 }
 
+function extractTR(value: string) {
+  const text = String(value || "").toUpperCase();
+  const match = text.match(/TR[-_\s]?(\d+[A-Z]?)/i);
+  if (!match) return "";
+  return `TR-${match[1]}`;
+}
+
 function cleanRolePrefix(text: string) {
   return String(text || "")
     .replace(/\(\s*ISP\s*\)/gi, "")
     .replace(/\(\s*PRG\s*\)/gi, "")
     .trim();
+}
+
+function mergeText(existing: string, additions: string[]) {
+  const values = [existing || "", ...additions]
+    .map((v) => String(v || "").trim())
+    .filter(Boolean);
+
+  return Array.from(new Set(values)).join("\n");
 }
 
 function remapIspettoreByDisciplina(sigla: string, disciplina: string) {
@@ -222,36 +239,46 @@ function descriptionScore(a: string, b: string) {
   return common / Math.max(aWords.size, bWords.size);
 }
 
-function bestBcfMatch(
-  bcfTopics: BcfTopicData[],
-  commentiMap: Record<string, BcfTopicData>,
-  title: string,
-  description: string,
-  guid: string
-): any {
-  if (guid && commentiMap[normalizeKey(guid)]) {
-    return commentiMap[normalizeKey(guid)];
-  }
-
-  const exactKey = topicKey(title, description);
-  if (commentiMap[exactKey]) return commentiMap[exactKey];
-
-  const titleKey = normalizeKey(title);
-  const sameTitle = bcfTopics.filter((t) => normalizeKey(t.titolo) === titleKey);
+function bestTodoMatch(todoRows: any[], bcf: BcfTopicData) {
+  const titleKey = normalizeKey(bcf.titolo);
+  const sameTitle = todoRows.filter((r: any) => {
+    const titoloTodo = findValue(r, ["Title", "Titolo", "TITLE", "Topic", "Nome"]);
+    return normalizeKey(titoloTodo) === titleKey;
+  });
 
   if (sameTitle.length === 1) return sameTitle[0];
 
   if (sameTitle.length > 1) {
     const ranked = sameTitle
-      .map((t) => ({ topic: t, score: descriptionScore(description, t.descrizione) }))
+      .map((r: any) => ({
+        row: r,
+        score: descriptionScore(
+          findValue(r, ["Description", "Descrizione"]),
+          bcf.descrizione
+        ),
+      }))
       .sort((a, b) => b.score - a.score);
 
-    if (ranked[0] && ranked[0].score > 0.03) {
-      return ranked[0].topic;
-    }
+    if (ranked[0] && ranked[0].score > 0.03) return ranked[0].row;
   }
 
-  return commentiMap[titleKey] || commentiMap[title] || {};
+  const rankedAll = todoRows
+    .map((r: any) => ({
+      row: r,
+      score:
+        descriptionScore(
+          findValue(r, ["Description", "Descrizione"]),
+          bcf.descrizione
+        ) +
+        (normalizeKey(findValue(r, ["Title", "Titolo", "TITLE", "Topic", "Nome"])) === titleKey
+          ? 1
+          : 0),
+    }))
+    .sort((a, b) => b.score - a.score);
+
+  if (rankedAll[0] && rankedAll[0].score > 0.08) return rankedAll[0].row;
+
+  return {};
 }
 
 function getElencoInfoByCode(elencoInfoMap: Record<string, any>, codice: string) {
@@ -279,15 +306,16 @@ export async function POST(req: Request) {
     const formData = await req.formData();
 
     const todoFile = formData.get("todo") as File;
-    const bcfFile = formData.get("bcf") as File;
+    const bcfFiles = formData.getAll("bcf") as File[];
     const elencoFile = formData.get("elenco") as File;
     const templateFile = formData.get("template") as File;
     const reportFile = formData.get("files") as File | null;
 
-    if (!todoFile || !bcfFile || !elencoFile || !templateFile) {
+    if (!todoFile || bcfFiles.length === 0 || !elencoFile || !templateFile) {
       return NextResponse.json({
         ok: false,
-        error: "Carica ToDo XLSX, BCFZIP, Elenco Elaborati XLSX e Template DOCX.",
+        error:
+          "Carica ToDo XLSX, almeno un BCFZIP, Elenco Elaborati XLSX e Template DOCX.",
       });
     }
 
@@ -416,75 +444,99 @@ export async function POST(req: Request) {
       reportInfoMap[normalizeKey(base)] = info;
     });
 
-    const bcfZip = await JSZip.loadAsync(Buffer.from(await bcfFile.arrayBuffer()));
     const parser = new XMLParser({ ignoreAttributes: false });
     const commentiMap: Record<string, BcfTopicData> = {};
     const bcfTopics: BcfTopicData[] = [];
 
-    for (const fileName of Object.keys(bcfZip.files)) {
-      if (!fileName.endsWith("markup.bcf")) continue;
+    for (const bcfFile of bcfFiles) {
+      const bcfZip = await JSZip.loadAsync(
+        Buffer.from(await bcfFile.arrayBuffer())
+      );
 
-      const xml = await bcfZip.files[fileName].async("text");
-      const parsed: any = parser.parse(xml);
+      for (const fileName of Object.keys(bcfZip.files)) {
+        if (!fileName.endsWith("markup.bcf")) continue;
 
-      const topic = parsed?.Markup?.Topic || {};
-      const commentsRaw = parsed?.Markup?.Comment;
-      const comments = commentsRaw
-        ? Array.isArray(commentsRaw)
-          ? commentsRaw
-          : [commentsRaw]
-        : [];
+        const xml = await bcfZip.files[fileName].async("text");
+        const parsed: any = parser.parse(xml);
 
-      const topicTitle = topic?.Title || "";
-      const topicDescription = topic?.Description || "";
-      const topicGuid = topic?.["@_Guid"] || topic?.Guid || "";
+        const topic = parsed?.Markup?.Topic || {};
+        const commentsRaw = parsed?.Markup?.Comment;
+        const comments = commentsRaw
+          ? Array.isArray(commentsRaw)
+            ? commentsRaw
+            : [commentsRaw]
+          : [];
 
-      const commentiPRGList: string[] = [];
-      const commentiISPList: string[] = [];
+        const topicTitle = topic?.Title || "";
+        const topicDescription = topic?.Description || "";
+        const topicGuid = topic?.["@_Guid"] || topic?.Guid || "";
+        const topicLabels = String(topic?.Labels || "");
+        const topicStatus = String(
+          topic?.["@_TopicStatus"] ||
+            topic?.TopicStatus ||
+            topic?.Status ||
+            ""
+        );
 
-      comments.forEach((c: any) => {
-        const testo = getCommentText(c);
-        const cleanText = cleanRolePrefix(testo);
+        const commentiPRGList: string[] = [];
+        const commentiISPList: string[] = [];
 
-        if (/\(\s*PRG\s*\)/i.test(testo)) {
-          commentiPRGList.push(cleanText);
+        comments.forEach((c: any) => {
+          const testo = getCommentText(c);
+          const cleanText = cleanRolePrefix(testo);
+
+          if (!cleanText) return;
+
+          if (/\(\s*PRG\s*\)/i.test(testo)) commentiPRGList.push(cleanText);
+          if (/\(\s*ISP\s*\)/i.test(testo)) commentiISPList.push(cleanText);
+        });
+
+        const topicAuthor =
+          topic?.CreationAuthor ||
+          topic?.Author ||
+          topic?.["@_CreationAuthor"] ||
+          topic?.["@_Author"] ||
+          "";
+
+        const existing =
+          (topicGuid && commentiMap[normalizeKey(topicGuid)]) ||
+          commentiMap[topicKey(topicTitle, topicDescription)];
+
+        const dataTopic: BcfTopicData = {
+          topicGuid: topicGuid || existing?.topicGuid || "",
+          titolo: topicTitle || existing?.titolo || "",
+          descrizione: topicDescription || existing?.descrizione || "",
+          ispettore: existing?.ispettore || siglaDaNome(topicAuthor),
+          labels: topicLabels || existing?.labels || "",
+          stato: topicStatus || existing?.stato || "",
+          commentiPRG: mergeText(existing?.commentiPRG || "", commentiPRGList),
+          commentiISP: mergeText(existing?.commentiISP || "", commentiISPList),
+          ultimoCommento:
+            comments.length > 0
+              ? getCommentText(comments[comments.length - 1])
+              : existing?.ultimoCommento || "",
+        };
+
+        const previousIndex = bcfTopics.findIndex(
+          (t) =>
+            (dataTopic.topicGuid &&
+              normalizeKey(t.topicGuid) === normalizeKey(dataTopic.topicGuid)) ||
+            topicKey(t.titolo, t.descrizione) ===
+              topicKey(dataTopic.titolo, dataTopic.descrizione)
+        );
+
+        if (previousIndex >= 0) {
+          bcfTopics[previousIndex] = dataTopic;
+        } else {
+          bcfTopics.push(dataTopic);
         }
 
-        if (/\(\s*ISP\s*\)/i.test(testo)) {
-          commentiISPList.push(cleanText);
+        const key = topicKey(dataTopic.titolo, dataTopic.descrizione);
+        commentiMap[key] = dataTopic;
+
+        if (dataTopic.topicGuid) {
+          commentiMap[normalizeKey(dataTopic.topicGuid)] = dataTopic;
         }
-      });
-
-      const topicAuthor =
-        topic?.CreationAuthor ||
-        topic?.Author ||
-        topic?.["@_CreationAuthor"] ||
-        topic?.["@_Author"] ||
-        "";
-
-      const dataTopic: BcfTopicData = {
-        topicGuid,
-        titolo: topicTitle,
-        descrizione: topicDescription,
-        ispettore: siglaDaNome(topicAuthor),
-        commentiPRG: commentiPRGList.join("\n"),
-        commentiISP: commentiISPList.join("\n"),
-        ultimoCommento:
-          comments.length > 0 ? getCommentText(comments[comments.length - 1]) : "",
-      };
-
-      bcfTopics.push(dataTopic);
-
-      const key = topicKey(topicTitle, topicDescription);
-      commentiMap[key] = dataTopic;
-      commentiMap[normalizeKey(topicTitle)] = dataTopic;
-
-      if (topicGuid) {
-        commentiMap[normalizeKey(topicGuid)] = dataTopic;
-      }
-
-      if (!commentiMap[topicTitle]) {
-        commentiMap[topicTitle] = dataTopic;
       }
     }
 
@@ -495,86 +547,59 @@ export async function POST(req: Request) {
       return !(isNessunRilievo(tags, descrizione) && isClosedStatus(status));
     });
 
-    const finalRows = todoRows.map((r: any) => {
-      const titoloTodo = findValue(r, ["Title", "Titolo", "TITLE", "Topic", "Nome"]);
-      const label = findValue(r, ["Label", "Etichetta"]);
-      const tags = findValue(r, ["Tags", "Tag", "Tipo", "Esito"]);
-      const status = findValue(r, ["Status", "Stato"]);
+    const finalRows = bcfTopics
+      .filter((bcf) => !isNessunRilievo(bcf.labels, bcf.descrizione))
+      .map((bcf) => {
+        const todoMatch = bestTodoMatch(todoRows, bcf);
 
-      const disciplina =
-        findValue(r, ["Assignee(s) ", "Assignee(s)", "Disciplina"]) ||
-        disciplinaFromCodice(titoloTodo);
+        const label = findValue(todoMatch, ["Label", "Etichetta"]);
+        const tags =
+          findValue(todoMatch, ["Tags", "Tag", "Tipo", "Esito"]) ||
+          bcf.labels ||
+          "";
 
-      const descrizione = findValue(r, ["Description", "Descrizione"]);
-      const tipoBase = tags.toUpperCase().includes("OSS") ? "OSS" : "NC";
+        const disciplina =
+          findValue(todoMatch, ["Assignee(s) ", "Assignee(s)", "Disciplina"]) ||
+          disciplinaFromCodice(bcf.titolo);
 
-      const todoGuid = findValue(r, [
-        "Guid",
-        "GUID",
-        "Topic Guid",
-        "Topic GUID",
-        "TopicGuid",
-        "BCF Topic Guid",
-        "BCF Topic GUID",
-        "Topic Id",
-        "Topic ID",
-      ]);
+        const tipoBase = String(tags || bcf.labels || "")
+          .toUpperCase()
+          .includes("OSS")
+          ? "OSS"
+          : "NC";
 
-      const bcf = bestBcfMatch(
-        bcfTopics,
-        commentiMap,
-        titoloTodo,
-        descrizione,
-        todoGuid
-      );
+        const codiceTR =
+          label ? labelToTR(label) : extractTR(bcf.titolo) || extractTR(bcf.descrizione) || "";
 
-      const reportInfo =
-        reportInfoMap[normalizeKey(titoloTodo)] ||
-        reportInfoMap[normalizeKey(getElaboratoBase(titoloTodo))] ||
-        {};
+        const reportInfo =
+          reportInfoMap[normalizeKey(bcf.titolo)] ||
+          reportInfoMap[normalizeKey(getElaboratoBase(bcf.titolo))] ||
+          {};
 
-      const disciplinaInfo = disciplinaInfoMap[normalizeKey(disciplina)] || {};
+        const disciplinaInfo = disciplinaInfoMap[normalizeKey(disciplina)] || {};
 
-      const ispettoreToDo = siglaDaNome(
-        findValue(r, [
-          "Created by",
-          "Created By",
-          "Creato da",
-          "Author",
-          "Ispettore",
-          "Owner",
-        ])
-      );
-
-      let azioneRichiesta = "";
-      if ((bcf.ultimoCommento || "").includes("(PRG)")) azioneRichiesta = "ISP";
-      if ((bcf.ultimoCommento || "").includes("(ISP)")) azioneRichiesta = "PRG";
-
-      return {
-        Disciplina: disciplina,
-        Label: label,
-        TipoBase: tipoBase,
-        CodiceTR: labelToTR(label),
-        "Codice Rilievo": label,
-        "Codice Elaborato": bcf.titolo || titoloTodo,
-        "Titolo Elaborato": reportInfo.titolo || titoloTodo,
-        Revisione: reportInfo.revisione || getRevisioneDaCodice(titoloTodo),
-        Tipo: tags,
-        "Descrizione Rilievo": bcf.descrizione || descrizione,
-        Ispettore: remapIspettoreFinale(
-          ispettoreToDo || bcf.ispettore || "",
-          disciplina
-        ),
-        "Risposta Progettista PRG": bcf.commentiPRG || "",
-        "Riscontro Ispettore ISP": bcf.commentiISP || "",
-        "Ultimo Commento": cleanRolePrefix(bcf.ultimoCommento || ""),
-        "Azione Richiesta": azioneRichiesta,
-        Stato: normalizeStatus(status, tags),
-        "Nota Ricezione Elaborati": disciplinaInfo.notaRicezione || "",
-        "Data Ricezione": disciplinaInfo.dataRicezione || "",
-        "Nome Redattore": disciplinaInfo.nomeRedattore || "",
-      };
-    });
+        return {
+          Disciplina: disciplina,
+          Label: label,
+          TipoBase: tipoBase,
+          CodiceTR: codiceTR,
+          "Codice Rilievo": label || codiceTR,
+          "Codice Elaborato": bcf.titolo || "",
+          "Titolo Elaborato": reportInfo.titolo || bcf.titolo || "",
+          Revisione: reportInfo.revisione || getRevisioneDaCodice(bcf.titolo),
+          Tipo: tags || tipoBase,
+          "Descrizione Rilievo": bcf.descrizione || "",
+          Ispettore: remapIspettoreFinale(bcf.ispettore || "", disciplina),
+          "Risposta Progettista PRG": bcf.commentiPRG || "",
+          "Riscontro Ispettore ISP": bcf.commentiISP || "",
+          "Ultimo Commento": cleanRolePrefix(bcf.ultimoCommento || ""),
+          "Azione Richiesta": "",
+          Stato: normalizeStatus(bcf.stato || "", tags),
+          "Nota Ricezione Elaborati": disciplinaInfo.notaRicezione || "",
+          "Data Ricezione": disciplinaInfo.dataRicezione || "",
+          "Nome Redattore": disciplinaInfo.nomeRedattore || "",
+        };
+      });
 
     const outputZip = new JSZip();
 
@@ -739,7 +764,7 @@ export async function POST(req: Request) {
         progressivi[tipo] += 1;
 
         return {
-          tipo_progressivo: `${tipo}${progressivi[tipo]}\n(${r.CodiceTR})`,
+          tipo_progressivo: `${tipo}${progressivi[tipo]}\n(${r.CodiceTR || "TR-ND"})`,
           codice_elaborato: r["Codice Elaborato"] || "",
           titolo_elaborato: r["Titolo Elaborato"] || "",
           rilievo_its: r["Descrizione Rilievo"] || "",
