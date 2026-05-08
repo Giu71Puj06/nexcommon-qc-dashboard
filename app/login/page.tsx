@@ -2,29 +2,23 @@
 
 import React, { useState } from "react";
 
-const USERS = [
+const users = [
   {
-    username: "admin",
-    password: "nexcommon2026",
-    role: "Administrator",
+    username: "admin@nexcommon.it",
+    password: "admin123",
+    role: "Admin",
   },
   {
-    username: "a.albani@itscontrollitecnici.it",
+    username: "g.pujia@itscontrollitecnici.it",
     password: "its2026",
     role: "ITS Roma",
   },
   {
-    username: "c.pidatella@itscontrollitecnici.it",
+    username: "v.guccione@itscontrollitecnici.it",
     password: "its2026",
     role: "ITS Roma",
   },
-];
-username: "v.guccione@itscontrollitecnici.it",
-    password: "its2026",
-    role: "ITS Roma",
-  },
-];
-export default function LoginPage() {
+];export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
