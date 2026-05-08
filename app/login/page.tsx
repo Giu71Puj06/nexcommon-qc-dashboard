@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 
-const users = [
+const USERS = [
   {
     username: "admin@nexcommon.it",
     password: "admin123",
@@ -18,7 +18,9 @@ const users = [
     password: "its2026",
     role: "ITS Roma",
   },
-];export default function LoginPage() {
+];
+
+export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -38,7 +40,6 @@ const users = [
     }
 
     localStorage.setItem("nexcommon_verify_auth", "true");
-
     localStorage.setItem(
       "nexcommon_verify_user",
       JSON.stringify({
@@ -75,10 +76,7 @@ const users = [
           <img
             src="/logo_nexcommon.png"
             alt="Nexcommon"
-            style={{
-              height: 42,
-              objectFit: "contain",
-            }}
+            style={{ height: 42, objectFit: "contain" }}
           />
 
           <h1
@@ -92,86 +90,35 @@ const users = [
             Nexcommon Verify
           </h1>
 
-          <div
-            style={{
-              color: "#64748b",
-              fontSize: 14,
-            }}
-          >
+          <div style={{ color: "#64748b", fontSize: 14 }}>
             Quality Control Platform
           </div>
         </div>
 
         <form onSubmit={handleLogin}>
           <div style={{ marginBottom: 18 }}>
-            <div
-              style={{
-                marginBottom: 6,
-                fontSize: 13,
-                fontWeight: 700,
-                color: "#334155",
-              }}
-            >
-              Username
-            </div>
-
+            <div style={labelStyle}>Username</div>
             <input
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="Inserisci username"
-              style={{
-                width: "100%",
-                padding: 12,
-                borderRadius: 12,
-                border: "1px solid #cbd5e1",
-                fontSize: 14,
-              }}
+              style={inputStyle}
             />
           </div>
 
           <div style={{ marginBottom: 18 }}>
-            <div
-              style={{
-                marginBottom: 6,
-                fontSize: 13,
-                fontWeight: 700,
-                color: "#334155",
-              }}
-            >
-              Password
-            </div>
-
+            <div style={labelStyle}>Password</div>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Inserisci password"
-              style={{
-                width: "100%",
-                padding: 12,
-                borderRadius: 12,
-                border: "1px solid #cbd5e1",
-                fontSize: 14,
-              }}
+              style={inputStyle}
             />
           </div>
 
-          {error && (
-            <div
-              style={{
-                marginBottom: 18,
-                background: "#fee2e2",
-                border: "1px solid #fecaca",
-                color: "#991b1b",
-                padding: 10,
-                borderRadius: 10,
-                fontSize: 13,
-              }}
-            >
-              {error}
-            </div>
-          )}
+          {error && <div style={errorStyle}>{error}</div>}
 
           <button
             type="submit"
@@ -207,3 +154,28 @@ const users = [
     </main>
   );
 }
+
+const labelStyle: React.CSSProperties = {
+  marginBottom: 6,
+  fontSize: 13,
+  fontWeight: 700,
+  color: "#334155",
+};
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  padding: 12,
+  borderRadius: 12,
+  border: "1px solid #cbd5e1",
+  fontSize: 14,
+};
+
+const errorStyle: React.CSSProperties = {
+  marginBottom: 18,
+  background: "#fee2e2",
+  border: "1px solid #fecaca",
+  color: "#991b1b",
+  padding: 10,
+  borderRadius: 10,
+  fontSize: 13,
+};
