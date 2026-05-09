@@ -1,54 +1,82 @@
 "use client";
 
 import React, { useState } from "react";
+import { supabase } from "@/lib/supabase";
 
-const USERS = [
-  {
-    username: "admin@nexcommon.it",
-    password: "admin123",
-    role: "Admin",
-  },
-  {
-    username: "a.albani@itscontrollitecnici.it",
-    password: "its2026",
-    role: "ITS Roma",
-  },
-  {
-    username: "v.guccione@itscontrollitecnici.it",
-    password: "its2026",
-    role: "ITS Roma",
-  },
-];
+const ALLOWED_DOMAIN = "@itscontrollitecnici.it";
 
 export default function LoginPage() {
-  const [username, setUsername] = useState("");
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  function handleLogin(e: React.FormEvent) {
+  function isAllowedEmail(value: string) {
+    return value.trim().toLowerCase().endsWith(ALLOWED_DOMAIN);
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setError("");
+    setMessage("");
 
-    const user = USERS.find(
-      (u) =>
-        u.username.toLowerCase() === username.toLowerCase() &&
-        u.password === password
-    );
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPassword = password.trim();
 
-    if (!user) {
-      setError("Credenziali non valide");
+    if (!isAllowedEmail(cleanEmail)) {
+      setError("Puoi usare solo email @itscontrollitecnici.it");
       return;
     }
 
-    localStorage.setItem("nexcommon_verify_auth", "true");
-    localStorage.setItem(
-      "nexcommon_verify_user",
-      JSON.stringify({
-        username: user.username,
-        role: user.role,
-      })
-    );
+    if (!cleanPassword) {
+      setError("Inserisci una password.");
+      return;
+    }
 
-    window.location.href = "/";
+    setLoading(true);
+
+    try {
+      if (mode === "login") {
+        const { error } = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password: cleanPassword,
+        });
+
+        if (error) {
+          setError("Credenziali non valide o email non confermata.");
+          return;
+        }
+
+        localStorage.setItem("nexcommon_verify_auth", "true");
+        localStorage.setItem(
+          "nexcommon_verify_user",
+          JSON.stringify({ username: cleanEmail, role: "ITS" })
+        );
+
+        window.location.href = "/";
+        return;
+      }
+
+      const { error } = await supabase.auth.signUp({
+        email: cleanEmail,
+        password: cleanPassword,
+      });
+
+      if (error) {
+        setError(error.message || "Errore durante la registrazione.");
+        return;
+      }
+
+      setMessage(
+        "Registrazione inviata. Controlla la tua email aziendale per confermare l’account."
+      );
+      setMode("login");
+      setPassword("");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -64,7 +92,7 @@ export default function LoginPage() {
     >
       <div
         style={{
-          width: 420,
+          width: 440,
           background: "white",
           borderRadius: 20,
           padding: 36,
@@ -72,21 +100,14 @@ export default function LoginPage() {
           border: "1px solid #e2e8f0",
         }}
       >
-        <div style={{ textAlign: "center", marginBottom: 30 }}>
+        <div style={{ textAlign: "center", marginBottom: 28 }}>
           <img
             src="/logo_nexcommon.png"
             alt="Nexcommon"
             style={{ height: 42, objectFit: "contain" }}
           />
 
-          <h1
-            style={{
-              marginTop: 18,
-              marginBottom: 4,
-              fontSize: 32,
-              color: "#0f172a",
-            }}
-          >
+          <h1 style={{ marginTop: 18, marginBottom: 4, fontSize: 32, color: "#0f172a" }}>
             Nexcommon Verify
           </h1>
 
@@ -95,14 +116,63 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <form onSubmit={handleLogin}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 8,
+            marginBottom: 22,
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setMode("login");
+              setError("");
+              setMessage("");
+            }}
+            style={{
+              padding: 10,
+              borderRadius: 10,
+              border: "1px solid #cbd5e1",
+              background: mode === "login" ? "#0f172a" : "white",
+              color: mode === "login" ? "white" : "#0f172a",
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            Accedi
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setMode("register");
+              setError("");
+              setMessage("");
+            }}
+            style={{
+              padding: 10,
+              borderRadius: 10,
+              border: "1px solid #cbd5e1",
+              background: mode === "register" ? "#0f172a" : "white",
+              color: mode === "register" ? "white" : "#0f172a",
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            Registrati
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: 18 }}>
-            <div style={labelStyle}>Username</div>
+            <div style={labelStyle}>Email aziendale</div>
             <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="Inserisci username"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="nome.cognome@itscontrollitecnici.it"
               style={inputStyle}
             />
           </div>
@@ -113,28 +183,34 @@ export default function LoginPage() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Inserisci password"
+              placeholder={mode === "login" ? "Inserisci password" : "Crea una password"}
               style={inputStyle}
             />
           </div>
 
           {error && <div style={errorStyle}>{error}</div>}
+          {message && <div style={successStyle}>{message}</div>}
 
           <button
             type="submit"
+            disabled={loading}
             style={{
               width: "100%",
               padding: 14,
               borderRadius: 12,
               border: "none",
-              background: "#0f172a",
+              background: loading ? "#334155" : "#0f172a",
               color: "white",
               fontWeight: 700,
-              cursor: "pointer",
+              cursor: loading ? "not-allowed" : "pointer",
               fontSize: 15,
             }}
           >
-            Accedi alla piattaforma
+            {loading
+              ? "Attendere..."
+              : mode === "login"
+              ? "Accedi alla piattaforma"
+              : "Crea account"}
           </button>
         </form>
 
@@ -148,7 +224,7 @@ export default function LoginPage() {
             textAlign: "center",
           }}
         >
-          Nexcommon S.r.l. · QA/QC Platform
+          Registrazione consentita solo con email @itscontrollitecnici.it
         </div>
       </div>
     </main>
@@ -175,6 +251,16 @@ const errorStyle: React.CSSProperties = {
   background: "#fee2e2",
   border: "1px solid #fecaca",
   color: "#991b1b",
+  padding: 10,
+  borderRadius: 10,
+  fontSize: 13,
+};
+
+const successStyle: React.CSSProperties = {
+  marginBottom: 18,
+  background: "#dcfce7",
+  border: "1px solid #bbf7d0",
+  color: "#166534",
   padding: 10,
   borderRadius: 10,
   fontSize: 13,
