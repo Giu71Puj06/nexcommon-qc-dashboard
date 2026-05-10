@@ -77,6 +77,18 @@ type BcfTopicData = {
   ultimoCommento: string;
 };
 
+function descrizioneRevisioneScheda(rev: string) {
+  const n = Number(String(rev || "0").trim());
+
+  if (!Number.isFinite(n) || n <= 0) return "Prima Emissione - Rilievi";
+  if (n === 1) return "Seconda emissione - Riscontri";
+  if (n === 2) return "Terza emissione - Riscontri";
+  if (n === 3) return "Quarta emissione - Riscontri";
+  if (n === 4) return "Quinta emissione - Riscontri";
+
+  return `${n + 1}ª emissione - Riscontri`;
+}
+
 function safeName(value: string) {
   return String(value || "SENZA_DISCIPLINA")
     .replace(/[\\/:*?"<>|]/g, "_")
@@ -545,6 +557,15 @@ export async function POST(req: Request) {
 
     const progettisti = parsePeopleList(formData.get("progettisti"));
     const ispettori = parsePeopleList(formData.get("ispettori"));
+
+    const revisioneScheda = String(
+      formData.get("revisione_scheda") || REVISIONE_SCHEDA
+    ).trim();
+    const dataRevisioneScheda = String(
+      formData.get("data_revisione_scheda") || "xx/xx/xxxx"
+    ).trim();
+    const responsabilePcq = String(formData.get("responsabile_pcq") || "").trim();
+    const responsabileIts = String(formData.get("responsabile_its") || "").trim();
 
     if (!todoFile || bcfFiles.length === 0 || !elencoFile || !templateFile) {
       return NextResponse.json({
@@ -1086,6 +1107,11 @@ export async function POST(req: Request) {
         });
 
         doc.render({
+          rev_scheda: revisioneScheda,
+          data_rev_scheda: dataRevisioneScheda,
+          descrizione_rev_scheda: descrizioneRevisioneScheda(revisioneScheda),
+          responsabile_pcq: responsabilePcq,
+          responsabile_its: responsabileIts,
           Codice_SP: codiceScheda,
           Titolo_progetto: titoloProgetto,
           Fase_di_progetto: faseProgetto,
@@ -1120,7 +1146,7 @@ Totale documenti=${totaleDocumenti}`,
       }
 
       outputZip.file(
-        `${codiceScheda}_${safeName(disciplina)}_${REVISIONE_SCHEDA}.docx`,
+        `${codiceScheda}_${safeName(disciplina)}_${revisioneScheda}.docx`,
         buffer
       );
     }
