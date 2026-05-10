@@ -37,12 +37,12 @@ const ISPETTORE_TODO_COLUMNS = [
 ];
 
 const TITOLO_ELABORATO_COLUMNS = [
-  "Titolo elaborato",
-  "Titolo Elaborato",
-  "TITOLO ELABORATO",
   "Titolo elenco",
   "Titolo Elenco",
   "TITOLO ELENCO",
+  "Titolo elaborato",
+  "Titolo Elaborato",
+  "TITOLO ELABORATO",
   "Nome elaborato",
   "Nome Elaborato",
 ];
@@ -162,16 +162,34 @@ function getTitoloElaboratoFromTodo(row: any) {
   return findValue(row, TITOLO_ELABORATO_COLUMNS);
 }
 
-function getElaboratoBase(value: string) {
+function cleanCodiceElaborato(value: string) {
   return String(value || "")
     .replace(/\.pdf$/i, "")
+    .replace(/[.,;:]+$/g, "")
+    .trim();
+}
+
+function extractCodiceElaborato(value: string) {
+  const text = cleanCodiceElaborato(value);
+  const match = text.match(/[A-Z0-9]{2,}(?:[-_][A-Z0-9]+){5,}(?:[-_]\d{1,2})?/i);
+  return match ? cleanCodiceElaborato(match[0]) : text;
+}
+
+function getElaboratoBase(value: string) {
+  return cleanCodiceElaborato(value)
     .replace(/\.[A-Za-z0-9]+$/g, "")
     .replace(/[_-]\d{1,2}$/g, "")
     .trim();
 }
 
+function sameElaboratoCode(a: string, b: string) {
+  const aa = normalizeKey(getElaboratoBase(extractCodiceElaborato(a)));
+  const bb = normalizeKey(getElaboratoBase(extractCodiceElaborato(b)));
+  return aa && bb && aa === bb;
+}
+
 function getRevisioneDaCodice(value: string) {
-  const clean = String(value || "").replace(/\.pdf$/i, "").trim();
+  const clean = cleanCodiceElaborato(value);
   const match = clean.match(/[_-](\d{1,2})$/);
   return match ? match[1] : "";
 }
@@ -420,8 +438,19 @@ function bestTodoMatch(todoRows: any[], bcf: BcfTopicData) {
 
 function getElencoInfoByCode(elencoInfoMap: Record<string, any>, codice: string) {
   return (
-    elencoInfoMap[normalizeKey(codice)] ||
+    elencoInfoMap[normalizeKey(cleanCodiceElaborato(codice))] ||
+    elencoInfoMap[normalizeKey(extractCodiceElaborato(codice))] ||
     elencoInfoMap[normalizeKey(getElaboratoBase(codice))] ||
+    {}
+  );
+}
+
+function findReportInfo(reportInfoMap: Record<string, any>, codice: string) {
+  const estratto = extractCodiceElaborato(codice);
+  return (
+    reportInfoMap[normalizeKey(cleanCodiceElaborato(codice))] ||
+    reportInfoMap[normalizeKey(estratto)] ||
+    reportInfoMap[normalizeKey(getElaboratoBase(estratto))] ||
     {}
   );
 }
@@ -431,11 +460,14 @@ function readFirstSheet(workbook: XLSX.WorkBook) {
 }
 
 function readReportRows(workbook: XLSX.WorkBook) {
-  const sheetName =
-    workbook.SheetNames.find((n) => normalizeKey(n) === "VERIFICAELABORATI") ||
-    workbook.SheetNames[0];
+  const rows: any[] = [];
 
-  return XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+  workbook.SheetNames.forEach((sheetName) => {
+    const sheetRows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]) as any[];
+    rows.push(...sheetRows);
+  });
+
+  return rows;
 }
 
 export async function POST(req: Request) {
@@ -533,7 +565,7 @@ export async function POST(req: Request) {
       }
 
       const keys = [
-        normalizeKey(codice),
+        normalizeKey(cleanCodiceElaborato(codice)),
         normalizeKey(getElaboratoBase(codice)),
       ].filter(Boolean);
 
@@ -558,11 +590,13 @@ export async function POST(req: Request) {
         "CODICE ELABORATO",
         "Codice_SP",
         "Codice SP",
+        "Codice",
+        "CODICE",
       ]);
 
       if (!codice) return;
 
-      const codicePulito = String(codice).replace(/\.pdf$/i, "").trim();
+      const codicePulito = extractCodiceElaborato(codice);
       const base = getElaboratoBase(codicePulito);
 
       const info = {
@@ -727,7 +761,7 @@ export async function POST(req: Request) {
 
         const disciplina =
           findValue(todoMatch, ["Assignee(s) ", "Assignee(s)", "Disciplina"]) ||
-          disciplinaFromCodice(bcf.titolo);
+          disciplinaFromCodice(bcf.titolo || bcf.descrizione);
 
         const tipoBase = String(tags || bcf.labels || "")
           .toUpperCase()
@@ -738,16 +772,15 @@ export async function POST(req: Request) {
         const codiceTR =
           label ? labelToTR(label) : extractTR(bcf.titolo) || extractTR(bcf.descrizione) || "";
 
-        const reportInfo =
-          reportInfoMap[normalizeKey(bcf.titolo)] ||
-          reportInfoMap[normalizeKey(getElaboratoBase(bcf.titolo))] ||
-          {};
+        const codiceElaborato = extractCodiceElaborato(bcf.titolo || bcf.descrizione);
+
+        const reportInfo = findReportInfo(reportInfoMap, codiceElaborato);
 
         const disciplinaInfo = disciplinaInfoMap[normalizeKey(disciplina)] || {};
 
         const infoElenco =
+          getElencoInfoByCode(elencoInfoMap, codiceElaborato) ||
           getElencoInfoByCode(elencoInfoMap, bcf.titolo) ||
-          getElencoInfoByCode(elencoInfoMap, getElaboratoBase(bcf.titolo)) ||
           {};
 
         const ispettoreTodo = getIspettoreFromTodo(todoMatch);
@@ -773,9 +806,11 @@ export async function POST(req: Request) {
           TipoBase: tipoBase,
           CodiceTR: codiceTR,
           "Codice Rilievo": label || codiceTR,
-          "Codice Elaborato": bcf.titolo || "",
-          "Titolo Elaborato": titoloElaborato || bcf.titolo || "",
-          Revisione: reportInfo.revisione || getRevisioneDaCodice(bcf.titolo),
+          "Codice Elaborato": codiceElaborato || bcf.titolo || "",
+          "Titolo Elaborato": titoloElaborato || codiceElaborato || bcf.titolo || "",
+          Revisione:
+            reportInfo.revisione ||
+            getRevisioneDaCodice(codiceElaborato || bcf.titolo),
           Tipo: tags || tipoBase,
           "Descrizione Rilievo": bcf.descrizione || "",
           Ispettore: ispettoreFinale,
@@ -811,49 +846,42 @@ export async function POST(req: Request) {
           "CODICE ELABORATO",
           "Codice_SP",
           "Codice SP",
+          "Codice",
+          "CODICE",
         ]);
 
-        const codicePulito = String(codiceCompleto || "")
-          .replace(/\.pdf$/i, "")
-          .trim();
-
+        const codicePulito = extractCodiceElaborato(codiceCompleto);
         if (!codicePulito) return null;
 
         const infoElenco = getElencoInfoByCode(elencoInfoMap, codicePulito);
-        const reportInfo =
-          reportInfoMap[normalizeKey(codicePulito)] ||
-          reportInfoMap[normalizeKey(getElaboratoBase(codicePulito))] ||
-          {};
+        const reportInfo = findReportInfo(reportInfoMap, codicePulito);
 
-        const titoloElenco = reportInfo.titolo || infoElenco.titolo || "";
+        const titoloElenco =
+          reportInfo.titolo ||
+          findValue(e, TITOLO_ELABORATO_COLUMNS) ||
+          infoElenco.titolo ||
+          "";
+
         const revisione =
           reportInfo.revisione ||
+          findValue(e, ["REV", "REV.", "Rev.", "Revisione", "REVISIONE"]) ||
           infoElenco.revisione ||
           getRevisioneDaCodice(codicePulito);
 
         const codiceSenzaRev = getElaboratoBase(codicePulito);
 
         const disciplinaElaborato =
-          infoElenco.disciplina ||
           reportInfo.disciplina ||
+          infoElenco.disciplina ||
           findValue(e, ["Disciplina", "DISCIPLINA", "Oggetto", "OGGETTO"]) ||
           disciplinaFromCodice(codicePulito);
 
-        const key = normalizeKey(codicePulito);
-        const baseKey = normalizeKey(codiceSenzaRev);
-
         const hasNC = finalRows.some(
-          (r) =>
-            (normalizeKey(r["Codice Elaborato"]) === key ||
-              normalizeKey(getElaboratoBase(r["Codice Elaborato"])) === baseKey) &&
-            r.TipoBase === "NC"
+          (r) => sameElaboratoCode(r["Codice Elaborato"], codicePulito) && r.TipoBase === "NC"
         );
 
         const hasOSS = finalRows.some(
-          (r) =>
-            (normalizeKey(r["Codice Elaborato"]) === key ||
-              normalizeKey(getElaboratoBase(r["Codice Elaborato"])) === baseKey) &&
-            r.TipoBase === "OSS"
+          (r) => sameElaboratoCode(r["Codice Elaborato"], codicePulito) && r.TipoBase === "OSS"
         );
 
         return {
@@ -935,11 +963,12 @@ export async function POST(req: Request) {
       if (elaboratiVerificati.length === 0) {
         elaboratiVerificati = elencoDisciplina.map((e: any) => {
           const codiceCompleto = findValue(e, ["Codice_SP", "Codice SP"]);
-          const codiceSenzaRev = getElaboratoBase(codiceCompleto);
+          const codicePulito = extractCodiceElaborato(codiceCompleto);
+          const codiceSenzaRev = getElaboratoBase(codicePulito);
 
           return {
             codice_elaborato: codiceSenzaRev,
-            codice_file: codiceCompleto,
+            codice_file: codicePulito,
             revisione: findValue(e, ["REV.", "REV", "Rev.", "Revisione"]),
             titolo_elaborato: getTitoloProgetto(e),
             disciplina: findValue(e, ["DISCIPLINA", "Disciplina"]),
