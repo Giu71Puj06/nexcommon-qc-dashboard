@@ -296,7 +296,7 @@ export default function AppProgettiUpload() {
       fd.append("progettisti", progettisti);
       fd.append("ispettori", ispettori);
 
-      const res = await fetch("/api/schede-ispettive", {
+      const res = await fetch("/api/schede-ispettivfetch("/api/genera-schede", {e", {
         method: "POST",
         body: fd,
       });
