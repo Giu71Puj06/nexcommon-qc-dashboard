@@ -44,6 +44,42 @@ function normalizeText(value: string) {
     .trim();
 }
 
+function normalizeAccount(value: string) {
+  return String(value || "")
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Z0-9@._ -]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parsePeopleList(value: FormDataEntryValue | null) {
+  return String(value || "")
+    .split(/[\n,;]+/)
+    .map(normalizeAccount)
+    .filter(Boolean);
+}
+
+function getCommentAuthor(c: any) {
+  return String(
+    c?.Author ||
+      c?.CreationAuthor ||
+      c?.ModifiedAuthor ||
+      c?.["@_Author"] ||
+      c?.["@_CreationAuthor"] ||
+      c?.["@_ModifiedAuthor"] ||
+      ""
+  ).trim();
+}
+
+function isInPeopleList(author: string, people: string[]) {
+  const a = normalizeAccount(author);
+  if (!a) return false;
+
+  return people.some((p) => a === p || a.includes(p) || p.includes(a));
+}
+
 function findValue(row: any, names: string[]) {
   for (const name of names) {
     if (
@@ -311,6 +347,9 @@ export async function POST(req: Request) {
     const templateFile = formData.get("template") as File;
     const reportFile = formData.get("files") as File | null;
 
+    const progettisti = parsePeopleList(formData.get("progettisti"));
+    const ispettori = parsePeopleList(formData.get("ispettori"));
+
     if (!todoFile || bcfFiles.length === 0 || !elencoFile || !templateFile) {
       return NextResponse.json({
         ok: false,
@@ -484,11 +523,34 @@ export async function POST(req: Request) {
         comments.forEach((c: any) => {
           const testo = getCommentText(c);
           const cleanText = cleanRolePrefix(testo);
+          const author = getCommentAuthor(c);
 
           if (!cleanText) return;
 
-          if (/\(\s*PRG\s*\)/i.test(testo)) commentiPRGList.push(cleanText);
-          if (/\(\s*ISP\s*\)/i.test(testo)) commentiISPList.push(cleanText);
+          const isPRGByAccount = isInPeopleList(author, progettisti);
+          const isISPByAccount = isInPeopleList(author, ispettori);
+
+          if (isPRGByAccount) {
+            commentiPRGList.push(cleanText);
+            return;
+          }
+
+          if (isISPByAccount) {
+            commentiISPList.push(cleanText);
+            return;
+          }
+
+          // Compatibilita con la vecchia procedura: se l'autore non e riconosciuto,
+          // usa ancora i prefissi scritti nel testo del commento.
+          if (/\(\s*PRG\s*\)/i.test(testo)) {
+            commentiPRGList.push(cleanText);
+            return;
+          }
+
+          if (/\(\s*ISP\s*\)/i.test(testo)) {
+            commentiISPList.push(cleanText);
+            return;
+          }
         });
 
         const topicAuthor =
