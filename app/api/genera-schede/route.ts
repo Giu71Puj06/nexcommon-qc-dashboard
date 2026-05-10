@@ -47,6 +47,23 @@ const TITOLO_ELABORATO_COLUMNS = [
   "Nome Elaborato",
 ];
 
+const REPORT_CODICE_COLUMNS = [
+  "Codice elenco",
+  "Codice Elenco",
+  "CODICE ELENCO",
+  "Codice cartiglio",
+  "Codice Cartiglio",
+  "CODICE CARTIGLIO",
+  "Nome file PDF",
+  "Nome File PDF",
+  "NOME FILE PDF",
+  "Codice elaborato",
+  "Codice Elaborato",
+  "CODICE ELABORATO",
+  "Codice",
+  "CODICE",
+];
+
 type BcfTopicData = {
   topicGuid: string;
   titolo: string;
@@ -351,6 +368,19 @@ function disciplinaFromCodice(codice: string) {
   return "";
 }
 
+function disciplinaFromReportCartella(value: string) {
+  const v = normalizeText(value);
+
+  if (v.includes("GENERALE")) return "Documenti generali";
+  if (v.includes("STRUTTURE")) return "Strutture";
+  if (v.includes("AMBIENTE")) return "Ambiente e vincoli";
+  if (v.includes("SICUREZZA")) return "Sicurezza cantierizzazione e BOB";
+  if (v.includes("INTERFERENZE") || v.includes("ESPROPRI")) return "Interferenze e espropri";
+  if (v.includes("ECONOMICO")) return "Economico";
+
+  return "";
+}
+
 function sameDisciplina(a: string, b: string) {
   const aa = normalizeKey(a);
   const bb = normalizeKey(b);
@@ -443,14 +473,11 @@ function readFirstSheet(workbook: XLSX.WorkBook) {
 }
 
 function readReportRows(workbook: XLSX.WorkBook) {
-  const rows: any[] = [];
+  const sheetName =
+    workbook.SheetNames.find((n) => normalizeKey(n) === "VERIFICAELABORATI") ||
+    workbook.SheetNames[0];
 
-  workbook.SheetNames.forEach((sheetName) => {
-    const sheetRows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]) as any[];
-    rows.push(...sheetRows);
-  });
-
-  return rows;
+  return XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]) as any[];
 }
 
 export async function POST(req: Request) {
@@ -567,18 +594,15 @@ export async function POST(req: Request) {
     });
 
     reportRows.forEach((r: any) => {
-      const codice = findValue(r, [
-        "Codice elaborato",
-        "Codice Elaborato",
-        "CODICE ELABORATO",
-        "Codice_SP",
-        "Codice SP",
-        "Codice",
-        "CODICE",
-      ]);
+      const codice =
+        findValue(r, ["Codice elenco", "Codice Elenco", "CODICE ELENCO"]) ||
+        findValue(r, ["Codice cartiglio", "Codice Cartiglio", "CODICE CARTIGLIO"]) ||
+        findValue(r, ["Nome file PDF", "Nome File PDF", "NOME FILE PDF"]) ||
+        findValue(r, REPORT_CODICE_COLUMNS);
 
       if (!codice) return;
 
+      const nomeFilePdf = findValue(r, ["Nome file PDF", "Nome File PDF", "NOME FILE PDF"]);
       const codicePulito = extractCodiceElaborato(codice);
       const base = getElaboratoBase(codicePulito);
 
@@ -587,15 +611,25 @@ export async function POST(req: Request) {
         codiceBase: base,
         revisione:
           findValue(r, ["REV", "REV.", "Rev.", "Revisione", "REVISIONE"]) ||
-          getRevisioneDaCodice(codicePulito),
+          getRevisioneDaCodice(nomeFilePdf || codicePulito),
         titolo: findValue(r, TITOLO_ELABORATO_COLUMNS),
         disciplina:
+          disciplinaFromReportCartella(findValue(r, ["Cartella", "CARTELLA"])) ||
           findValue(r, ["DISCIPLINA", "Disciplina", "Oggetto", "OGGETTO"]) ||
           disciplinaFromCodice(codicePulito),
       };
 
-      reportInfoMap[normalizeKey(codicePulito)] = info;
-      reportInfoMap[normalizeKey(base)] = info;
+      [
+        codicePulito,
+        base,
+        findValue(r, ["Codice cartiglio", "Codice Cartiglio", "CODICE CARTIGLIO"]),
+        findValue(r, ["Nome file PDF", "Nome File PDF", "NOME FILE PDF"]),
+      ]
+        .map((v) => normalizeKey(getElaboratoBase(extractCodiceElaborato(v))))
+        .filter(Boolean)
+        .forEach((key) => {
+          reportInfoMap[key] = info;
+        });
     });
 
     const parser = new XMLParser({ ignoreAttributes: false });
@@ -820,15 +854,11 @@ export async function POST(req: Request) {
 
     const elaboratiVerificatiAll = elaboratiSource
       .map((e: any) => {
-        const codiceCompleto = findValue(e, [
-          "Codice elaborato",
-          "Codice Elaborato",
-          "CODICE ELABORATO",
-          "Codice_SP",
-          "Codice SP",
-          "Codice",
-          "CODICE",
-        ]);
+        const codiceCompleto =
+          findValue(e, ["Codice elenco", "Codice Elenco", "CODICE ELENCO"]) ||
+          findValue(e, ["Codice cartiglio", "Codice Cartiglio", "CODICE CARTIGLIO"]) ||
+          findValue(e, ["Nome file PDF", "Nome File PDF", "NOME FILE PDF"]) ||
+          findValue(e, REPORT_CODICE_COLUMNS);
 
         const codicePulito = extractCodiceElaborato(codiceCompleto);
         if (!codicePulito) return null;
@@ -852,6 +882,7 @@ export async function POST(req: Request) {
 
         const disciplinaElaborato =
           reportInfo.disciplina ||
+          disciplinaFromReportCartella(findValue(e, ["Cartella", "CARTELLA"])) ||
           infoElenco.disciplina ||
           findValue(e, ["Disciplina", "DISCIPLINA", "Oggetto", "OGGETTO"]) ||
           disciplinaFromCodice(codicePulito);
