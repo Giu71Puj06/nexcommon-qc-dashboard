@@ -382,22 +382,75 @@ function disciplinaFromReportCartella(value: string) {
 }
 
 function sameDisciplina(a: string, b: string) {
-  const aa = normalizeKey(a);
-  const bb = normalizeKey(b);
+  const aa = normalizeText(a);
+  const bb = normalizeText(b);
+
+  if (!aa || !bb) return false;
+
   if (aa === bb) return true;
+  if (aa.includes(bb)) return true;
+  if (bb.includes(aa)) return true;
+
+  const ka = normalizeKey(a);
+  const kb = normalizeKey(b);
 
   const aliases: Record<string, string[]> = {
-    DOCUMENTAZIONEECONOMICA: ["ECONOMICO", "ECONOMICA"],
-    DOCUMENTAZIONEGENERALE: ["GENERALE"],
-    SICUREZZACANTIERE: ["SICUREZZA", "SICUREZZACANTIERIZZAZIONEEBOB"],
-    IMPIANTI: ["MEP", "IMPIANTISTICO"],
-    ARCHITETTONICO: ["ARCHITETTURA"],
-    STRUTTURALE: ["STRUTTURE"],
-    AMBIENTEEVINCOLI: ["AMBIENTE", "VINCOLI"],
-    INTERFERENZEEESPROPRI: ["INTERFERENZE", "ESPROPRI"],
+    DOCUMENTAZIONEECONOMICA: [
+      "ECONOMICO",
+      "ECONOMICA",
+      "DOCUMENTAZIONE ECONOMICA",
+    ],
+    ECONOMICO: ["DOCUMENTAZIONE ECONOMICA", "ECONOMICA", "ECONOMICO"],
+    DOCUMENTAZIONEGENERALE: [
+      "GENERALE",
+      "DOCUMENTI GENERALI",
+      "DOCUMENTAZIONE GENERALE",
+      "DOCUMENTI GENERALI AMBIENTE E VINCOLI",
+      "DOCUMENTI GENERALI STRUTTURE",
+    ],
+    DOCUMENTIGENERALI: [
+      "GENERALE",
+      "DOCUMENTAZIONE GENERALE",
+      "DOCUMENTI GENERALI",
+      "DOCUMENTI GENERALI AMBIENTE E VINCOLI",
+      "DOCUMENTI GENERALI STRUTTURE",
+    ],
+    SICUREZZACANTIERE: [
+      "SICUREZZA",
+      "SICUREZZA CANTIERE",
+      "SICUREZZA CANTIERIZZAZIONE E BOB",
+      "SICUREZZACANTIERIZZAZIONEEBOB",
+    ],
+    SICUREZZACANTIERIZZAZIONEEBOB: [
+      "SICUREZZA",
+      "SICUREZZA CANTIERE",
+      "SICUREZZA CANTIERIZZAZIONE E BOB",
+    ],
+    IMPIANTI: ["MEP", "IMPIANTISTICO", "IMPIANTI"],
+    ARCHITETTONICO: ["ARCHITETTURA", "ARCHITETTONICO"],
+    STRUTTURALE: ["STRUTTURE", "STRUTTURALE"],
+    STRUTTURE: ["STRUTTURALE", "STRUTTURE", "DOCUMENTI GENERALI STRUTTURE"],
+    AMBIENTEEVINCOLI: [
+      "AMBIENTE",
+      "VINCOLI",
+      "AMBIENTE E VINCOLI",
+      "DOCUMENTI GENERALI AMBIENTE E VINCOLI",
+    ],
+    INTERFERENZEEESPROPRI: [
+      "INTERFERENZE",
+      "ESPROPRI",
+      "INTERFERENZE E ESPROPRI",
+      "INTERFERENZE ED ESPROPRI",
+    ],
   };
 
-  return (aliases[bb] || []).includes(aa) || (aliases[aa] || []).includes(bb);
+  const aliasesA = aliases[ka] || [];
+  const aliasesB = aliases[kb] || [];
+
+  return (
+    aliasesA.some((x) => bb.includes(normalizeText(x))) ||
+    aliasesB.some((x) => aa.includes(normalizeText(x)))
+  );
 }
 
 function topicKey(title: string, description: string) {
