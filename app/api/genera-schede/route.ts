@@ -8,11 +8,25 @@ import Docxtemplater from "docxtemplater";
 const FASE_PROGETTO = "Progetto Esecutivo";
 const REVISIONE_SCHEDA = "0";
 
+const ISPETTORE_ELENCO_COLUMNS = [
+  "Ispettore",
+  "ISPETTORE",
+  "Nome ispettore",
+  "Nome Ispettore",
+  "Nome_Ispettore",
+  "Verificatore",
+  "VERIFICATORE",
+  "Nome verificatore",
+  "Nome Verificatore",
+  "Nome_verificatore",
+];
+
 type BcfTopicData = {
   topicGuid: string;
   titolo: string;
   descrizione: string;
   ispettore: string;
+  ispettoreNomeBcf: string;
   labels: string;
   stato: string;
   commentiPRG: string;
@@ -189,6 +203,35 @@ function siglaDaNome(nome: string) {
 function getCommentText(c: any) {
   const value = c?.Comment || c?.CommentText || c?.Text || "";
   return typeof value === "string" ? value : String(value || "");
+}
+
+function isGiuseppePizzi(value: string) {
+  const normalized = normalizeText(value);
+  return (
+    normalized === "GIUSEPPE PIZZI" ||
+    normalized.includes("GIUSEPPE PIZZI") ||
+    normalized === "PIZZI GIUSEPPE"
+  );
+}
+
+function isIspettoreGiuseppePizzi(sigla: string, nomeBcf: string) {
+  if (isGiuseppePizzi(nomeBcf)) return true;
+  return String(sigla || "").trim().toUpperCase() === "(GP)";
+}
+
+function resolveIspettoreFinale(
+  ispettoreBcf: string,
+  nomeBcf: string,
+  disciplina: string,
+  ispettoreElenco: string
+) {
+  const ispettoreRemappato = remapIspettoreFinale(ispettoreBcf || "", disciplina);
+
+  if (isIspettoreGiuseppePizzi(ispettoreBcf, nomeBcf) && ispettoreElenco) {
+    return remapIspettoreFinale(siglaDaNome(ispettoreElenco), disciplina);
+  }
+
+  return ispettoreRemappato;
 }
 
 function normalizeStatus(status: string, tags: string) {
@@ -417,6 +460,8 @@ export async function POST(req: Request) {
         findValue(r, ["DISCIPLINA", "Disciplina", "Oggetto", "OGGETTO"]) ||
         disciplinaFromCodice(codice);
 
+      const ispettoreElenco = findValue(r, ISPETTORE_ELENCO_COLUMNS);
+
       if (disciplinaElenco) {
         disciplinaInfoMap[normalizeKey(disciplinaElenco)] = {
           codiceScheda: codice,
@@ -425,6 +470,7 @@ export async function POST(req: Request) {
           notaRicezione,
           dataRicezione,
           nomeRedattore,
+          ispettoreElenco,
         };
       }
 
@@ -442,6 +488,7 @@ export async function POST(req: Request) {
           notaRicezione,
           dataRicezione,
           disciplina: disciplinaElenco,
+          ispettoreElenco,
         };
       });
     });
@@ -519,6 +566,7 @@ export async function POST(req: Request) {
 
         const commentiPRGList: string[] = [];
         const commentiISPList: string[] = [];
+        let lastIspAuthor = "";
 
         comments.forEach((c: any) => {
           const testo = getCommentText(c);
@@ -536,18 +584,18 @@ export async function POST(req: Request) {
           }
 
           if (isISPByAccount) {
+            lastIspAuthor = author || lastIspAuthor;
             commentiISPList.push(cleanText);
             return;
           }
 
-          // Compatibilita con la vecchia procedura: se l'autore non e riconosciuto,
-          // usa ancora i prefissi scritti nel testo del commento.
           if (/\(\s*PRG\s*\)/i.test(testo)) {
             commentiPRGList.push(cleanText);
             return;
           }
 
           if (/\(\s*ISP\s*\)/i.test(testo)) {
+            lastIspAuthor = author || lastIspAuthor;
             commentiISPList.push(cleanText);
             return;
           }
@@ -560,6 +608,8 @@ export async function POST(req: Request) {
           topic?.["@_Author"] ||
           "";
 
+        const ispettoreNomeBcf = String(lastIspAuthor || topicAuthor || "").trim();
+
         const existing =
           (topicGuid && commentiMap[normalizeKey(topicGuid)]) ||
           commentiMap[topicKey(topicTitle, topicDescription)];
@@ -568,7 +618,11 @@ export async function POST(req: Request) {
           topicGuid: topicGuid || existing?.topicGuid || "",
           titolo: topicTitle || existing?.titolo || "",
           descrizione: topicDescription || existing?.descrizione || "",
-          ispettore: existing?.ispettore || siglaDaNome(topicAuthor),
+          ispettore:
+            existing?.ispettore ||
+            siglaDaNome(ispettoreNomeBcf || topicAuthor),
+          ispettoreNomeBcf:
+            ispettoreNomeBcf || existing?.ispettoreNomeBcf || "",
           labels: topicLabels || existing?.labels || "",
           stato: topicStatus || existing?.stato || "",
           commentiPRG: mergeText(existing?.commentiPRG || "", commentiPRGList),
@@ -640,6 +694,21 @@ export async function POST(req: Request) {
 
         const disciplinaInfo = disciplinaInfoMap[normalizeKey(disciplina)] || {};
 
+        const infoElenco =
+          getElencoInfoByCode(elencoInfoMap, bcf.titolo) ||
+          getElencoInfoByCode(elencoInfoMap, getElaboratoBase(bcf.titolo)) ||
+          {};
+
+        const ispettoreElenco =
+          infoElenco.ispettoreElenco || disciplinaInfo.ispettoreElenco || "";
+
+        const ispettoreFinale = resolveIspettoreFinale(
+          bcf.ispettore || "",
+          bcf.ispettoreNomeBcf || "",
+          disciplina,
+          ispettoreElenco
+        );
+
         return {
           Disciplina: disciplina,
           Label: label,
@@ -651,7 +720,7 @@ export async function POST(req: Request) {
           Revisione: reportInfo.revisione || getRevisioneDaCodice(bcf.titolo),
           Tipo: tags || tipoBase,
           "Descrizione Rilievo": bcf.descrizione || "",
-          Ispettore: remapIspettoreFinale(bcf.ispettore || "", disciplina),
+          Ispettore: ispettoreFinale,
           "Risposta Progettista PRG": bcf.commentiPRG || "",
           "Riscontro Ispettore ISP": bcf.commentiISP || "",
           "Ultimo Commento": cleanRolePrefix(bcf.ultimoCommento || ""),
@@ -830,7 +899,7 @@ export async function POST(req: Request) {
           codice_elaborato: r["Codice Elaborato"] || "",
           titolo_elaborato: r["Titolo Elaborato"] || "",
           rilievo_its: r["Descrizione Rilievo"] || "",
-          ispettore: remapIspettoreFinale(r.Ispettore || "", disciplina),
+          ispettore: r.Ispettore || "",
           risposta_prg: r["Risposta Progettista PRG"] || "",
           riscontro_isp: r["Riscontro Ispettore ISP"] || "",
           stato: r.Stato || "",
