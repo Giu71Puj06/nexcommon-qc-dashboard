@@ -11,6 +11,10 @@ export default function SchedeIspettivePage() {
   const [template, setTemplate] = useState<File | null>(null);
   const [progettisti, setProgettisti] = useState("");
   const [ispettori, setIspettori] = useState("");
+  const [revisioneScheda, setRevisioneScheda] = useState("0");
+  const [dataRevisioneScheda, setDataRevisioneScheda] = useState("");
+  const [responsabileIts, setResponsabileIts] = useState("");
+  const [responsabilePcq, setResponsabilePcq] = useState("");
   const [loading, setLoading] = useState(false);
 
   async function generaSchede() {
@@ -33,6 +37,11 @@ export default function SchedeIspettivePage() {
       fd.append("template", template);
       fd.append("progettisti", progettisti);
       fd.append("ispettori", ispettori);
+
+      fd.append("revisione_scheda", revisioneScheda);
+      fd.append("data_revisione_scheda", dataRevisioneScheda);
+      fd.append("responsabile_its", responsabileIts);
+      fd.append("responsabile_pcq", responsabilePcq);
 
       bcfFiles.forEach((file) => {
         fd.append("bcf", file);
@@ -183,8 +192,8 @@ export default function SchedeIspettivePage() {
               style={textareaStyle}
             />
             <div style={helpStyle}>
-              Inserire i nomi/account esattamente come compaiono nei commenti ToDo Trimble.
-              Uno per riga oppure separati da virgola.
+              Inserire i nomi/account esattamente come compaiono nei commenti
+              ToDo Trimble. Uno per riga oppure separati da virgola.
             </div>
           </label>
 
@@ -198,9 +207,68 @@ export default function SchedeIspettivePage() {
               style={textareaStyle}
             />
             <div style={helpStyle}>
-              I commenti degli autori presenti in questa lista verranno stampati come riscontro ispettore.
+              I commenti degli autori presenti in questa lista verranno stampati
+              come riscontro ispettore.
             </div>
           </label>
+
+          <div style={sectionStyle}>
+            <h2 style={{ margin: "0 0 12px 0", fontSize: 22 }}>
+              Dati revisione scheda
+            </h2>
+
+            <label>
+              <b>Rev. scheda ispettiva</b>
+              <input
+                type="text"
+                value={revisioneScheda}
+                onChange={(e) => setRevisioneScheda(e.target.value)}
+                placeholder="0"
+                style={inputStyle}
+              />
+              <div style={helpStyle}>
+                0 = Prima Emissione - Rilievi; 1 = Seconda emissione -
+                Riscontri; 2 = Terza emissione - Riscontri.
+              </div>
+            </label>
+
+            <label>
+              <b>Data revisione scheda</b>
+              <input
+                type="text"
+                value={dataRevisioneScheda}
+                onChange={(e) => setDataRevisioneScheda(e.target.value)}
+                placeholder="gg/mm/aaaa"
+                style={inputStyle}
+              />
+            </label>
+
+            <label>
+              <b>Responsabile tecnico ITS</b>
+              <input
+                type="text"
+                value={responsabileIts}
+                onChange={(e) => setResponsabileIts(e.target.value)}
+                placeholder="Ing. Nome Cognome"
+                style={inputStyle}
+              />
+            </label>
+
+            <label>
+              <b>Responsabile tecnico PCQ</b>
+              <input
+                type="text"
+                value={responsabilePcq}
+                onChange={(e) => setResponsabilePcq(e.target.value)}
+                placeholder="Compilare solo se previsto"
+                style={inputStyle}
+              />
+              <div style={helpStyle}>
+                Campo opzionale: da usare solo nei casi in cui è previsto un
+                responsabile tecnico PCQ distinto.
+              </div>
+            </label>
+          </div>
 
           <button
             onClick={generaSchede}
@@ -244,6 +312,15 @@ const textareaStyle: React.CSSProperties = {
   background: "white",
   resize: "vertical",
   fontFamily: "Arial, sans-serif",
+};
+
+const sectionStyle: React.CSSProperties = {
+  display: "grid",
+  gap: 18,
+  padding: 18,
+  border: "1px solid #cbd5e1",
+  borderRadius: 12,
+  background: "#e2e8f0",
 };
 
 const helpStyle: React.CSSProperties = {
