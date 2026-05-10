@@ -393,49 +393,6 @@ function descriptionScore(a: string, b: string) {
   return common / Math.max(aWords.size, bWords.size);
 }
 
-function bestTodoMatch(todoRows: any[], bcf: BcfTopicData) {
-  const titleKey = normalizeKey(bcf.titolo);
-
-  const sameTitle = todoRows.filter((r: any) => {
-    const titoloTodo = findValue(r, ["Title", "Titolo", "TITLE", "Topic", "Nome"]);
-    return normalizeKey(titoloTodo) === titleKey;
-  });
-
-  if (sameTitle.length === 1) return sameTitle[0];
-
-  if (sameTitle.length > 1) {
-    const ranked = sameTitle
-      .map((r: any) => ({
-        row: r,
-        score: descriptionScore(
-          findValue(r, ["Description", "Descrizione"]),
-          bcf.descrizione
-        ),
-      }))
-      .sort((a, b) => b.score - a.score);
-
-    if (ranked[0] && ranked[0].score > 0.03) return ranked[0].row;
-  }
-
-  const rankedAll = todoRows
-    .map((r: any) => ({
-      row: r,
-      score:
-        descriptionScore(
-          findValue(r, ["Description", "Descrizione"]),
-          bcf.descrizione
-        ) +
-        (normalizeKey(findValue(r, ["Title", "Titolo", "TITLE", "Topic", "Nome"])) === titleKey
-          ? 1
-          : 0),
-    }))
-    .sort((a, b) => b.score - a.score);
-
-  if (rankedAll[0] && rankedAll[0].score > 0.08) return rankedAll[0].row;
-
-  return {};
-}
-
 function getElencoInfoByCode(elencoInfoMap: Record<string, any>, codice: string) {
   return (
     elencoInfoMap[normalizeKey(cleanCodiceElaborato(codice))] ||
@@ -453,6 +410,32 @@ function findReportInfo(reportInfoMap: Record<string, any>, codice: string) {
     reportInfoMap[normalizeKey(getElaboratoBase(estratto))] ||
     {}
   );
+}
+
+function bestBcfMatchForTodo(bcfTopics: BcfTopicData[], todo: any) {
+  const titoloTodo = findValue(todo, ["Title", "Titolo", "TITLE", "Topic", "Nome"]);
+  const descrizioneTodo = findValue(todo, ["Description", "Descrizione"]);
+  const labelTodo = findValue(todo, ["Label", "Etichetta"]);
+  const codiceTodo = extractCodiceElaborato(titoloTodo || descrizioneTodo);
+
+  const ranked = bcfTopics
+    .map((bcf) => {
+      const codiceBcf = extractCodiceElaborato(bcf.titolo || bcf.descrizione);
+      let score = 0;
+
+      if (codiceTodo && sameElaboratoCode(codiceBcf, codiceTodo)) score += 10;
+      if (normalizeKey(bcf.titolo) === normalizeKey(titoloTodo)) score += 5;
+      if (labelTodo && extractTR(labelTodo) && extractTR(labelTodo) === extractTR(bcf.titolo)) {
+        score += 3;
+      }
+
+      score += descriptionScore(bcf.descrizione, descrizioneTodo);
+
+      return { row: bcf, score };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  return ranked[0] && ranked[0].score > 0.05 ? ranked[0].row : null;
 }
 
 function readFirstSheet(workbook: XLSX.WorkBook) {
@@ -748,55 +731,52 @@ export async function POST(req: Request) {
       return !(isNessunRilievo(tags, descrizione) && isClosedStatus(status));
     });
 
-    const finalRows = bcfTopics
-      .filter((bcf) => !isNessunRilievo(bcf.labels, bcf.descrizione))
-      .map((bcf) => {
-        const todoMatch = bestTodoMatch(todoRows, bcf);
+    const finalRows = todoRows
+      .filter((todo) => {
+        const tags = findValue(todo, ["Tags", "Tag", "Tipo", "Esito"]);
+        const descrizione = findValue(todo, ["Description", "Descrizione"]);
+        return !isNessunRilievo(tags, descrizione);
+      })
+      .map((todo) => {
+        const bcf = bestBcfMatchForTodo(bcfTopics, todo);
 
-        const label = findValue(todoMatch, ["Label", "Etichetta"]);
-        const tags =
-          findValue(todoMatch, ["Tags", "Tag", "Tipo", "Esito"]) ||
-          bcf.labels ||
-          "";
+        const label = findValue(todo, ["Label", "Etichetta"]);
+        const tags = findValue(todo, ["Tags", "Tag", "Tipo", "Esito"]);
+        const titoloTodo = findValue(todo, ["Title", "Titolo", "TITLE", "Topic", "Nome"]);
+        const descrizioneTodo = findValue(todo, ["Description", "Descrizione"]);
 
         const disciplina =
-          findValue(todoMatch, ["Assignee(s) ", "Assignee(s)", "Disciplina"]) ||
-          disciplinaFromCodice(bcf.titolo || bcf.descrizione);
+          findValue(todo, ["Assignee(s) ", "Assignee(s)", "Disciplina"]) ||
+          disciplinaFromCodice(titoloTodo || descrizioneTodo);
 
-        const tipoBase = String(tags || bcf.labels || "")
-          .toUpperCase()
-          .includes("OSS")
+        const tipoBase = String(tags || "").toUpperCase().includes("OSS")
           ? "OSS"
           : "NC";
 
         const codiceTR =
-          label ? labelToTR(label) : extractTR(bcf.titolo) || extractTR(bcf.descrizione) || "";
+          label ? labelToTR(label) : extractTR(titoloTodo) || extractTR(descrizioneTodo) || "";
 
-        const codiceElaborato = extractCodiceElaborato(bcf.titolo || bcf.descrizione);
-
+        const codiceElaborato = extractCodiceElaborato(titoloTodo || descrizioneTodo);
         const reportInfo = findReportInfo(reportInfoMap, codiceElaborato);
-
         const disciplinaInfo = disciplinaInfoMap[normalizeKey(disciplina)] || {};
+        const infoElenco = getElencoInfoByCode(elencoInfoMap, codiceElaborato);
 
-        const infoElenco =
-          getElencoInfoByCode(elencoInfoMap, codiceElaborato) ||
-          getElencoInfoByCode(elencoInfoMap, bcf.titolo) ||
-          {};
-
-        const ispettoreTodo = getIspettoreFromTodo(todoMatch);
+        const ispettoreTodo = getIspettoreFromTodo(todo);
         const ispettoreElenco =
           infoElenco.ispettoreElenco || disciplinaInfo.ispettoreElenco || "";
 
-        const ispettoreFinale = resolveIspettoreFinale(
-          bcf.ispettore || "",
-          bcf.ispettoreNomeBcf || "",
-          disciplina,
-          ispettoreTodo || ispettoreElenco
-        );
+        const ispettoreFinale = ispettoreTodo
+          ? remapIspettoreFinale(siglaDaNome(ispettoreTodo), disciplina)
+          : resolveIspettoreFinale(
+              bcf?.ispettore || "",
+              bcf?.ispettoreNomeBcf || "",
+              disciplina,
+              ispettoreElenco
+            );
 
         const titoloElaborato =
-          getTitoloElaboratoFromTodo(todoMatch) ||
           reportInfo.titolo ||
+          getTitoloElaboratoFromTodo(todo) ||
           infoElenco.titolo ||
           "";
 
@@ -806,19 +786,19 @@ export async function POST(req: Request) {
           TipoBase: tipoBase,
           CodiceTR: codiceTR,
           "Codice Rilievo": label || codiceTR,
-          "Codice Elaborato": codiceElaborato || bcf.titolo || "",
-          "Titolo Elaborato": titoloElaborato || codiceElaborato || bcf.titolo || "",
+          "Codice Elaborato": codiceElaborato || titoloTodo || "",
+          "Titolo Elaborato": titoloElaborato || codiceElaborato || titoloTodo || "",
           Revisione:
             reportInfo.revisione ||
-            getRevisioneDaCodice(codiceElaborato || bcf.titolo),
+            getRevisioneDaCodice(codiceElaborato || titoloTodo),
           Tipo: tags || tipoBase,
-          "Descrizione Rilievo": bcf.descrizione || "",
+          "Descrizione Rilievo": descrizioneTodo || bcf?.descrizione || "",
           Ispettore: ispettoreFinale,
-          "Risposta Progettista PRG": bcf.commentiPRG || "",
-          "Riscontro Ispettore ISP": bcf.commentiISP || "",
-          "Ultimo Commento": cleanRolePrefix(bcf.ultimoCommento || ""),
+          "Risposta Progettista PRG": bcf?.commentiPRG || "",
+          "Riscontro Ispettore ISP": bcf?.commentiISP || "",
+          "Ultimo Commento": cleanRolePrefix(bcf?.ultimoCommento || ""),
           "Azione Richiesta": "",
-          Stato: normalizeStatus(bcf.stato || "", tags),
+          Stato: normalizeStatus(findValue(todo, ["Status", "Stato"]) || bcf?.stato || "", tags),
           "Nota Ricezione Elaborati": disciplinaInfo.notaRicezione || "",
           "Data Ricezione": disciplinaInfo.dataRicezione || "",
           "Nome Redattore": disciplinaInfo.nomeRedattore || "",
