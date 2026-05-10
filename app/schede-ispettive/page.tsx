@@ -9,6 +9,8 @@ export default function SchedeIspettivePage() {
   const [elenco, setElenco] = useState<File | null>(null);
   const [filesXlsx, setFilesXlsx] = useState<File | null>(null);
   const [template, setTemplate] = useState<File | null>(null);
+  const [progettisti, setProgettisti] = useState("");
+  const [ispettori, setIspettori] = useState("");
   const [loading, setLoading] = useState(false);
 
   async function generaSchede() {
@@ -29,6 +31,8 @@ export default function SchedeIspettivePage() {
       fd.append("files", filesXlsx);
       fd.append("report", filesXlsx);
       fd.append("template", template);
+      fd.append("progettisti", progettisti);
+      fd.append("ispettori", ispettori);
 
       bcfFiles.forEach((file) => {
         fd.append("bcf", file);
@@ -104,7 +108,7 @@ export default function SchedeIspettivePage() {
             <b>ToDo Trimble XLSX</b>
             <input
               type="file"
-              accept=".xlsx"
+              accept=".xlsx,.xls"
               onChange={(e) => setTodo(e.target.files?.[0] || null)}
               style={inputStyle}
             />
@@ -143,7 +147,7 @@ export default function SchedeIspettivePage() {
             <b>Elenco Elaborati XLSX</b>
             <input
               type="file"
-              accept=".xlsx"
+              accept=".xlsx,.xls"
               onChange={(e) => setElenco(e.target.files?.[0] || null)}
               style={inputStyle}
             />
@@ -153,7 +157,7 @@ export default function SchedeIspettivePage() {
             <b>Report_Completo XLSX</b>
             <input
               type="file"
-              accept=".xlsx"
+              accept=".xlsx,.xls"
               onChange={(e) => setFilesXlsx(e.target.files?.[0] || null)}
               style={inputStyle}
             />
@@ -167,6 +171,35 @@ export default function SchedeIspettivePage() {
               onChange={(e) => setTemplate(e.target.files?.[0] || null)}
               style={inputStyle}
             />
+          </label>
+
+          <label>
+            <b>Progettisti</b>
+            <textarea
+              value={progettisti}
+              onChange={(e) => setProgettisti(e.target.value)}
+              placeholder={"Giuseppe Pizzi\nMario Rossi"}
+              rows={4}
+              style={textareaStyle}
+            />
+            <div style={helpStyle}>
+              Inserire i nomi/account esattamente come compaiono nei commenti ToDo Trimble.
+              Uno per riga oppure separati da virgola.
+            </div>
+          </label>
+
+          <label>
+            <b>Ispettori</b>
+            <textarea
+              value={ispettori}
+              onChange={(e) => setIspettori(e.target.value)}
+              placeholder={"Luca Bianchi\nAnna Verdi"}
+              rows={4}
+              style={textareaStyle}
+            />
+            <div style={helpStyle}>
+              I commenti degli autori presenti in questa lista verranno stampati come riscontro ispettore.
+            </div>
           </label>
 
           <button
@@ -199,4 +232,22 @@ const inputStyle: React.CSSProperties = {
   border: "1px solid #cbd5e1",
   borderRadius: 10,
   background: "white",
+};
+
+const textareaStyle: React.CSSProperties = {
+  display: "block",
+  width: "100%",
+  marginTop: 8,
+  padding: 12,
+  border: "1px solid #cbd5e1",
+  borderRadius: 10,
+  background: "white",
+  resize: "vertical",
+  fontFamily: "Arial, sans-serif",
+};
+
+const helpStyle: React.CSSProperties = {
+  marginTop: 6,
+  color: "#64748b",
+  fontSize: 12,
 };
