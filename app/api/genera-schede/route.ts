@@ -21,6 +21,32 @@ const ISPETTORE_ELENCO_COLUMNS = [
   "Nome_verificatore",
 ];
 
+const ISPETTORE_TODO_COLUMNS = [
+  "Created by",
+  "CREATED BY",
+  "Creato da",
+  "Autore",
+  "Author",
+  "Ispettore",
+  "ISPETTORE",
+  "Nome ispettore",
+  "Nome Ispettore",
+  "Nome_Ispettore",
+  "Verificatore",
+  "Nome verificatore",
+];
+
+const TITOLO_ELABORATO_COLUMNS = [
+  "Titolo elaborato",
+  "Titolo Elaborato",
+  "TITOLO ELABORATO",
+  "Titolo elenco",
+  "Titolo Elenco",
+  "TITOLO ELENCO",
+  "Nome elaborato",
+  "Nome Elaborato",
+];
+
 type BcfTopicData = {
   topicGuid: string;
   titolo: string;
@@ -90,7 +116,6 @@ function getCommentAuthor(c: any) {
 function isInPeopleList(author: string, people: string[]) {
   const a = normalizeAccount(author);
   if (!a) return false;
-
   return people.some((p) => a === p || a.includes(p) || p.includes(a));
 }
 
@@ -105,6 +130,36 @@ function findValue(row: any, names: string[]) {
     }
   }
   return "";
+}
+
+function getTitoloProgetto(row: any) {
+  return findValue(row, [
+    "Titolo_progetto",
+    "Titiolo_progetto",
+    "Titolo progetto",
+    "Titolo Progetto",
+    "TITOLO PROGETTO",
+  ]);
+}
+
+function getFaseProgetto(row: any) {
+  return (
+    findValue(row, [
+      "Fase_di_progetto",
+      "Fase_di_ progetto",
+      "Fase di progetto",
+      "Fase Progetto",
+      "FASE DI PROGETTO",
+    ]) || FASE_PROGETTO
+  );
+}
+
+function getIspettoreFromTodo(row: any) {
+  return findValue(row, ISPETTORE_TODO_COLUMNS);
+}
+
+function getTitoloElaboratoFromTodo(row: any) {
+  return findValue(row, TITOLO_ELABORATO_COLUMNS);
 }
 
 function getElaboratoBase(value: string) {
@@ -223,12 +278,12 @@ function resolveIspettoreFinale(
   ispettoreBcf: string,
   nomeBcf: string,
   disciplina: string,
-  ispettoreElenco: string
+  ispettoreSostitutivo: string
 ) {
   const ispettoreRemappato = remapIspettoreFinale(ispettoreBcf || "", disciplina);
 
-  if (isIspettoreGiuseppePizzi(ispettoreBcf, nomeBcf) && ispettoreElenco) {
-    return remapIspettoreFinale(siglaDaNome(ispettoreElenco), disciplina);
+  if (isIspettoreGiuseppePizzi(ispettoreBcf, nomeBcf) && ispettoreSostitutivo) {
+    return remapIspettoreFinale(siglaDaNome(ispettoreSostitutivo), disciplina);
   }
 
   return ispettoreRemappato;
@@ -286,10 +341,12 @@ function sameDisciplina(a: string, b: string) {
   const aliases: Record<string, string[]> = {
     DOCUMENTAZIONEECONOMICA: ["ECONOMICO", "ECONOMICA"],
     DOCUMENTAZIONEGENERALE: ["GENERALE"],
-    SICUREZZACANTIERE: ["SICUREZZA"],
+    SICUREZZACANTIERE: ["SICUREZZA", "SICUREZZACANTIERIZZAZIONEEBOB"],
     IMPIANTI: ["MEP", "IMPIANTISTICO"],
     ARCHITETTONICO: ["ARCHITETTURA"],
     STRUTTURALE: ["STRUTTURE"],
+    AMBIENTEEVINCOLI: ["AMBIENTE", "VINCOLI"],
+    INTERFERENZEEESPROPRI: ["INTERFERENZE", "ESPROPRI"],
   };
 
   return (aliases[bb] || []).includes(aa) || (aliases[aa] || []).includes(bb);
@@ -320,6 +377,7 @@ function descriptionScore(a: string, b: string) {
 
 function bestTodoMatch(todoRows: any[], bcf: BcfTopicData) {
   const titleKey = normalizeKey(bcf.titolo);
+
   const sameTitle = todoRows.filter((r: any) => {
     const titoloTodo = findValue(r, ["Title", "Titolo", "TITLE", "Topic", "Nome"]);
     return normalizeKey(titoloTodo) === titleKey;
@@ -432,8 +490,8 @@ export async function POST(req: Request) {
         "Codice elaborato",
       ]);
 
-      const titolo = findValue(r, ["Titolo_progetto"]);
-      const revisione = findValue(r, ["REV."]);
+      const titolo = getTitoloProgetto(r);
+      const revisione = findValue(r, ["REV.", "REV", "Rev.", "Revisione"]);
 
       const nomeRedattore = findValue(r, [
         "Nome_redattore",
@@ -454,7 +512,7 @@ export async function POST(req: Request) {
         "Data Ricezione",
       ]);
 
-      const faseProgetto = findValue(r, ["Fase_di_progetto"]) || FASE_PROGETTO;
+      const faseProgetto = getFaseProgetto(r);
 
       const disciplinaElenco =
         findValue(r, ["DISCIPLINA", "Disciplina", "Oggetto", "OGGETTO"]) ||
@@ -513,14 +571,7 @@ export async function POST(req: Request) {
         revisione:
           findValue(r, ["REV", "REV.", "Rev.", "Revisione", "REVISIONE"]) ||
           getRevisioneDaCodice(codicePulito),
-        titolo: findValue(r, [
-          "Titolo elenco",
-          "Titolo Elenco",
-          "TITOLO ELENCO",
-          "Titolo elaborato",
-          "Titolo Elaborato",
-          "Titolo",
-        ]),
+        titolo: findValue(r, TITOLO_ELABORATO_COLUMNS),
         disciplina:
           findValue(r, ["DISCIPLINA", "Disciplina", "Oggetto", "OGGETTO"]) ||
           disciplinaFromCodice(codicePulito),
@@ -699,6 +750,7 @@ export async function POST(req: Request) {
           getElencoInfoByCode(elencoInfoMap, getElaboratoBase(bcf.titolo)) ||
           {};
 
+        const ispettoreTodo = getIspettoreFromTodo(todoMatch);
         const ispettoreElenco =
           infoElenco.ispettoreElenco || disciplinaInfo.ispettoreElenco || "";
 
@@ -706,8 +758,14 @@ export async function POST(req: Request) {
           bcf.ispettore || "",
           bcf.ispettoreNomeBcf || "",
           disciplina,
-          ispettoreElenco
+          ispettoreTodo || ispettoreElenco
         );
+
+        const titoloElaborato =
+          getTitoloElaboratoFromTodo(todoMatch) ||
+          reportInfo.titolo ||
+          infoElenco.titolo ||
+          "";
 
         return {
           Disciplina: disciplina,
@@ -716,7 +774,7 @@ export async function POST(req: Request) {
           CodiceTR: codiceTR,
           "Codice Rilievo": label || codiceTR,
           "Codice Elaborato": bcf.titolo || "",
-          "Titolo Elaborato": reportInfo.titolo || bcf.titolo || "",
+          "Titolo Elaborato": titoloElaborato || bcf.titolo || "",
           Revisione: reportInfo.revisione || getRevisioneDaCodice(bcf.titolo),
           Tipo: tags || tipoBase,
           "Descrizione Rilievo": bcf.descrizione || "",
@@ -813,13 +871,17 @@ export async function POST(req: Request) {
 
     const discipline = Array.from(
       new Set(
-        elencoRows.map(
-          (r: any) => findValue(r, ["DISCIPLINA", "Disciplina"]) || "SENZA_DISCIPLINA"
-        )
+        elencoRows
+          .map((r: any) => findValue(r, ["DISCIPLINA", "Disciplina"]))
+          .filter(Boolean)
       )
     );
 
     for (const disciplina of discipline) {
+      if (!disciplina || normalizeKey(disciplina) === "SENZADISCIPLINA") {
+        continue;
+      }
+
       const rowsDisciplina = finalRows.filter((r) =>
         sameDisciplina(r.Disciplina || "", disciplina)
       );
@@ -836,6 +898,10 @@ export async function POST(req: Request) {
         )
       );
 
+      if (rowsDisciplina.length === 0 && elaboratiVerificati.length === 0) {
+        continue;
+      }
+
       const primaRigaElenco = elencoDisciplina[0] || elencoRows[0] || {};
       const disciplinaInfo = disciplinaInfoMap[normalizeKey(disciplina)] || {};
 
@@ -846,14 +912,10 @@ export async function POST(req: Request) {
         "SCHEDA_ISPETTIVA";
 
       const titoloProgetto =
-        disciplinaInfo.titoloProgetto ||
-        findValue(primaRigaElenco, ["Titolo_progetto"]) ||
-        "";
+        disciplinaInfo.titoloProgetto || getTitoloProgetto(primaRigaElenco) || "";
 
       const faseProgetto =
-        disciplinaInfo.faseProgetto ||
-        findValue(primaRigaElenco, ["Fase_di_progetto"]) ||
-        FASE_PROGETTO;
+        disciplinaInfo.faseProgetto || getFaseProgetto(primaRigaElenco);
 
       const notaRicezione =
         disciplinaInfo.notaRicezione ||
@@ -872,15 +934,15 @@ export async function POST(req: Request) {
 
       if (elaboratiVerificati.length === 0) {
         elaboratiVerificati = elencoDisciplina.map((e: any) => {
-          const codiceCompleto = findValue(e, ["Codice_SP"]);
+          const codiceCompleto = findValue(e, ["Codice_SP", "Codice SP"]);
           const codiceSenzaRev = getElaboratoBase(codiceCompleto);
 
           return {
             codice_elaborato: codiceSenzaRev,
             codice_file: codiceCompleto,
-            revisione: findValue(e, ["REV."]),
-            titolo_elaborato: findValue(e, ["Titolo_progetto"]),
-            disciplina: findValue(e, ["DISCIPLINA"]),
+            revisione: findValue(e, ["REV.", "REV", "Rev.", "Revisione"]),
+            titolo_elaborato: getTitoloProgetto(e),
+            disciplina: findValue(e, ["DISCIPLINA", "Disciplina"]),
             presenza_nc: "",
             presenza_oss: "",
             assenza_nc_oss: "X",
@@ -906,6 +968,20 @@ export async function POST(req: Request) {
         };
       });
 
+      const numeroNC = rilievi.filter((r) =>
+        String(r.tipo_progressivo).startsWith("NC")
+      ).length;
+
+      const numeroOSS = rilievi.filter((r) =>
+        String(r.tipo_progressivo).startsWith("OSS")
+      ).length;
+
+      const numeroChiuse = elaboratiVerificati.filter(
+        (e) => e.assenza_nc_oss === "X"
+      ).length;
+
+      const totaleDocumenti = elaboratiVerificati.length;
+
       let buffer: Buffer;
 
       try {
@@ -928,11 +1004,14 @@ export async function POST(req: Request) {
           rilievi,
           elaborati: elencoRows,
           elaborati_verificati: elaboratiVerificati,
-          riepilogo_finale: `
-Elaborati analizzati: ${elaboratiVerificati.length}
-NC rilevate: ${rilievi.filter((r) => String(r.tipo_progressivo).startsWith("NC")).length}
-OSS rilevate: ${rilievi.filter((r) => String(r.tipo_progressivo).startsWith("OSS")).length}
-`,
+          numero_nc: numeroNC,
+          numero_oss: numeroOSS,
+          numero_chiuse: numeroChiuse,
+          totale_documenti: totaleDocumenti,
+          riepilogo_finale: `NC=${numeroNC}
+OSS=${numeroOSS}
+Chiuse=${numeroChiuse}
+Totale documenti=${totaleDocumenti}`,
         });
 
         buffer = doc.getZip().generate({
