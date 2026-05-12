@@ -533,6 +533,149 @@ function bestBcfMatchForTodo(bcfTopics: BcfTopicData[], todo: any) {
   return ranked[0] && ranked[0].score > 0.05 ? ranked[0].row : null;
 }
 
+
+function xmlEscape(value: any) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function normalizeForDocxSearch(value: string) {
+  return String(value || "")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isChiusaValue(value: string) {
+  const normalized = normalizeForDocxSearch(value);
+  return normalized.includes("CHIUSA") || normalized.includes("CHIUSO") || normalized.includes("CLOSED");
+}
+
+function applyGreyShadingToTableRow(rowXml: string) {
+  const shade = '<w:shd w:val="clear" w:color="auto" w:fill="D9D9D9"/>';
+
+  return rowXml.replace(/<w:tcPr([^>]*)>([\s\S]*?)<\/w:tcPr>/g, (match, attrs, inner) => {
+    const withoutExistingShade = String(inner || "").replace(/<w:shd\b[^>]*\/>/g, "");
+    return `<w:tcPr${attrs}>${shade}${withoutExistingShade}</w:tcPr>`;
+  });
+}
+
+function shadeClosedRowsInDocumentXml(documentXml: string) {
+  return documentXml.replace(/<w:tr\b[\s\S]*?<\/w:tr>/g, (rowXml) => {
+    const rowText = normalizeForDocxSearch(
+      Array.from(rowXml.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g))
+        .map((m) => m[1] || "")
+        .join(" ")
+    );
+
+    return isChiusaValue(rowText) ? applyGreyShadingToTableRow(rowXml) : rowXml;
+  });
+}
+
+function buildSintesiTableXml(stats: {
+  totaleElaboratiAnalizzati: number;
+  totaleNC: number;
+  totaleOSS: number;
+  totaleChiuse: number;
+}) {
+  const rows = [
+    ["Totale Elaborati analizzati", stats.totaleElaboratiAnalizzati],
+    ["Totale NC", stats.totaleNC],
+    ["Totale OSS", stats.totaleOSS],
+    ["Totale Chiuse", stats.totaleChiuse],
+  ];
+
+  const cell = (value: string | number, bold = false) => `
+    <w:tc>
+      <w:tcPr>
+        <w:tcW w:w="4500" w:type="dxa"/>
+        <w:tcBorders>
+          <w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/>
+          <w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/>
+          <w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/>
+          <w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/>
+        </w:tcBorders>
+      </w:tcPr>
+      <w:p>
+        <w:r>
+          <w:rPr>${bold ? "<w:b/>" : ""}</w:rPr>
+          <w:t>${xmlEscape(value)}</w:t>
+        </w:r>
+      </w:p>
+    </w:tc>`;
+
+  const bodyRows = rows
+    .map(([label, value]) => `<w:tr>${cell(label, true)}${cell(value)}</w:tr>`)
+    .join("");
+
+  return `
+    <w:p>
+      <w:pPr><w:spacing w:before="240" w:after="120"/></w:pPr>
+      <w:r><w:rPr><w:b/></w:rPr><w:t>Sintesi</w:t></w:r>
+    </w:p>
+    <w:tbl>
+      <w:tblPr>
+        <w:tblW w:w="0" w:type="auto"/>
+        <w:tblBorders>
+          <w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/>
+          <w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/>
+          <w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/>
+          <w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/>
+          <w:insideH w:val="single" w:sz="4" w:space="0" w:color="000000"/>
+          <w:insideV w:val="single" w:sz="4" w:space="0" w:color="000000"/>
+        </w:tblBorders>
+      </w:tblPr>
+      ${bodyRows}
+    </w:tbl>`;
+}
+
+async function postProcessSchedaDocx(
+  buffer: Buffer,
+  stats: {
+    totaleElaboratiAnalizzati: number;
+    totaleNC: number;
+    totaleOSS: number;
+    totaleChiuse: number;
+  }
+) {
+  const zip = await JSZip.loadAsync(buffer);
+  const documentFile = zip.file("word/document.xml");
+
+  if (!documentFile) return buffer;
+
+  let documentXml = await documentFile.async("text");
+  documentXml = shadeClosedRowsInDocumentXml(documentXml);
+
+  const sintesiXml = buildSintesiTableXml(stats);
+  const lastTableIndex = documentXml.lastIndexOf("</w:tbl>");
+
+  if (lastTableIndex >= 0) {
+    const insertAt = lastTableIndex + "</w:tbl>".length;
+    documentXml = `${documentXml.slice(0, insertAt)}${sintesiXml}${documentXml.slice(insertAt)}`;
+  } else {
+    documentXml = documentXml.replace("</w:body>", `${sintesiXml}</w:body>`);
+  }
+
+  zip.file("word/document.xml", documentXml);
+
+  return zip.generateAsync({
+    type: "nodebuffer",
+    compression: "DEFLATE",
+  });
+}
+
 function readFirstSheet(workbook: XLSX.WorkBook) {
   return XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
 }
@@ -1090,9 +1233,7 @@ export async function POST(req: Request) {
         String(r.tipo_progressivo).startsWith("OSS")
       ).length;
 
-      const numeroChiuse = elaboratiVerificati.filter(
-        (e) => e.assenza_nc_oss === "X"
-      ).length;
+      const numeroChiuse = rilievi.filter((r) => isChiusaValue(r.stato)).length;
 
       const totaleDocumenti = elaboratiVerificati.length;
 
@@ -1136,6 +1277,13 @@ Totale documenti=${totaleDocumenti}`,
         buffer = doc.getZip().generate({
           type: "nodebuffer",
           compression: "DEFLATE",
+        });
+
+        buffer = await postProcessSchedaDocx(buffer, {
+          totaleElaboratiAnalizzati: totaleDocumenti,
+          totaleNC: numeroNC,
+          totaleOSS: numeroOSS,
+          totaleChiuse: numeroChiuse,
         });
       } catch (e: any) {
         outputZip.file(
