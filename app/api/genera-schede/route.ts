@@ -142,6 +142,60 @@ function getCommentAuthor(c: any) {
   ).trim();
 }
 
+
+function getCommentDateValue(c: any) {
+  return String(
+    c?.Date ||
+      c?.CreationDate ||
+      c?.ModifiedDate ||
+      c?.["@_Date"] ||
+      c?.["@_CreationDate"] ||
+      c?.["@_ModifiedDate"] ||
+      ""
+  ).trim();
+}
+
+function formatBcfCommentDate(value: string) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  const datePart = raw.split("T")[0].split(" ")[0];
+
+  const isoMatch = datePart.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
+
+  const italianMatch = datePart.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/);
+  if (italianMatch) {
+    const day = italianMatch[1].padStart(2, "0");
+    const month = italianMatch[2].padStart(2, "0");
+    const year = italianMatch[3].length === 2 ? `20${italianMatch[3]}` : italianMatch[3];
+    return `${day}/${month}/${year}`;
+  }
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    const day = String(parsed.getDate()).padStart(2, "0");
+    const month = String(parsed.getMonth() + 1).padStart(2, "0");
+    const year = parsed.getFullYear();
+    return `${day}/${month}/${year}`;
+  }
+
+  return raw;
+}
+
+function prefixCommentWithDate(text: string, dateValue: string) {
+  const cleanText = String(text || "").trim();
+  if (!cleanText) return "";
+
+  const formattedDate = formatBcfCommentDate(dateValue);
+  if (!formattedDate) return cleanText;
+
+  if (cleanText.startsWith(`${formattedDate} - `)) return cleanText;
+  if (cleanText.startsWith(`[${formattedDate}]`)) return cleanText;
+
+  return `${formattedDate} - ${cleanText}`;
+}
+
 function isInPeopleList(author: string, people: string[]) {
   const a = normalizeAccount(author);
   if (!a) return false;
@@ -507,87 +561,6 @@ function findReportInfo(reportInfoMap: Record<string, any>, codice: string) {
   );
 }
 
-
-type ElaboratoVerificatoRow = {
-  codice_elaborato: string;
-  codice_file: string;
-  revisione: string;
-  titolo_elaborato: string;
-  disciplina: string;
-  presenza_nc: string;
-  presenza_oss: string;
-  assenza_nc_oss: string;
-};
-
-function elaboratoAggregationKey(value: string) {
-  return normalizeKey(getElaboratoBase(extractCodiceElaborato(value)));
-}
-
-function buildRilieviFlagsByElaborato(rows: any[]) {
-  const map: Record<string, { hasNC: boolean; hasOSS: boolean }> = {};
-
-  for (const row of rows) {
-    const key = elaboratoAggregationKey(row?.["Codice Elaborato"] || "");
-    if (!key) continue;
-
-    if (!map[key]) map[key] = { hasNC: false, hasOSS: false };
-
-    const tipo = normalizeKey(row?.TipoBase || row?.Tipo || row?.["Codice Rilievo"] || "");
-    if (tipo.includes("OSS")) {
-      map[key].hasOSS = true;
-    } else {
-      map[key].hasNC = true;
-    }
-  }
-
-  return map;
-}
-
-function applyRilieviFlagsToElaborati(
-  elaborati: ElaboratoVerificatoRow[],
-  rows: any[]
-) {
-  const flagsByElaborato = buildRilieviFlagsByElaborato(rows);
-  const existingKeys = new Set<string>();
-
-  const withFlags = elaborati.map((e) => {
-    const key = elaboratoAggregationKey(e.codice_file || e.codice_elaborato);
-    if (key) existingKeys.add(key);
-
-    const flags = key ? flagsByElaborato[key] : null;
-    const hasNC = !!flags?.hasNC;
-    const hasOSS = !!flags?.hasOSS;
-
-    return {
-      ...e,
-      presenza_nc: hasNC ? "X" : "",
-      presenza_oss: hasOSS ? "X" : "",
-      assenza_nc_oss: !hasNC && !hasOSS ? "X" : "",
-    };
-  });
-
-  for (const row of rows) {
-    const codiceFile = extractCodiceElaborato(row?.["Codice Elaborato"] || "");
-    const key = elaboratoAggregationKey(codiceFile);
-    if (!key || existingKeys.has(key)) continue;
-
-    const flags = flagsByElaborato[key] || { hasNC: false, hasOSS: false };
-    withFlags.push({
-      codice_elaborato: getElaboratoBase(codiceFile),
-      codice_file: codiceFile,
-      revisione: row?.Revisione || getRevisioneDaCodice(codiceFile),
-      titolo_elaborato: row?.["Titolo Elaborato"] || codiceFile,
-      disciplina: row?.Disciplina || disciplinaFromCodice(codiceFile),
-      presenza_nc: flags.hasNC ? "X" : "",
-      presenza_oss: flags.hasOSS ? "X" : "",
-      assenza_nc_oss: !flags.hasNC && !flags.hasOSS ? "X" : "",
-    });
-    existingKeys.add(key);
-  }
-
-  return withFlags;
-}
-
 function bestBcfMatchForTodo(bcfTopics: BcfTopicData[], todo: any) {
   const titoloTodo = findValue(todo, ["Title", "Titolo", "TITLE", "Topic", "Nome"]);
   const descrizioneTodo = findValue(todo, ["Description", "Descrizione"]);
@@ -624,129 +597,6 @@ function readReportRows(workbook: XLSX.WorkBook) {
     workbook.SheetNames[0];
 
   return XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]) as any[];
-}
-
-type SchedaIspettivaSintesi = {
-  totaleElaboratiAnalizzati: number;
-  totaleNC: number;
-  totaleOSS: number;
-  totaleChiuse: number;
-};
-
-function escapeXml(value: string | number) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
-}
-
-function getPlainTextFromWordXml(xml: string) {
-  return String(xml || "")
-    .replace(/<w:tab\/>/g, "\t")
-    .replace(/<w:br\/>/g, "\n")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function rowContainsStatoChiusa(rowXml: string) {
-  const plain = getPlainTextFromWordXml(rowXml);
-  return /(^|\s)Chiusa(\s|$)/i.test(plain) || /(^|\s)Chiuso(\s|$)/i.test(plain) || /(^|\s)Closed(\s|$)/i.test(plain);
-}
-
-function applyGreyTextToWordRow(rowXml: string) {
-  return rowXml.replace(/<w:r\b[^>]*>[\s\S]*?<\/w:r>/g, (runXml) => {
-    let run = runXml.replace(/<w:color\b[^>]*(?:\/>|>[\s\S]*?<\/w:color>)/g, "");
-
-    if (/<w:rPr\b[^>]*>/.test(run)) {
-      return run.replace(/<w:rPr\b([^>]*)>/, '<w:rPr$1><w:color w:val="808080"/>');
-    }
-
-    return run.replace(/<w:r\b([^>]*)>/, '<w:r$1><w:rPr><w:color w:val="808080"/></w:rPr>');
-  });
-}
-
-function applyClosedRowsGreyText(documentXml: string) {
-  return documentXml.replace(/<w:tr\b[^>]*>[\s\S]*?<\/w:tr>/g, (rowXml) => {
-    if (!rowContainsStatoChiusa(rowXml)) return rowXml;
-    return applyGreyTextToWordRow(rowXml);
-  });
-}
-
-function buildSintesiFinaleDocxXml(sintesi: SchedaIspettivaSintesi) {
-  const rows: Array<[string, number]> = [
-    ["Totale elaborati analizzati", sintesi.totaleElaboratiAnalizzati],
-    ["Totale NC rilevate", sintesi.totaleNC],
-    ["Totale OSS rilevate", sintesi.totaleOSS],
-    ["Totale rilievi chiusi", sintesi.totaleChiuse],
-  ];
-
-  const tableRows = rows
-    .map(
-      ([label, value]) => `
-      <w:tr>
-        <w:tc>
-          <w:tcPr><w:tcW w:w="7000" w:type="dxa"/></w:tcPr>
-          <w:p><w:r><w:t>${escapeXml(label)}</w:t></w:r></w:p>
-        </w:tc>
-        <w:tc>
-          <w:tcPr><w:tcW w:w="2000" w:type="dxa"/></w:tcPr>
-          <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>${escapeXml(value)}</w:t></w:r></w:p>
-        </w:tc>
-      </w:tr>`
-    )
-    .join("");
-
-  return `
-  <w:p>
-    <w:pPr><w:spacing w:before="240" w:after="120"/></w:pPr>
-    <w:r><w:rPr><w:b/></w:rPr><w:t>SINTESI FINALE</w:t></w:r>
-  </w:p>
-  <w:tbl>
-    <w:tblPr>
-      <w:tblW w:w="9000" w:type="dxa"/>
-      <w:tblBorders>
-        <w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/>
-        <w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/>
-        <w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/>
-        <w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/>
-        <w:insideH w:val="single" w:sz="4" w:space="0" w:color="000000"/>
-        <w:insideV w:val="single" w:sz="4" w:space="0" w:color="000000"/>
-      </w:tblBorders>
-    </w:tblPr>
-    ${tableRows}
-  </w:tbl>
-  <w:p/>`;
-}
-
-function appendSintesiAfterLastTable(documentXml: string, sintesi: SchedaIspettivaSintesi) {
-  const marker = "</w:tbl>";
-  const lastTableIndex = documentXml.lastIndexOf(marker);
-  const sintesiXml = buildSintesiFinaleDocxXml(sintesi);
-
-  if (lastTableIndex < 0) {
-    const bodyCloseIndex = documentXml.lastIndexOf("</w:body>");
-    if (bodyCloseIndex < 0) return documentXml + sintesiXml;
-    return documentXml.slice(0, bodyCloseIndex) + sintesiXml + documentXml.slice(bodyCloseIndex);
-  }
-
-  const insertIndex = lastTableIndex + marker.length;
-  return documentXml.slice(0, insertIndex) + sintesiXml + documentXml.slice(insertIndex);
-}
-
-async function postProcessSchedaIspettivaDocx(buffer: Buffer, sintesi: SchedaIspettivaSintesi) {
-  const zip = await JSZip.loadAsync(buffer);
-  const documentFile = zip.file("word/document.xml");
-  if (!documentFile) return buffer;
-
-  let documentXml = await documentFile.async("string");
-  documentXml = applyClosedRowsGreyText(documentXml);
-  documentXml = appendSintesiAfterLastTable(documentXml, sintesi);
-
-  zip.file("word/document.xml", documentXml);
-  return Buffer.from(await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }));
 }
 
 export async function POST(req: Request) {
@@ -951,6 +801,7 @@ export async function POST(req: Request) {
         comments.forEach((c: any) => {
           const testo = getCommentText(c);
           const cleanText = cleanRolePrefix(testo);
+          const datedCleanText = prefixCommentWithDate(cleanText, getCommentDateValue(c));
           const author = getCommentAuthor(c);
 
           if (!cleanText) return;
@@ -959,24 +810,24 @@ export async function POST(req: Request) {
           const isISPByAccount = isInPeopleList(author, ispettori);
 
           if (isPRGByAccount) {
-            commentiPRGList.push(cleanText);
+            commentiPRGList.push(datedCleanText);
             return;
           }
 
           if (isISPByAccount) {
             lastIspAuthor = author || lastIspAuthor;
-            commentiISPList.push(cleanText);
+            commentiISPList.push(datedCleanText);
             return;
           }
 
           if (/\(\s*PRG\s*\)/i.test(testo)) {
-            commentiPRGList.push(cleanText);
+            commentiPRGList.push(datedCleanText);
             return;
           }
 
           if (/\(\s*ISP\s*\)/i.test(testo)) {
             lastIspAuthor = author || lastIspAuthor;
-            commentiISPList.push(cleanText);
+            commentiISPList.push(datedCleanText);
             return;
           }
         });
@@ -994,6 +845,8 @@ export async function POST(req: Request) {
           (topicGuid && commentiMap[normalizeKey(topicGuid)]) ||
           commentiMap[topicKey(topicTitle, topicDescription)];
 
+        const lastComment = comments.length > 0 ? comments[comments.length - 1] : null;
+
         const dataTopic: BcfTopicData = {
           topicGuid: topicGuid || existing?.topicGuid || "",
           titolo: topicTitle || existing?.titolo || "",
@@ -1007,10 +860,12 @@ export async function POST(req: Request) {
           stato: topicStatus || existing?.stato || "",
           commentiPRG: mergeText(existing?.commentiPRG || "", commentiPRGList),
           commentiISP: mergeText(existing?.commentiISP || "", commentiISPList),
-          ultimoCommento:
-            comments.length > 0
-              ? getCommentText(comments[comments.length - 1])
-              : existing?.ultimoCommento || "",
+          ultimoCommento: lastComment
+            ? prefixCommentWithDate(
+                cleanRolePrefix(getCommentText(lastComment)),
+                getCommentDateValue(lastComment)
+              )
+            : existing?.ultimoCommento || "",
         };
 
         const previousIndex = bcfTopics.findIndex(
@@ -1108,7 +963,7 @@ export async function POST(req: Request) {
           Ispettore: ispettoreFinale,
           "Risposta Progettista PRG": bcf?.commentiPRG || "",
           "Riscontro Ispettore ISP": bcf?.commentiISP || "",
-          "Ultimo Commento": cleanRolePrefix(bcf?.ultimoCommento || ""),
+          "Ultimo Commento": bcf?.ultimoCommento || "",
           "Azione Richiesta": "",
           Stato: normalizeStatus(findValue(todo, ["Status", "Stato"]) || bcf?.stato || "", tags),
           "Nota Ricezione Elaborati": disciplinaInfo.notaRicezione || "",
@@ -1165,18 +1020,26 @@ export async function POST(req: Request) {
           findValue(e, ["Disciplina", "DISCIPLINA", "Oggetto", "OGGETTO"]) ||
           disciplinaFromCodice(codicePulito);
 
+        const hasNC = finalRows.some(
+          (r) => sameElaboratoCode(r["Codice Elaborato"], codicePulito) && r.TipoBase === "NC"
+        );
+
+        const hasOSS = finalRows.some(
+          (r) => sameElaboratoCode(r["Codice Elaborato"], codicePulito) && r.TipoBase === "OSS"
+        );
+
         return {
           codice_elaborato: codiceSenzaRev,
           codice_file: codicePulito,
           revisione,
           titolo_elaborato: titoloElenco,
           disciplina: disciplinaElaborato,
-          presenza_nc: "",
-          presenza_oss: "",
-          assenza_nc_oss: "",
+          presenza_nc: hasNC ? "X" : "",
+          presenza_oss: hasOSS ? "X" : "",
+          assenza_nc_oss: !hasNC && !hasOSS ? "X" : "",
         };
       })
-      .filter(Boolean) as ElaboratoVerificatoRow[];
+      .filter(Boolean) as any[];
 
     const discipline = Array.from(
       new Set(
@@ -1198,8 +1061,6 @@ export async function POST(req: Request) {
       let elaboratiVerificati = elaboratiVerificatiAll.filter((e) =>
         sameDisciplina(e.disciplina || "", disciplina)
       );
-
-      elaboratiVerificati = applyRilieviFlagsToElaborati(elaboratiVerificati, rowsDisciplina);
 
       const elencoDisciplina = elencoRows.filter((e: any) =>
         sameDisciplina(
@@ -1257,10 +1118,9 @@ export async function POST(req: Request) {
             disciplina: findValue(e, ["DISCIPLINA", "Disciplina"]),
             presenza_nc: "",
             presenza_oss: "",
-            assenza_nc_oss: "",
+            assenza_nc_oss: "X",
           };
         });
-        elaboratiVerificati = applyRilieviFlagsToElaborati(elaboratiVerificati, rowsDisciplina);
       }
 
       const progressivi: Record<string, number> = { NC: 0, OSS: 0 };
@@ -1289,7 +1149,9 @@ export async function POST(req: Request) {
         String(r.tipo_progressivo).startsWith("OSS")
       ).length;
 
-      const numeroChiuse = rilievi.filter((r) => isClosedStatus(r.stato)).length;
+      const numeroChiuse = elaboratiVerificati.filter(
+        (e) => e.assenza_nc_oss === "X"
+      ).length;
 
       const totaleDocumenti = elaboratiVerificati.length;
 
@@ -1333,13 +1195,6 @@ Totale documenti=${totaleDocumenti}`,
         buffer = doc.getZip().generate({
           type: "nodebuffer",
           compression: "DEFLATE",
-        });
-
-        buffer = await postProcessSchedaIspettivaDocx(buffer, {
-          totaleElaboratiAnalizzati: totaleDocumenti,
-          totaleNC: numeroNC,
-          totaleOSS: numeroOSS,
-          totaleChiuse: numeroChiuse,
         });
       } catch (e: any) {
         outputZip.file(
