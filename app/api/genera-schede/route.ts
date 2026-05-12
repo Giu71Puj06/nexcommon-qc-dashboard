@@ -574,6 +574,95 @@ function findReportInfo(reportInfoMap: Record<string, any>, codice: string) {
   );
 }
 
+
+type ElaboratoVerificatoRow = {
+  codice_elaborato: string;
+  codice_file: string;
+  revisione: string;
+  titolo_elaborato: string;
+  disciplina: string;
+  presenza_nc: string;
+  presenza_oss: string;
+  assenza_nc_oss: string;
+};
+
+function elaboratoAggregationKey(value: string) {
+  return normalizeKey(getElaboratoBase(extractCodiceElaborato(value)));
+}
+
+function isRilievoOSS(row: any) {
+  const tipo = normalizeKey(row?.TipoBase || row?.Tipo || row?.["Codice Rilievo"] || "");
+  return tipo.includes("OSS");
+}
+
+function buildRilieviFlagsByElaborato(rows: any[]) {
+  const map: Record<string, { hasNC: boolean; hasOSS: boolean; sourceRow?: any }> = {};
+
+  for (const row of rows) {
+    const key = elaboratoAggregationKey(row?.["Codice Elaborato"] || "");
+    if (!key) continue;
+
+    if (!map[key]) map[key] = { hasNC: false, hasOSS: false, sourceRow: row };
+
+    if (isRilievoOSS(row)) {
+      map[key].hasOSS = true;
+    } else {
+      map[key].hasNC = true;
+    }
+
+    if (!map[key].sourceRow) map[key].sourceRow = row;
+  }
+
+  return map;
+}
+
+function applyRilieviFlagsToElaborati(
+  elaborati: ElaboratoVerificatoRow[],
+  rows: any[]
+) {
+  const flagsByElaborato = buildRilieviFlagsByElaborato(rows);
+  const existingKeys = new Set<string>();
+
+  const withFlags = elaborati.map((e) => {
+    const key = elaboratoAggregationKey(e.codice_file || e.codice_elaborato);
+    if (key) existingKeys.add(key);
+
+    const flags = key ? flagsByElaborato[key] : null;
+    const hasNC = !!flags?.hasNC;
+    const hasOSS = !!flags?.hasOSS;
+
+    return {
+      ...e,
+      presenza_nc: hasNC ? "X" : "",
+      presenza_oss: hasOSS ? "X" : "",
+      assenza_nc_oss: !hasNC && !hasOSS ? "X" : "",
+    };
+  });
+
+  for (const [key, flags] of Object.entries(flagsByElaborato)) {
+    if (!key || existingKeys.has(key)) continue;
+
+    const row = flags.sourceRow || {};
+    const codiceFile = extractCodiceElaborato(row?.["Codice Elaborato"] || "");
+    if (!codiceFile) continue;
+
+    withFlags.push({
+      codice_elaborato: getElaboratoBase(codiceFile),
+      codice_file: codiceFile,
+      revisione: row?.Revisione || getRevisioneDaCodice(codiceFile),
+      titolo_elaborato: row?.["Titolo Elaborato"] || codiceFile,
+      disciplina: row?.Disciplina || disciplinaFromCodice(codiceFile),
+      presenza_nc: flags.hasNC ? "X" : "",
+      presenza_oss: flags.hasOSS ? "X" : "",
+      assenza_nc_oss: !flags.hasNC && !flags.hasOSS ? "X" : "",
+    });
+
+    existingKeys.add(key);
+  }
+
+  return withFlags;
+}
+
 function bestBcfMatchForTodo(bcfTopics: BcfTopicData[], todo: any) {
   const titoloTodo = findValue(todo, ["Title", "Titolo", "TITLE", "Topic", "Nome"]);
   const descrizioneTodo = findValue(todo, ["Description", "Descrizione"]);
@@ -1178,26 +1267,18 @@ export async function POST(req: Request) {
           findValue(e, ["Disciplina", "DISCIPLINA", "Oggetto", "OGGETTO"]) ||
           disciplinaFromCodice(codicePulito);
 
-        const hasNC = finalRows.some(
-          (r) => sameElaboratoCode(r["Codice Elaborato"], codicePulito) && r.TipoBase === "NC"
-        );
-
-        const hasOSS = finalRows.some(
-          (r) => sameElaboratoCode(r["Codice Elaborato"], codicePulito) && r.TipoBase === "OSS"
-        );
-
         return {
           codice_elaborato: codiceSenzaRev,
           codice_file: codicePulito,
           revisione,
           titolo_elaborato: titoloElenco,
           disciplina: disciplinaElaborato,
-          presenza_nc: hasNC ? "X" : "",
-          presenza_oss: hasOSS ? "X" : "",
-          assenza_nc_oss: !hasNC && !hasOSS ? "X" : "",
+          presenza_nc: "",
+          presenza_oss: "",
+          assenza_nc_oss: "X",
         };
       })
-      .filter(Boolean) as any[];
+      .filter(Boolean) as ElaboratoVerificatoRow[];
 
     const discipline = Array.from(
       new Set(
@@ -1218,6 +1299,11 @@ export async function POST(req: Request) {
 
       let elaboratiVerificati = elaboratiVerificatiAll.filter((e) =>
         sameDisciplina(e.disciplina || "", disciplina)
+      );
+
+      elaboratiVerificati = applyRilieviFlagsToElaborati(
+        elaboratiVerificati,
+        rowsDisciplina
       );
 
       const elencoDisciplina = elencoRows.filter((e: any) =>
@@ -1279,6 +1365,11 @@ export async function POST(req: Request) {
             assenza_nc_oss: "X",
           };
         });
+
+        elaboratiVerificati = applyRilieviFlagsToElaborati(
+          elaboratiVerificati,
+          rowsDisciplina
+        );
       }
 
       const progressivi: Record<string, number> = { NC: 0, OSS: 0 };
