@@ -502,13 +502,13 @@ export default function AppProgettiUpload() {
             active: true,
             external: true,
           },
-          { title: "Verifiche preliminari", subtitle: "Coming soon", url: "", active: fal{
-  title: "Verifiche preliminari",
-  subtitle: "Modulo operativo attivo",
-  url: "/verifiche-preliminari",
-  active: true,
-  external: false,
-},se, external: false },
+          {
+            title: "Verifiche preliminari",
+            subtitle: "Modulo operativo attivo",
+            url: "/verifiche-preliminari",
+            active: true,
+            external: false,
+          },
           {
             title: "Schede ispettive",
             subtitle: "Modulo operativo attivo",
