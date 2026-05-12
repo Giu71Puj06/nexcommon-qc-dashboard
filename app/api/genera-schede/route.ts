@@ -68,6 +68,7 @@ type BcfTopicData = {
   topicGuid: string;
   titolo: string;
   descrizione: string;
+  descrizioneConData: string;
   ispettore: string;
   ispettoreNomeBcf: string;
   labels: string;
@@ -151,6 +152,18 @@ function getCommentDateValue(c: any) {
       c?.["@_Date"] ||
       c?.["@_CreationDate"] ||
       c?.["@_ModifiedDate"] ||
+      ""
+  ).trim();
+}
+
+function getTopicDateValue(topic: any) {
+  return String(
+    topic?.CreationDate ||
+      topic?.Date ||
+      topic?.ModifiedDate ||
+      topic?.["@_CreationDate"] ||
+      topic?.["@_Date"] ||
+      topic?.["@_ModifiedDate"] ||
       ""
   ).trim();
 }
@@ -851,6 +864,10 @@ export async function POST(req: Request) {
           topicGuid: topicGuid || existing?.topicGuid || "",
           titolo: topicTitle || existing?.titolo || "",
           descrizione: topicDescription || existing?.descrizione || "",
+          descrizioneConData:
+            topicDescription
+              ? prefixCommentWithDate(topicDescription, getTopicDateValue(topic))
+              : existing?.descrizioneConData || existing?.descrizione || "",
           ispettore:
             existing?.ispettore ||
             siglaDaNome(ispettoreNomeBcf || topicAuthor),
@@ -959,7 +976,11 @@ export async function POST(req: Request) {
             reportInfo.revisione ||
             getRevisioneDaCodice(codiceElaborato || titoloTodo),
           Tipo: tags || tipoBase,
-          "Descrizione Rilievo": descrizioneTodo || bcf?.descrizione || "",
+          "Descrizione Rilievo":
+            bcf?.descrizioneConData ||
+            bcf?.descrizione ||
+            descrizioneTodo ||
+            "",
           Ispettore: ispettoreFinale,
           "Risposta Progettista PRG": bcf?.commentiPRG || "",
           "Riscontro Ispettore ISP": bcf?.commentiISP || "",
