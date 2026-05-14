@@ -6,6 +6,8 @@ import * as XLSX from "xlsx";
 
 type CheckRow = {
   rowNumber: number;
+  progressivo: number;
+  label: string;
   title: string;
   codiceTitleTrimble: string;
   codiceReport: string;
@@ -43,8 +45,6 @@ function isDescrizioneGenerale(value: string) {
   if (!text) return false;
   if (/\.pdf/i.test(text)) return false;
 
-  // Se non contiene numeri o codici tecnici, lo considero testo descrittivo.
-  // Esempi validi: "RILIEVO GENERALE", "Manca elaborato", "Elaborato assente".
   const hasNumber = /\d/.test(text);
   const hasCodeSeparators = /[-_]/.test(text);
   const looksLikeCode = hasNumber && (hasCodeSeparators || normalized.length > 8);
@@ -136,7 +136,7 @@ export default function ControlloTodoIspettoriPage() {
     const map = new Map<string, string>();
 
     reportRows.slice(1).forEach((row) => {
-      const codiceReport = String(row[2] || "").trim(); // Colonna C "Codice elaborato"
+      const codiceReport = String(row[2] || "").trim();
       const normalized = normalizeCode(codiceReport);
 
       if (normalized && normalized !== "NAN") {
@@ -151,7 +151,7 @@ export default function ControlloTodoIspettoriPage() {
     const set = new Set<string>();
 
     elencoRows.slice(1).forEach((row) => {
-      const disciplina = String(row[5] || "").trim(); // Colonna F "DISCIPLINA"
+      const disciplina = String(row[5] || "").trim();
 
       if (disciplina) {
         set.add(disciplina.toLowerCase());
@@ -163,6 +163,7 @@ export default function ControlloTodoIspettoriPage() {
 
   const checks: CheckRow[] = useMemo(() => {
     return todoRows.slice(1).map((row, index) => {
+      const label = String(row[0] || "").trim(); // Colonna A "Label" ToDo
       const title = String(row[1] || "").trim(); // Colonna B "Title" ToDo
       const status = String(row[5] || "").trim(); // Colonna F "Status" ToDo
       const disciplina = String(row[8] || "").trim(); // Colonna I "Assignee(s)" ToDo
@@ -184,7 +185,6 @@ export default function ControlloTodoIspettoriPage() {
       } else if (titleContienePdf) {
         anomalie.push("Il Title contiene .pdf");
       } else if (titleDescrittivo) {
-        // Caso ammesso: es. "RILIEVO GENERALE" o testo descrittivo per elaborato mancante.
         titleOk = true;
       } else if (!codiceReport) {
         anomalie.push("Codice elaborato non presente nel Report_Completo.xlsx");
@@ -203,7 +203,8 @@ export default function ControlloTodoIspettoriPage() {
         !!disciplina && disciplineAmmesse.has(disciplina.toLowerCase());
 
       if (!disciplina) anomalie.push("Disciplina mancante");
-      else if (!disciplinaOk) anomalie.push("Disciplina non presente in ELENCO_ELABORATI.xlsx");
+      else if (!disciplinaOk)
+        anomalie.push("Disciplina non presente in ELENCO_ELABORATI.xlsx");
 
       const statusOk = STATUS_AMMESSI.some(
         (s) => s.toLowerCase() === status.toLowerCase()
@@ -217,6 +218,8 @@ export default function ControlloTodoIspettoriPage() {
 
       return {
         rowNumber: index + 2,
+        progressivo: index + 1,
+        label,
         title,
         codiceTitleTrimble,
         codiceReport,
@@ -239,11 +242,30 @@ export default function ControlloTodoIspettoriPage() {
   const completezza = totale > 0 ? Math.round((ok / totale) * 100) : 0;
 
   const completezzaColor =
-    completezza === 100
-      ? "#16a34a"
-      : completezza >= 51
-      ? "#f59e0b"
-      : "#dc2626";
+    completezza === 100 ? "#16a34a" : completezza >= 51 ? "#f59e0b" : "#dc2626";
+
+  function esportaExcel() {
+    const rows = checks.map((row) => ({
+      "N.": `${row.progressivo}${row.label ? ` (${row.label})` : ""}`,
+      "Codice elaborato Report": row.codiceReport || "",
+      "Codice elaborato nel Title Trimble": row.codiceTitleTrimble || "",
+      "Esito codice": row.titleOk ? "OK" : "ERRORE",
+      Tags: row.tags || "",
+      "Esito Tags": row.tagsOk ? "OK" : "ERRORE",
+      Disciplina: row.disciplina || "",
+      "Esito Disciplina": row.disciplinaOk ? "OK" : "ERRORE",
+      Status: row.status || "",
+      "Esito Status": row.statusOk ? "OK" : "ERRORE",
+      Esito: row.esito,
+      Anomalie: row.anomalie.join(" | "),
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Controllo ToDo");
+    XLSX.writeFile(workbook, "Report_Controllo_ToDo_Ispettori.xlsx");
+  }
 
   return (
     <main
@@ -374,7 +396,32 @@ export default function ControlloTodoIspettoriPage() {
           </div>
 
           <div style={{ marginTop: 28, ...cardStyle }}>
-            <h2 style={{ marginTop: 0 }}>Report controllo ToDo</h2>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 16,
+                marginBottom: 16,
+              }}
+            >
+              <h2 style={{ margin: 0 }}>Report controllo ToDo</h2>
+
+              <button
+                onClick={esportaExcel}
+                style={{
+                  padding: "10px 16px",
+                  background: "#16a34a",
+                  color: "white",
+                  border: "none",
+                  borderRadius: 10,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                Esporta Excel
+              </button>
+            </div>
 
             <div style={{ overflowX: "auto" }}>
               <table
@@ -386,7 +433,7 @@ export default function ControlloTodoIspettoriPage() {
               >
                 <thead>
                   <tr style={{ background: "#f8fafc" }}>
-                    <th style={th}>Riga</th>
+                    <th style={th}>N.</th>
                     <th style={th}>Codice elaborato Report</th>
                     <th style={th}>Codice elaborato nel Title Trimble</th>
                     <th style={th}>Esito codice</th>
@@ -401,7 +448,10 @@ export default function ControlloTodoIspettoriPage() {
                 <tbody>
                   {checks.map((row) => (
                     <tr key={row.rowNumber}>
-                      <td style={td}>{row.rowNumber}</td>
+                      <td style={td}>
+                        {row.progressivo}
+                        {row.label ? ` (${row.label})` : ""}
+                      </td>
 
                       <td style={td}>{row.codiceReport || ""}</td>
 
@@ -432,9 +482,7 @@ export default function ControlloTodoIspettoriPage() {
                         {row.disciplina || "-"}{" "}
                         <b
                           style={{
-                            color: row.disciplinaOk
-                              ? "#16a34a"
-                              : "#dc2626",
+                            color: row.disciplinaOk ? "#16a34a" : "#dc2626",
                           }}
                         >
                           {esitoIcon(row.disciplinaOk)}
