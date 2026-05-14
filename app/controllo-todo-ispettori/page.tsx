@@ -22,6 +22,18 @@ type CheckRow = {
   anomalie: string[];
 };
 
+type Filters = {
+  n: string;
+  codiceReport: string;
+  codiceTitleTrimble: string;
+  esitoCodice: string;
+  tags: string;
+  disciplina: string;
+  status: string;
+  esito: string;
+  anomalie: string;
+};
+
 const TAGS_AMMESSI = ["NC", "OSS", "Nessun rilievo", "Da NC a OSS"];
 const STATUS_AMMESSI = ["New", "Closed"];
 
@@ -108,6 +120,25 @@ export default function ControlloTodoIspettoriPage() {
 
   const [loading, setLoading] = useState(false);
 
+  const [filters, setFilters] = useState<Filters>({
+    n: "",
+    codiceReport: "",
+    codiceTitleTrimble: "",
+    esitoCodice: "",
+    tags: "",
+    disciplina: "",
+    status: "",
+    esito: "",
+    anomalie: "",
+  });
+
+  function updateFilter(key: keyof Filters, value: string) {
+    setFilters((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
+  }
+
   async function eseguiControllo() {
     if (!todoFile || !reportFile || !elencoFile) {
       alert("Carica ToDo XLSX, Report_Completo.xlsx ed ELENCO_ELABORATI.xlsx.");
@@ -163,11 +194,11 @@ export default function ControlloTodoIspettoriPage() {
 
   const checks: CheckRow[] = useMemo(() => {
     return todoRows.slice(1).map((row, index) => {
-      const label = String(row[0] || "").trim(); // Colonna A "Label" ToDo
-      const title = String(row[1] || "").trim(); // Colonna B "Title" ToDo
-      const status = String(row[5] || "").trim(); // Colonna F "Status" ToDo
-      const disciplina = String(row[8] || "").trim(); // Colonna I "Assignee(s)" ToDo
-      const tags = String(row[9] || "").trim(); // Colonna J "Tags" ToDo
+      const label = String(row[0] || "").trim();
+      const title = String(row[1] || "").trim();
+      const status = String(row[5] || "").trim();
+      const disciplina = String(row[8] || "").trim();
+      const tags = String(row[9] || "").trim();
 
       const anomalie: string[] = [];
 
@@ -236,6 +267,33 @@ export default function ControlloTodoIspettoriPage() {
     });
   }, [todoRows, reportCodes, disciplineAmmesse]);
 
+  const filteredChecks = useMemo(() => {
+    return checks.filter((row) => {
+      const n = `${row.progressivo}${row.label ? ` (${row.label})` : ""}`;
+      const esitoCodice = row.titleOk ? "OK" : "ERRORE";
+      const anomalie = row.anomalie.join(" | ");
+
+      return (
+        n.toLowerCase().includes(filters.n.toLowerCase()) &&
+        row.codiceReport
+          .toLowerCase()
+          .includes(filters.codiceReport.toLowerCase()) &&
+        row.codiceTitleTrimble
+          .toLowerCase()
+          .includes(filters.codiceTitleTrimble.toLowerCase()) &&
+        (filters.esitoCodice === "" ||
+          esitoCodice === filters.esitoCodice) &&
+        row.tags.toLowerCase().includes(filters.tags.toLowerCase()) &&
+        row.disciplina
+          .toLowerCase()
+          .includes(filters.disciplina.toLowerCase()) &&
+        row.status.toLowerCase().includes(filters.status.toLowerCase()) &&
+        (filters.esito === "" || row.esito === filters.esito) &&
+        anomalie.toLowerCase().includes(filters.anomalie.toLowerCase())
+      );
+    });
+  }, [checks, filters]);
+
   const totale = checks.length;
   const ok = checks.filter((r) => r.esito === "OK").length;
   const errori = checks.filter((r) => r.esito === "ERRORE").length;
@@ -245,7 +303,7 @@ export default function ControlloTodoIspettoriPage() {
     completezza === 100 ? "#16a34a" : completezza >= 51 ? "#f59e0b" : "#dc2626";
 
   function esportaExcel() {
-    const rows = checks.map((row) => ({
+    const rows = filteredChecks.map((row) => ({
       "N.": `${row.progressivo}${row.label ? ` (${row.label})` : ""}`,
       "Codice elaborato Report": row.codiceReport || "",
       "Codice elaborato nel Title Trimble": row.codiceTitleTrimble || "",
@@ -405,7 +463,12 @@ export default function ControlloTodoIspettoriPage() {
                 marginBottom: 16,
               }}
             >
-              <h2 style={{ margin: 0 }}>Report controllo ToDo</h2>
+              <div>
+                <h2 style={{ margin: 0 }}>Report controllo ToDo</h2>
+                <div style={{ marginTop: 6, color: "#64748b", fontSize: 13 }}>
+                  Righe visualizzate: {filteredChecks.length} su {checks.length}
+                </div>
+              </div>
 
               <button
                 onClick={esportaExcel}
@@ -443,10 +506,109 @@ export default function ControlloTodoIspettoriPage() {
                     <th style={th}>Esito</th>
                     <th style={th}>Anomalie</th>
                   </tr>
+
+                  <tr style={{ background: "white" }}>
+                    <th style={th}>
+                      <input
+                        value={filters.n}
+                        onChange={(e) => updateFilter("n", e.target.value)}
+                        placeholder="Filtra N."
+                        style={filterInput}
+                      />
+                    </th>
+
+                    <th style={th}>
+                      <input
+                        value={filters.codiceReport}
+                        onChange={(e) =>
+                          updateFilter("codiceReport", e.target.value)
+                        }
+                        placeholder="Filtra codice"
+                        style={filterInput}
+                      />
+                    </th>
+
+                    <th style={th}>
+                      <input
+                        value={filters.codiceTitleTrimble}
+                        onChange={(e) =>
+                          updateFilter("codiceTitleTrimble", e.target.value)
+                        }
+                        placeholder="Filtra title"
+                        style={filterInput}
+                      />
+                    </th>
+
+                    <th style={th}>
+                      <select
+                        value={filters.esitoCodice}
+                        onChange={(e) =>
+                          updateFilter("esitoCodice", e.target.value)
+                        }
+                        style={filterInput}
+                      >
+                        <option value="">Tutti</option>
+                        <option value="OK">OK</option>
+                        <option value="ERRORE">ERRORE</option>
+                      </select>
+                    </th>
+
+                    <th style={th}>
+                      <input
+                        value={filters.tags}
+                        onChange={(e) => updateFilter("tags", e.target.value)}
+                        placeholder="Filtra tags"
+                        style={filterInput}
+                      />
+                    </th>
+
+                    <th style={th}>
+                      <input
+                        value={filters.disciplina}
+                        onChange={(e) =>
+                          updateFilter("disciplina", e.target.value)
+                        }
+                        placeholder="Filtra disciplina"
+                        style={filterInput}
+                      />
+                    </th>
+
+                    <th style={th}>
+                      <input
+                        value={filters.status}
+                        onChange={(e) => updateFilter("status", e.target.value)}
+                        placeholder="Filtra status"
+                        style={filterInput}
+                      />
+                    </th>
+
+                    <th style={th}>
+                      <select
+                        value={filters.esito}
+                        onChange={(e) => updateFilter("esito", e.target.value)}
+                        style={filterInput}
+                      >
+                        <option value="">Tutti</option>
+                        <option value="OK">OK</option>
+                        <option value="ERRORE">ERRORE</option>
+                      </select>
+                    </th>
+
+                    <th style={th}>
+                      <input
+                        value={filters.anomalie}
+                        onChange={(e) =>
+                          updateFilter("anomalie", e.target.value)
+                        }
+                        placeholder="Filtra anomalie"
+                        style={filterInput}
+                      />
+                    </th>
+                  </tr>
                 </thead>
 
                 <tbody>
-                  {checks.map((row) => (
+                  {filteredChecks.map((row) => (
                     <tr key={row.rowNumber}>
                       <td style={td}>
                         {row.progressivo}
@@ -513,6 +675,14 @@ export default function ControlloTodoIspettoriPage() {
                       <td style={td}>{row.anomalie.join(" | ")}</td>
                     </tr>
                   ))}
+
+                  {filteredChecks.length === 0 && (
+                    <tr>
+                      <td style={td} colSpan={9}>
+                        Nessuna riga trovata con i filtri impostati.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -535,6 +705,15 @@ const inputStyle: React.CSSProperties = {
   display: "block",
   width: "100%",
   marginTop: 10,
+};
+
+const filterInput: React.CSSProperties = {
+  width: "100%",
+  padding: "6px 8px",
+  border: "1px solid #cbd5e1",
+  borderRadius: 6,
+  fontSize: 12,
+  boxSizing: "border-box",
 };
 
 const kpiLabel: React.CSSProperties = {
