@@ -1199,7 +1199,6 @@ async function postProcessSchedaIspettivaDocx(
   let documentXml = await documentFile.async("string");
 
   documentXml = ensureDocumentNamespaces(documentXml);
-  documentXml = repeatTableHeaderRows(documentXml);
   documentXml = applyClosedRowsGreyText(documentXml);
   documentXml = applyImageLinksToRilieviCells(documentXml, immaginiAllegate);
   documentXml = appendSintesiAfterLastTable(documentXml, sintesi);
