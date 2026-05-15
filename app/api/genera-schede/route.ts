@@ -371,6 +371,12 @@ async function collectImageAttachments(formData: FormData) {
   const images: ImageAttachment[] = [];
   const seen = new Set<string>();
 
+  const hasImmagini = String(formData.get("has_immagini") || "false") === "true";
+
+  if (!hasImmagini) {
+    return images;
+  }
+
   async function addImage(fileName: string, buffer: Buffer) {
     const tr = normalizeTR(fileName);
     const contentType = getImageContentType(fileName);
@@ -392,45 +398,62 @@ async function collectImageAttachments(formData: FormData) {
     });
   }
 
-  const directFiles = [
-    ...formData.getAll("foto"),
-    ...formData.getAll("immagini"),
-  ];
+  try {
+    const directFiles = [
+      ...formData.getAll("foto"),
+      ...formData.getAll("immagini"),
+    ];
 
-  for (const entry of directFiles) {
-    const file = entry as File;
-    if (!file || typeof file.arrayBuffer !== "function") continue;
-    await addImage(file.name, Buffer.from(await file.arrayBuffer()));
+    for (const entry of directFiles) {
+      const file = entry as File;
+      if (!file || typeof file.arrayBuffer !== "function") continue;
+
+      await addImage(file.name, Buffer.from(await file.arrayBuffer()));
+    }
+  } catch (err) {
+    console.warn("Errore lettura immagini singole. Continuo senza immagini.", err);
   }
 
-  const zipFiles = [
-    ...formData.getAll("fotoZip"),
-    ...formData.getAll("immaginiZip"),
-  ];
+  try {
+    const zipFiles = [
+      ...formData.getAll("fotoZip"),
+      ...formData.getAll("immaginiZip"),
+    ];
 
-  for (const entry of zipFiles) {
-    const zipFile = entry as File;
-    if (!zipFile || typeof zipFile.arrayBuffer !== "function") continue;
+    for (const entry of zipFiles) {
+      const zipFile = entry as File;
+      if (!zipFile || typeof zipFile.arrayBuffer !== "function") continue;
 
-    const zip = await JSZip.loadAsync(Buffer.from(await zipFile.arrayBuffer()));
+      try {
+        const zip = await JSZip.loadAsync(
+          Buffer.from(await zipFile.arrayBuffer())
+        );
 
-    for (const fileName of Object.keys(zip.files)) {
-      const zipEntry = zip.files[fileName];
-      if (zipEntry.dir) continue;
+        for (const fileName of Object.keys(zip.files)) {
+          const zipEntry = zip.files[fileName];
+          if (zipEntry.dir) continue;
 
-      const contentType = getImageContentType(fileName);
-      if (!contentType) continue;
+          const contentType = getImageContentType(fileName);
+          if (!contentType) continue;
 
-      await addImage(
-        fileName.split("/").pop() || fileName,
-        await zipEntry.async("nodebuffer")
-      );
+          await addImage(
+            fileName.split("/").pop() || fileName,
+            await zipEntry.async("nodebuffer")
+          );
+        }
+      } catch (zipErr) {
+        console.warn(
+          `ZIP immagini non valido o non leggibile: ${zipFile.name}. Continuo senza immagini.`,
+          zipErr
+        );
+      }
     }
+  } catch (err) {
+    console.warn("Errore lettura ZIP immagini. Continuo senza immagini.", err);
   }
 
   return images;
 }
-
 function buildImagesByTR(images: ImageAttachment[]) {
   const map: Record<string, ImageAttachment[]> = {};
 
