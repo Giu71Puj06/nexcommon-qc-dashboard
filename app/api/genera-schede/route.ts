@@ -906,33 +906,6 @@ function applyClosedRowsGreyText(documentXml: string) {
   });
 }
 
-    return tableXml.replace(/<w:tr\b[^>]*>[\s\S]*?<\/w:tr>/, (headerRowXml) => {
-      let rowXml = headerRowXml;
-
-      if (rowXml.includes("<w:tblHeader")) {
-        if (!rowXml.includes("<w:cantSplit")) {
-          rowXml = rowXml.replace(/<w:trPr\b([^>]*)>/, '<w:trPr$1><w:cantSplit/>');
-        }
-        return rowXml;
-      }
-
-      if (/<w:trPr\b[^>]*>/.test(rowXml)) {
-        rowXml = rowXml.replace(
-          /<w:trPr\b([^>]*)>/,
-          '<w:trPr$1><w:tblHeader w:val="true"/><w:cantSplit/>'
-        );
-      } else {
-        rowXml = rowXml.replace(
-          /<w:tr\b([^>]*)>/,
-          '<w:tr$1><w:trPr><w:tblHeader w:val="true"/><w:cantSplit/></w:trPr>'
-        );
-      }
-
-      return rowXml;
-    });
-  });
-}
-
 function buildSintesiFinaleDocxXml(sintesi: SchedaIspettivaSintesi) {
   const rows: Array<[string, number]> = [
     ["Totale elaborati verificati", sintesi.totaleElaboratiAnalizzati],
