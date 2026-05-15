@@ -50,12 +50,20 @@ export default function SchedeIspettivePage() {
         fd.append("bcfzip", file);
       });
 
-      fotoFiles.forEach((file) => {
-        fd.append("foto", file);
-        fd.append("immagini", file);
-      });
+      const hasFotoSingole = fotoFiles.length > 0;
+      const hasFotoZip = fotoZip !== null;
+      const hasImmagini = hasFotoSingole || hasFotoZip;
 
-      if (fotoZip) {
+      fd.append("has_immagini", hasImmagini ? "true" : "false");
+
+      if (hasFotoSingole) {
+        fotoFiles.forEach((file) => {
+          fd.append("foto", file);
+          fd.append("immagini", file);
+        });
+      }
+
+      if (hasFotoZip && fotoZip) {
         fd.append("fotoZip", fotoZip);
         fd.append("immaginiZip", fotoZip);
       }
@@ -122,7 +130,7 @@ export default function SchedeIspettivePage() {
         <p style={{ fontSize: 20, marginBottom: 24 }}>
           Modulo per generare schede ispettive da ToDo Trimble, uno o più
           BCFZIP, elenco elaborati, file elaborati progettisti, immagini
-          allegate e template Word.
+          allegate opzionali e template Word.
         </p>
 
         <div style={{ display: "grid", gap: 18, maxWidth: 820 }}>
@@ -166,7 +174,7 @@ export default function SchedeIspettivePage() {
           )}
 
           <label>
-            <b>Cartella immagini allegate</b>
+            <b>Cartella immagini allegate opzionale</b>
             <input
               type="file"
               accept=".png,.jpg,.jpeg,.webp"
@@ -184,9 +192,10 @@ export default function SchedeIspettivePage() {
               style={inputStyle}
             />
             <div style={helpStyle}>
-              Carica la cartella sicurezza con immagini tipo
-              IT22-026_foto.png. Il sistema le collegherà a TR-26,
-              ignorando gli zeri iniziali.
+              Campo opzionale. Se non carichi immagini, le schede verranno
+              generate comunque. Carica la cartella sicurezza con immagini tipo
+              IT22-026_foto.png. Il sistema le collegherà a TR-26, ignorando gli
+              zeri iniziali.
             </div>
           </label>
 
@@ -205,7 +214,7 @@ export default function SchedeIspettivePage() {
           )}
 
           <label>
-            <b>ZIP immagini allegate</b>
+            <b>ZIP immagini allegate opzionale</b>
             <input
               type="file"
               accept=".zip"
@@ -213,10 +222,17 @@ export default function SchedeIspettivePage() {
               style={inputStyle}
             />
             <div style={helpStyle}>
-              In alternativa alla cartella, puoi caricare uno ZIP con le
-              immagini allegate.
+              Campo opzionale. In alternativa alla cartella, puoi caricare uno
+              ZIP con le immagini allegate. Se manca, la generazione prosegue
+              senza immagini.
             </div>
           </label>
+
+          {fotoZip && (
+            <div style={{ fontSize: 14, color: "#475569" }}>
+              ZIP immagini caricato: {fotoZip.name}
+            </div>
+          )}
 
           <label>
             <b>Elenco Elaborati XLSX</b>
