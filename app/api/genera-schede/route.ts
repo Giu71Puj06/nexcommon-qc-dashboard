@@ -906,14 +906,6 @@ function applyClosedRowsGreyText(documentXml: string) {
   });
 }
 
-function repeatTableHeaderRows(documentXml: string) {
-  return documentXml.replace(/<w:tbl\b[^>]*>[\s\S]*?<\/w:tbl>/g, (tableXml) => {
-    const tableText = getPlainTextFromWordXml(tableXml).toUpperCase();
-
-    if (!tableText.includes("CODICE ELABORATO") || !tableText.includes("RILIEVI ITS")) {
-      return tableXml;
-    }
-
     return tableXml.replace(/<w:tr\b[^>]*>[\s\S]*?<\/w:tr>/, (headerRowXml) => {
       let rowXml = headerRowXml;
 
