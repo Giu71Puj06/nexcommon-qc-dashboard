@@ -96,14 +96,6 @@ type SchedaIspettivaSintesi = {
   totaleChiuse: number;
 };
 
-type ImageAttachment = {
-  tr: string;
-  fileName: string;
-  contentType: string;
-  ext: string;
-  buffer: Buffer;
-  bookmarkName: string;
-};
 
 function descrizioneRevisioneScheda(rev: string) {
   const n = Number(String(rev || "0").trim());
@@ -342,129 +334,6 @@ function normalizeTR(value: string) {
   return "";
 }
 
-function safeBookmarkName(value: string) {
-  return `IMG_${normalizeTR(value).replace(/[^A-Z0-9]/g, "_")}`;
-}
-
-function getImageContentType(fileName: string) {
-  const lower = String(fileName || "").toLowerCase();
-
-  if (lower.endsWith(".png")) return "image/png";
-  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
-  if (lower.endsWith(".webp")) return "image/webp";
-
-  return "";
-}
-
-function getImageExt(fileName: string) {
-  const lower = String(fileName || "").toLowerCase();
-
-  if (lower.endsWith(".png")) return "png";
-  if (lower.endsWith(".jpg")) return "jpg";
-  if (lower.endsWith(".jpeg")) return "jpeg";
-  if (lower.endsWith(".webp")) return "webp";
-
-  return "";
-}
-
-async function collectImageAttachments(formData: FormData) {
-  const images: ImageAttachment[] = [];
-  const seen = new Set<string>();
-
-  const hasImmagini = String(formData.get("has_immagini") || "false") === "true";
-
-  if (!hasImmagini) {
-    return images;
-  }
-
-  async function addImage(fileName: string, buffer: Buffer) {
-    const tr = normalizeTR(fileName);
-    const contentType = getImageContentType(fileName);
-    const ext = getImageExt(fileName);
-
-    if (!tr || !contentType || !ext) return;
-
-    const key = `${tr}_${fileName}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-
-    images.push({
-      tr,
-      fileName,
-      contentType,
-      ext,
-      buffer,
-      bookmarkName: safeBookmarkName(tr),
-    });
-  }
-
-  try {
-    const directFiles = [
-      ...formData.getAll("foto"),
-      ...formData.getAll("immagini"),
-    ];
-
-    for (const entry of directFiles) {
-      const file = entry as File;
-      if (!file || typeof file.arrayBuffer !== "function") continue;
-
-      await addImage(file.name, Buffer.from(await file.arrayBuffer()));
-    }
-  } catch (err) {
-    console.warn("Errore lettura immagini singole. Continuo senza immagini.", err);
-  }
-
-  try {
-    const zipFiles = [
-      ...formData.getAll("fotoZip"),
-      ...formData.getAll("immaginiZip"),
-    ];
-
-    for (const entry of zipFiles) {
-      const zipFile = entry as File;
-      if (!zipFile || typeof zipFile.arrayBuffer !== "function") continue;
-
-      try {
-        const zip = await JSZip.loadAsync(
-          Buffer.from(await zipFile.arrayBuffer())
-        );
-
-        for (const fileName of Object.keys(zip.files)) {
-          const zipEntry = zip.files[fileName];
-          if (zipEntry.dir) continue;
-
-          const contentType = getImageContentType(fileName);
-          if (!contentType) continue;
-
-          await addImage(
-            fileName.split("/").pop() || fileName,
-            await zipEntry.async("nodebuffer")
-          );
-        }
-      } catch (zipErr) {
-        console.warn(
-          `ZIP immagini non valido o non leggibile: ${zipFile.name}. Continuo senza immagini.`,
-          zipErr
-        );
-      }
-    }
-  } catch (err) {
-    console.warn("Errore lettura ZIP immagini. Continuo senza immagini.", err);
-  }
-
-  return images;
-}
-
-function buildImagesByTR(images: ImageAttachment[]) {
-  const map: Record<string, ImageAttachment[]> = {};
-
-  images.forEach((img) => {
-    if (!map[img.tr]) map[img.tr] = [];
-    map[img.tr].push(img);
-  });
-
-  return map;
-}
 
 function cleanRolePrefix(text: string) {
   return String(text || "")
@@ -967,33 +836,6 @@ function appendSintesiAfterLastTable(documentXml: string, sintesi: SchedaIspetti
   return documentXml.slice(0, insertIndex) + sintesiXml + documentXml.slice(insertIndex);
 }
 
-function getNextRelationshipId(relsXml: string) {
-  const ids = Array.from(relsXml.matchAll(/Id="rId(\d+)"/g))
-    .map((m) => Number(m[1]))
-    .filter((n) => Number.isFinite(n));
-
-  return ids.length ? Math.max(...ids) + 1 : 1;
-}
-
-function ensureImageContentTypes(contentTypesXml: string, images: ImageAttachment[]) {
-  let xml = contentTypesXml;
-  const required: Record<string, string> = {};
-
-  images.forEach((img) => {
-    required[img.ext] = img.contentType;
-  });
-
-  Object.entries(required).forEach(([ext, contentType]) => {
-    if (xml.includes(`Extension="${ext}"`)) return;
-
-    xml = xml.replace(
-      "</Types>",
-      `<Default Extension="${escapeXml(ext)}" ContentType="${escapeXml(contentType)}"/></Types>`
-    );
-  });
-
-  return xml;
-}
 
 function ensureDocumentNamespaces(documentXml: string) {
   let xml = documentXml;
@@ -1013,171 +855,19 @@ function ensureDocumentNamespaces(documentXml: string) {
   return xml;
 }
 
-function buildImageDrawingXml(rId: string, name: string) {
-  return `
-  <w:p>
-    <w:pPr><w:spacing w:before="120" w:after="120"/></w:pPr>
-    <w:r>
-      <w:drawing>
-        <wp:inline distT="0" distB="0" distL="0" distR="0">
-          <wp:extent cx="5200000" cy="3600000"/>
-          <wp:effectExtent l="0" t="0" r="0" b="0"/>
-          <wp:docPr id="${Math.floor(Math.random() * 100000)}" name="${escapeXml(name)}"/>
-          <wp:cNvGraphicFramePr>
-            <a:graphicFrameLocks noChangeAspect="1"/>
-          </wp:cNvGraphicFramePr>
-          <a:graphic>
-            <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
-              <pic:pic>
-                <pic:nvPicPr>
-                  <pic:cNvPr id="0" name="${escapeXml(name)}"/>
-                  <pic:cNvPicPr/>
-                </pic:nvPicPr>
-                <pic:blipFill>
-                  <a:blip r:embed="${escapeXml(rId)}"/>
-                  <a:stretch><a:fillRect/></a:stretch>
-                </pic:blipFill>
-                <pic:spPr>
-                  <a:xfrm>
-                    <a:off x="0" y="0"/>
-                    <a:ext cx="5200000" cy="3600000"/>
-                  </a:xfrm>
-                  <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
-                </pic:spPr>
-              </pic:pic>
-            </a:graphicData>
-          </a:graphic>
-        </wp:inline>
-      </w:drawing>
-    </w:r>
-  </w:p>`;
-}
-
-function buildImmaginiAllegateXml(
-  images: ImageAttachment[],
-  rIdByImageKey: Record<string, string>
-) {
-  if (images.length === 0) return "";
-
-  const blocks = images
-    .map((img, index) => {
-      const bookmarkId = 9000 + index;
-      const title = `${img.tr} - ${img.fileName}`;
-      const rId = rIdByImageKey[`${img.tr}_${img.fileName}`];
-
-      return `
-      <w:p>
-        <w:pPr><w:spacing w:before="240" w:after="80"/></w:pPr>
-        <w:bookmarkStart w:id="${bookmarkId}" w:name="${escapeXml(img.bookmarkName)}"/>
-        <w:r><w:rPr><w:b/></w:rPr><w:t>${escapeXml(title)}</w:t></w:r>
-        <w:bookmarkEnd w:id="${bookmarkId}"/>
-      </w:p>
-      ${buildImageDrawingXml(rId, img.fileName)}
-      `;
-    })
-    .join("");
-
-  return `
-  <w:p>
-    <w:pPr><w:spacing w:before="360" w:after="160"/></w:pPr>
-    <w:r><w:rPr><w:b/><w:sz w:val="28"/></w:rPr><w:t>IMMAGINI ALLEGATE</w:t></w:r>
-  </w:p>
-  ${blocks}
-  <w:p/>`;
-}
-
-function applyImageLinksToRilieviCells(documentXml: string, images: ImageAttachment[]) {
-  if (images.length === 0) return documentXml;
-
-  return documentXml.replace(/<w:tc\b[^>]*>[\s\S]*?<\/w:tc>/g, (cellXml) => {
-    const plain = getPlainTextFromWordXml(cellXml);
-    const plainTr = normalizeTR(plain);
-
-    if (!plainTr || !/(NC|OSS)\s*\d+/i.test(plain)) return cellXml;
-
-    const matchedImage = images.find((img) => normalizeTR(img.tr) === plainTr);
-    if (!matchedImage) return cellXml;
-
-    const display =
-      plain.match(/(?:NC|OSS)\s*\d+\s*\(?\s*TR[-_\s]?\d+[A-Z]?\s*\)?/i)?.[0] ||
-      plain;
-
-    const tcPr = cellXml.match(/<w:tcPr\b[^>]*>[\s\S]*?<\/w:tcPr>/)?.[0] || "";
-
-    return `
-    <w:tc>
-      ${tcPr}
-      <w:p>
-        <w:hyperlink w:anchor="${escapeXml(matchedImage.bookmarkName)}">
-          <w:r>
-            <w:rPr>
-              <w:color w:val="0563C1"/>
-              <w:u w:val="single"/>
-            </w:rPr>
-            <w:t>${escapeXml(display)}</w:t>
-          </w:r>
-        </w:hyperlink>
-      </w:p>
-    </w:tc>`;
-  });
-}
 
 async function postProcessSchedaIspettivaDocx(
   buffer: Buffer,
-  sintesi: SchedaIspettivaSintesi,
-  immaginiAllegate: ImageAttachment[] = []
+  sintesi: SchedaIspettivaSintesi
 ) {
   const zip = await JSZip.loadAsync(buffer);
   const documentFile = zip.file("word/document.xml");
   if (!documentFile) return buffer;
 
-  const rIdByImageKey: Record<string, string> = {};
-
-  let relsXml =
-    (await zip.file("word/_rels/document.xml.rels")?.async("string")) ||
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`;
-
-  let nextRid = getNextRelationshipId(relsXml);
-
-  immaginiAllegate.forEach((img, index) => {
-    const mediaName = `image_nc_oss_${index + 1}_${safeName(img.tr)}.${img.ext}`;
-    const rId = `rId${nextRid++}`;
-
-    zip.file(`word/media/${mediaName}`, img.buffer);
-
-    relsXml = relsXml.replace(
-      "</Relationships>",
-      `<Relationship Id="${rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${escapeXml(mediaName)}"/></Relationships>`
-    );
-
-    rIdByImageKey[`${img.tr}_${img.fileName}`] = rId;
-  });
-
-  zip.file("word/_rels/document.xml.rels", relsXml);
-
-  const contentTypesFile = zip.file("[Content_Types].xml");
-  if (contentTypesFile) {
-    const contentTypesXml = await contentTypesFile.async("string");
-    zip.file("[Content_Types].xml", ensureImageContentTypes(contentTypesXml, immaginiAllegate));
-  }
-
   let documentXml = await documentFile.async("string");
 
-  documentXml = ensureDocumentNamespaces(documentXml);
   documentXml = applyClosedRowsGreyText(documentXml);
-  documentXml = applyImageLinksToRilieviCells(documentXml, immaginiAllegate);
   documentXml = appendSintesiAfterLastTable(documentXml, sintesi);
-
-  const immaginiXml = buildImmaginiAllegateXml(immaginiAllegate, rIdByImageKey);
-  if (immaginiXml) {
-    const bodyCloseIndex = documentXml.lastIndexOf("</w:body>");
-    if (bodyCloseIndex >= 0) {
-      documentXml =
-        documentXml.slice(0, bodyCloseIndex) +
-        immaginiXml +
-        documentXml.slice(bodyCloseIndex);
-    }
-  }
 
   zip.file("word/document.xml", documentXml);
 
@@ -1189,17 +879,6 @@ async function postProcessSchedaIspettivaDocx(
 export async function POST(req: Request) {
   try {
     const formData = await req.formData();
-
-    let immaginiAllegate: ImageAttachment[] = [];
-
-    try {
-      immaginiAllegate = await collectImageAttachments(formData);
-    } catch (err) {
-      console.warn("Immagini non disponibili. Continuo senza immagini.", err);
-      immaginiAllegate = [];
-    }
-
-    const immaginiByTR = buildImagesByTR(immaginiAllegate);
 
     const todoFile = formData.get("todo") as File;
     const bcfFiles = formData.getAll("bcf") as File[];
@@ -1802,12 +1481,6 @@ Totale documenti=${totaleDocumenti}`,
           type: "nodebuffer",
           compression: "DEFLATE",
         });
-
-        const immaginiDisciplina = rowsDisciplina.flatMap((r) => {
-          const tr = normalizeTR(r.CodiceTR || r.Label || r["Codice Rilievo"] || "");
-          return tr ? immaginiByTR[tr] || [] : [];
-        });
-
         buffer = await postProcessSchedaIspettivaDocx(
           buffer,
           {
@@ -1815,8 +1488,7 @@ Totale documenti=${totaleDocumenti}`,
             totaleNC: numeroNC,
             totaleOSS: numeroOSS,
             totaleChiuse: numeroChiuse,
-          },
-          immaginiDisciplina
+          }
         );
       } catch (e: any) {
         outputZip.file(
