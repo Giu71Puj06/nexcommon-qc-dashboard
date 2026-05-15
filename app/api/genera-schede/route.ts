@@ -454,6 +454,7 @@ async function collectImageAttachments(formData: FormData) {
 
   return images;
 }
+
 function buildImagesByTR(images: ImageAttachment[]) {
   const map: Record<string, ImageAttachment[]> = {};
 
@@ -905,6 +906,41 @@ function applyClosedRowsGreyText(documentXml: string) {
   });
 }
 
+function repeatTableHeaderRows(documentXml: string) {
+  return documentXml.replace(/<w:tbl\b[^>]*>[\s\S]*?<\/w:tbl>/g, (tableXml) => {
+    const tableText = getPlainTextFromWordXml(tableXml).toUpperCase();
+
+    if (!tableText.includes("CODICE ELABORATO") || !tableText.includes("RILIEVI ITS")) {
+      return tableXml;
+    }
+
+    return tableXml.replace(/<w:tr\b[^>]*>[\s\S]*?<\/w:tr>/, (headerRowXml) => {
+      let rowXml = headerRowXml;
+
+      if (rowXml.includes("<w:tblHeader")) {
+        if (!rowXml.includes("<w:cantSplit")) {
+          rowXml = rowXml.replace(/<w:trPr\b([^>]*)>/, '<w:trPr$1><w:cantSplit/>');
+        }
+        return rowXml;
+      }
+
+      if (/<w:trPr\b[^>]*>/.test(rowXml)) {
+        rowXml = rowXml.replace(
+          /<w:trPr\b([^>]*)>/,
+          '<w:trPr$1><w:tblHeader w:val="true"/><w:cantSplit/>'
+        );
+      } else {
+        rowXml = rowXml.replace(
+          /<w:tr\b([^>]*)>/,
+          '<w:tr$1><w:trPr><w:tblHeader w:val="true"/><w:cantSplit/></w:trPr>'
+        );
+      }
+
+      return rowXml;
+    });
+  });
+}
+
 function buildSintesiFinaleDocxXml(sintesi: SchedaIspettivaSintesi) {
   const rows: Array<[string, number]> = [
     ["Totale elaborati verificati", sintesi.totaleElaboratiAnalizzati],
@@ -1163,6 +1199,7 @@ async function postProcessSchedaIspettivaDocx(
   let documentXml = await documentFile.async("string");
 
   documentXml = ensureDocumentNamespaces(documentXml);
+  documentXml = repeatTableHeaderRows(documentXml);
   documentXml = applyClosedRowsGreyText(documentXml);
   documentXml = applyImageLinksToRilieviCells(documentXml, immaginiAllegate);
   documentXml = appendSintesiAfterLastTable(documentXml, sintesi);
@@ -1191,14 +1228,14 @@ export async function POST(req: Request) {
 
     let immaginiAllegate: ImageAttachment[] = [];
 
-try {
-  immaginiAllegate = await collectImageAttachments(formData);
-} catch (err) {
-  console.warn("Immagini non disponibili. Continuo senza immagini.", err);
-  immaginiAllegate = [];
-}
+    try {
+      immaginiAllegate = await collectImageAttachments(formData);
+    } catch (err) {
+      console.warn("Immagini non disponibili. Continuo senza immagini.", err);
+      immaginiAllegate = [];
+    }
 
-const immaginiByTR = buildImagesByTR(immaginiAllegate);
+    const immaginiByTR = buildImagesByTR(immaginiAllegate);
 
     const todoFile = formData.get("todo") as File;
     const bcfFiles = formData.getAll("bcf") as File[];
