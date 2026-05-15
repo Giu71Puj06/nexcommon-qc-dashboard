@@ -1189,8 +1189,16 @@ export async function POST(req: Request) {
   try {
     const formData = await req.formData();
 
-    const immaginiAllegate = await collectImageAttachments(formData);
-    const immaginiByTR = buildImagesByTR(immaginiAllegate);
+    let immaginiAllegate: ImageAttachment[] = [];
+
+try {
+  immaginiAllegate = await collectImageAttachments(formData);
+} catch (err) {
+  console.warn("Immagini non disponibili. Continuo senza immagini.", err);
+  immaginiAllegate = [];
+}
+
+const immaginiByTR = buildImagesByTR(immaginiAllegate);
 
     const todoFile = formData.get("todo") as File;
     const bcfFiles = formData.getAll("bcf") as File[];
