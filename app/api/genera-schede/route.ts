@@ -710,35 +710,19 @@ function applyRilieviFlagsToElaborati(
 }
 
 function getTodoRilievoText(todo: any) {
-  const descrizioneTodo = findValue(todo, [
+  // REGOLA CORRETTA:
+  // nella colonna "RILIEVI ITS CONTROLLI TECNICI" deve essere inserito SOLO
+  // il contenuto della colonna C "Description" del file Excel ToDo.
+  // Non usare Title, BCF, Report_Completo o testi aggregati.
+  return findValue(todo, [
     "Description",
     "Descrizione",
     "DESCRIZIONE",
-    "Commento",
-    "Testo",
-    "Rilievo",
-    "Rilievi ITS Controlli Tecnici",
-    "RILIEVI ITS CONTROLLI TECNICI",
   ]);
-
-  const titleTodo = findValue(todo, ["Title", "Titolo", "TITLE", "Topic", "Nome"]);
-
-  return descrizioneTodo || titleTodo || "";
 }
 
-function getRilievoItsText(todo: any, bcf?: BcfTopicData | null) {
-  // REGOLA CORRETTA:
-  // il rilievo ITS deve derivare da ToDo/BCF, non dal Report_Completo.
-  // Si usa prima la descrizione ToDo, poi la descrizione BCF con data.
-  const todoText = getTodoRilievoText(todo);
-
-  if (todoText) return todoText;
-
-  return (
-    bcf?.descrizioneConData ||
-    bcf?.descrizione ||
-    ""
-  );
+function getRilievoItsText(todo: any, _bcf?: BcfTopicData | null) {
+  return getTodoRilievoText(todo);
 }
 
 function getRispostaProgettistaText(bcf?: BcfTopicData | null) {
@@ -747,6 +731,31 @@ function getRispostaProgettistaText(bcf?: BcfTopicData | null) {
 
 function getRiscontroIspettoreText(bcf?: BcfTopicData | null) {
   return bcf?.commentiISP || "";
+}
+
+function buildElaboratiFromRowsDisciplina(rows: any[]) {
+  const map: Record<string, ElaboratoVerificatoRow> = {};
+
+  rows.forEach((row: any) => {
+    const codiceFile = extractCodiceElaborato(row?.["Codice Elaborato"] || "");
+    if (!codiceFile) return;
+
+    const key = elaboratoAggregationKey(codiceFile);
+    if (!key || map[key]) return;
+
+    map[key] = {
+      codice_elaborato: getElaboratoBase(codiceFile),
+      codice_file: codiceFile,
+      revisione: row?.Revisione || getRevisioneDaCodice(codiceFile),
+      titolo_elaborato: row?.["Titolo Elaborato"] || codiceFile,
+      disciplina: row?.Disciplina || disciplinaFromCodice(codiceFile),
+      presenza_nc: "",
+      presenza_oss: "",
+      assenza_nc_oss: "X",
+    };
+  });
+
+  return Object.values(map);
 }
 
 function bestBcfMatchForTodo(bcfTopics: BcfTopicData[], todo: any) {
@@ -951,7 +960,7 @@ export async function POST(req: Request) {
     const bcfFiles = formData.getAll("bcf") as File[];
     const elencoFile = formData.get("elenco") as File;
     const templateFile = formData.get("template") as File;
-    const reportFile = formData.get("files") as File | null;
+    const reportFile = (formData.get("report") || formData.get("files")) as File | null;
 
     const progettisti = parsePeopleList(formData.get("progettisti"));
     const ispettori = parsePeopleList(formData.get("ispettori"));
@@ -1450,22 +1459,39 @@ export async function POST(req: Request) {
         "";
 
       if (elaboratiVerificati.length === 0) {
-        elaboratiVerificati = elencoDisciplina.map((e: any) => {
-          const codiceCompleto = findValue(e, ["Codice_SP", "Codice SP"]);
-          const codicePulito = extractCodiceElaborato(codiceCompleto);
-          const codiceSenzaRev = getElaboratoBase(codicePulito);
+        // Primo fallback: righe dell'elenco elaborati della disciplina.
+        elaboratiVerificati = elencoDisciplina
+          .map((e: any) => {
+            const codiceCompleto =
+              findValue(e, ["Codice_SP", "Codice SP", "Codice Elaborato", "CODICE ELABORATO"]) ||
+              findValue(e, REPORT_CODICE_COLUMNS);
 
-          return {
-            codice_elaborato: codiceSenzaRev,
-            codice_file: codicePulito,
-            revisione: findValue(e, ["REV.", "REV", "Rev.", "Revisione"]),
-            titolo_elaborato: getTitoloProgetto(e),
-            disciplina: findValue(e, ["DISCIPLINA", "Disciplina"]),
-            presenza_nc: "",
-            presenza_oss: "",
-            assenza_nc_oss: "X",
-          };
-        });
+            const codicePulito = extractCodiceElaborato(codiceCompleto);
+            if (!codicePulito) return null;
+
+            const codiceSenzaRev = getElaboratoBase(codicePulito);
+
+            return {
+              codice_elaborato: codiceSenzaRev,
+              codice_file: codicePulito,
+              revisione: findValue(e, ["REV.", "REV", "Rev.", "Revisione"]),
+              titolo_elaborato:
+                findValue(e, TITOLO_ELABORATO_COLUMNS) ||
+                getTitoloProgetto(e) ||
+                codicePulito,
+              disciplina: findValue(e, ["DISCIPLINA", "Disciplina"]) || disciplina,
+              presenza_nc: "",
+              presenza_oss: "",
+              assenza_nc_oss: "X",
+            };
+          })
+          .filter(Boolean) as ElaboratoVerificatoRow[];
+
+        // Secondo fallback: se l'elenco non contiene gli elaborati della disciplina,
+        // usa almeno tutti gli elaborati citati nei rilievi della disciplina.
+        if (elaboratiVerificati.length === 0) {
+          elaboratiVerificati = buildElaboratiFromRowsDisciplina(rowsDisciplina);
+        }
 
         elaboratiVerificati = applyRilieviFlagsToElaborati(
           elaboratiVerificati,
