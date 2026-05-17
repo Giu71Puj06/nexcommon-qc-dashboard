@@ -645,7 +645,10 @@ function buildRilieviFlagsByElaborato(rows: any[]) {
     // Se tutti i rilievi dell'elaborato sono chiusi, andra' marcata solo ASSENZA NC/OSS.
     if (!isOpenRilievoRow(row)) continue;
 
-    const key = elaboratoAggregationKey(row?.["Codice Elaborato"] || "");
+    const key = elaboratoAggregationKeyFromValues(
+      row?.["Codice Elaborato"] || "",
+      row?.["Titolo Elaborato"] || ""
+    );
     if (!key) continue;
 
     if (!map[key]) map[key] = { hasNC: false, hasOSS: false, sourceRow: row };
@@ -670,7 +673,10 @@ function applyRilieviFlagsToElaborati(
   const existingKeys = new Set<string>();
 
   const withFlags = elaborati.map((e) => {
-    const key = elaboratoAggregationKey(e.codice_file || e.codice_elaborato);
+    const key = elaboratoAggregationKeyFromValues(
+      e.codice_file || e.codice_elaborato,
+      e.titolo_elaborato || ""
+    );
     if (key) existingKeys.add(key);
 
     const flags = key ? flagsByElaborato[key] : null;
@@ -713,7 +719,6 @@ function getTodoRilievoText(todo: any) {
   // REGOLA CORRETTA:
   // nella colonna "RILIEVI ITS CONTROLLI TECNICI" deve essere inserito SOLO
   // il contenuto della colonna C "Description" del file Excel ToDo.
-  // Non usare Title, BCF, Report_Completo o testi aggregati.
   return findValue(todo, [
     "Description",
     "Descrizione",
@@ -737,17 +742,18 @@ function buildElaboratiFromRowsDisciplina(rows: any[]) {
   const map: Record<string, ElaboratoVerificatoRow> = {};
 
   rows.forEach((row: any) => {
-    const codiceFile = extractCodiceElaborato(row?.["Codice Elaborato"] || "");
+    const codiceFile = cleanCodiceElaborato(row?.["Codice Elaborato"] || "");
     if (!codiceFile) return;
 
-    const key = elaboratoAggregationKey(codiceFile);
+    const titolo = row?.["Titolo Elaborato"] || codiceFile;
+    const key = elaboratoAggregationKeyFromValues(codiceFile, titolo);
     if (!key || map[key]) return;
 
     map[key] = {
       codice_elaborato: getElaboratoBase(codiceFile),
       codice_file: codiceFile,
       revisione: row?.Revisione || getRevisioneDaCodice(codiceFile),
-      titolo_elaborato: row?.["Titolo Elaborato"] || codiceFile,
+      titolo_elaborato: titolo,
       disciplina: row?.Disciplina || disciplinaFromCodice(codiceFile),
       presenza_nc: "",
       presenza_oss: "",
@@ -758,21 +764,119 @@ function buildElaboratiFromRowsDisciplina(rows: any[]) {
   return Object.values(map);
 }
 
+function extractAnyTR(value: string) {
+  const text = String(value || "").toUpperCase();
+
+  const trMatch = text.match(/TR[-_\s]*0*(\d+[A-Z]?)/i);
+  if (trMatch) return `TR-${trMatch[1]}`;
+
+  const itMatch = text.match(/IT\d+[-_\s]*0*(\d+[A-Z]?)/i);
+  if (itMatch) return `TR-${itMatch[1]}`;
+
+  return "";
+}
+
+function getTodoTR(todo: any) {
+  const label = findValue(todo, ["Label", "Etichetta", "Labels"]);
+  const title = findValue(todo, ["Title", "Titolo", "TITLE", "Topic", "Nome"]);
+  const description = findValue(todo, ["Description", "Descrizione", "DESCRIZIONE"]);
+
+  return (
+    extractAnyTR(label) ||
+    normalizeTR(label) ||
+    labelToTR(label) ||
+    extractAnyTR(title) ||
+    normalizeTR(title) ||
+    extractAnyTR(description) ||
+    normalizeTR(description)
+  );
+}
+
+function getBcfTR(bcf: BcfTopicData) {
+  return (
+    extractAnyTR(bcf.titolo) ||
+    normalizeTR(bcf.titolo) ||
+    extractAnyTR(bcf.labels) ||
+    normalizeTR(bcf.labels) ||
+    extractAnyTR(bcf.descrizione) ||
+    normalizeTR(bcf.descrizione)
+  );
+}
+
+
+function extractAllegatoNumber(value: string) {
+  const text = String(value || "");
+  const match = text.match(/allegato[\s_-]*(\d+)/i);
+  return match ? match[1] : "";
+}
+
+function getTodoAllegatoNumber(todo: any, bcf?: BcfTopicData | null) {
+  const values = [
+    findValue(todo, ["Title", "Titolo", "TITLE", "Topic", "Nome"]),
+    findValue(todo, ["Description", "Descrizione", "DESCRIZIONE"]),
+    bcf?.titolo || "",
+    bcf?.descrizione || "",
+    bcf?.descrizioneConData || "",
+  ];
+
+  for (const value of values) {
+    const allegato = extractAllegatoNumber(value);
+    if (allegato) return allegato;
+  }
+
+  return "";
+}
+
+function appendAllegatoToCodice(codice: string, allegato: string) {
+  const clean = cleanCodiceElaborato(codice);
+  if (!clean || !allegato) return clean;
+  if (extractAllegatoNumber(clean)) return clean;
+  return `${clean} - Allegato_${allegato}`;
+}
+
+function buildTitoloAllegato(titoloBase: string, allegato: string) {
+  const base = String(titoloBase || "Relazione di calcolo impalcato").trim();
+
+  if (!allegato) return base;
+  if (extractAllegatoNumber(base)) return base;
+
+  return `${base}- Allegato_${allegato}.pdf`;
+}
+
+function elaboratoAggregationKeyFromValues(codice: string, titolo: string) {
+  const baseKey = elaboratoAggregationKey(codice);
+  const allegato = extractAllegatoNumber(`${codice} ${titolo}`);
+
+  if (baseKey && allegato) return `${baseKey}__ALLEGATO_${allegato}`;
+  return baseKey;
+}
+
+
 function bestBcfMatchForTodo(bcfTopics: BcfTopicData[], todo: any) {
   const titoloTodo = findValue(todo, ["Title", "Titolo", "TITLE", "Topic", "Nome"]);
-  const descrizioneTodo = findValue(todo, ["Description", "Descrizione"]);
-  const labelTodo = findValue(todo, ["Label", "Etichetta"]);
+  const descrizioneTodo = findValue(todo, ["Description", "Descrizione", "DESCRIZIONE"]);
+  const labelTodo = findValue(todo, ["Label", "Etichetta", "Labels"]);
+
   const codiceTodo = extractCodiceElaborato(titoloTodo || descrizioneTodo);
+  const trTodo = getTodoTR(todo);
 
   const ranked = bcfTopics
     .map((bcf) => {
       const codiceBcf = extractCodiceElaborato(bcf.titolo || bcf.descrizione);
+      const trBcf = getBcfTR(bcf);
+
       let score = 0;
+
+      // Match principale: TR-xxx.
+      // Serve per recuperare risposta progettista e riscontro ispettore
+      // anche quando titolo/descrizione ToDo e BCF non coincidono perfettamente.
+      if (trTodo && trBcf && trTodo === trBcf) score += 100;
 
       if (codiceTodo && sameElaboratoCode(codiceBcf, codiceTodo)) score += 10;
       if (normalizeKey(bcf.titolo) === normalizeKey(titoloTodo)) score += 5;
-      if (labelTodo && extractTR(labelTodo) && extractTR(labelTodo) === extractTR(bcf.titolo)) {
-        score += 3;
+
+      if (labelTodo && normalizeKey(bcf.labels).includes(normalizeKey(labelTodo))) {
+        score += 5;
       }
 
       score += descriptionScore(bcf.descrizione, descrizioneTodo);
@@ -1278,10 +1382,13 @@ export async function POST(req: Request) {
           : "NC";
 
         const codiceTR =
-          label ? labelToTR(label) : extractTR(titoloTodo) || extractTR(descrizioneTodo) || "";
+          getTodoTR(todo) ||
+          (label ? labelToTR(label) : extractTR(titoloTodo) || extractTR(descrizioneTodo) || "");
 
-        const codiceElaborato = extractCodiceElaborato(titoloTodo || descrizioneTodo);
-        const reportInfo = findReportInfo(reportInfoMap, codiceElaborato);
+        const codiceElaboratoBase = extractCodiceElaborato(titoloTodo || descrizioneTodo);
+        const allegatoNumero = getTodoAllegatoNumber(todo, bcf);
+        const codiceElaborato = appendAllegatoToCodice(codiceElaboratoBase, allegatoNumero);
+        const reportInfo = allegatoNumero ? {} : findReportInfo(reportInfoMap, codiceElaboratoBase);
         const disciplinaInfo = disciplinaInfoMap[normalizeKey(disciplina)] || {};
         const infoElenco = getElencoInfoByCode(elencoInfoMap, codiceElaborato);
 
@@ -1298,11 +1405,15 @@ export async function POST(req: Request) {
               ispettoreElenco
             );
 
-        const titoloElaborato =
-          reportInfo.titolo ||
+        const titoloElaboratoBase =
           getTitoloElaboratoFromTodo(todo) ||
           infoElenco.titolo ||
+          reportInfo.titolo ||
           "";
+
+        const titoloElaborato = allegatoNumero
+          ? buildTitoloAllegato(titoloElaboratoBase || reportInfo.titolo, allegatoNumero)
+          : reportInfo.titolo || titoloElaboratoBase || "";
 
         return {
           Disciplina: disciplina,
@@ -1314,7 +1425,7 @@ export async function POST(req: Request) {
           "Titolo Elaborato": titoloElaborato || codiceElaborato || titoloTodo || "",
           Revisione:
             reportInfo.revisione ||
-            getRevisioneDaCodice(codiceElaborato || titoloTodo),
+            getRevisioneDaCodice(codiceElaboratoBase || titoloTodo),
           Tipo: tags || tipoBase,
           "Descrizione Rilievo": getRilievoItsText(todo, bcf),
           Ispettore: ispettoreFinale,
@@ -1356,11 +1467,18 @@ export async function POST(req: Request) {
         const infoElenco = getElencoInfoByCode(elencoInfoMap, codicePulito);
         const reportInfo = findReportInfo(reportInfoMap, codicePulito);
 
-        const titoloElenco =
-          reportInfo.titolo ||
+        const titoloRaw =
           findValue(e, TITOLO_ELABORATO_COLUMNS) ||
+          reportInfo.titolo ||
           infoElenco.titolo ||
           "";
+
+        const allegatoNumero = extractAllegatoNumber(`${codiceCompleto} ${titoloRaw}`);
+        const codiceConAllegato = appendAllegatoToCodice(codicePulito, allegatoNumero);
+
+        const titoloElenco = allegatoNumero
+          ? buildTitoloAllegato(titoloRaw || reportInfo.titolo, allegatoNumero)
+          : reportInfo.titolo || titoloRaw || "";
 
         const revisione =
           reportInfo.revisione ||
@@ -1368,7 +1486,7 @@ export async function POST(req: Request) {
           infoElenco.revisione ||
           getRevisioneDaCodice(codicePulito);
 
-        const codiceSenzaRev = getElaboratoBase(codicePulito);
+        const codiceSenzaRev = getElaboratoBase(codiceConAllegato);
 
         const disciplinaElaborato =
           reportInfo.disciplina ||
@@ -1379,7 +1497,7 @@ export async function POST(req: Request) {
 
         return {
           codice_elaborato: codiceSenzaRev,
-          codice_file: codicePulito,
+          codice_file: codiceConAllegato,
           revisione,
           titolo_elaborato: titoloElenco,
           disciplina: disciplinaElaborato,
@@ -1415,6 +1533,29 @@ export async function POST(req: Request) {
         elaboratiVerificati,
         rowsDisciplina
       );
+
+      const elaboratiDedup: Record<string, ElaboratoVerificatoRow> = {};
+      elaboratiVerificati.forEach((e) => {
+        const key = elaboratoAggregationKeyFromValues(e.codice_file || e.codice_elaborato, e.titolo_elaborato || "");
+        if (!key) return;
+
+        const existing = elaboratiDedup[key];
+        if (!existing) {
+          elaboratiDedup[key] = e;
+          return;
+        }
+
+        elaboratiDedup[key] = {
+          ...existing,
+          presenza_nc: existing.presenza_nc || e.presenza_nc,
+          presenza_oss: existing.presenza_oss || e.presenza_oss,
+          assenza_nc_oss:
+            existing.presenza_nc || existing.presenza_oss || e.presenza_nc || e.presenza_oss
+              ? ""
+              : existing.assenza_nc_oss || e.assenza_nc_oss,
+        };
+      });
+      elaboratiVerificati = Object.values(elaboratiDedup);
 
       const elencoDisciplina = elencoRows.filter((e: any) =>
         sameDisciplina(
@@ -1469,16 +1610,21 @@ export async function POST(req: Request) {
             const codicePulito = extractCodiceElaborato(codiceCompleto);
             if (!codicePulito) return null;
 
-            const codiceSenzaRev = getElaboratoBase(codicePulito);
+            const titoloRaw =
+              findValue(e, TITOLO_ELABORATO_COLUMNS) ||
+              getTitoloProgetto(e) ||
+              codicePulito;
+            const allegatoNumero = extractAllegatoNumber(`${codiceCompleto} ${titoloRaw}`);
+            const codiceConAllegato = appendAllegatoToCodice(codicePulito, allegatoNumero);
+            const codiceSenzaRev = getElaboratoBase(codiceConAllegato);
 
             return {
               codice_elaborato: codiceSenzaRev,
-              codice_file: codicePulito,
+              codice_file: codiceConAllegato,
               revisione: findValue(e, ["REV.", "REV", "Rev.", "Revisione"]),
-              titolo_elaborato:
-                findValue(e, TITOLO_ELABORATO_COLUMNS) ||
-                getTitoloProgetto(e) ||
-                codicePulito,
+              titolo_elaborato: allegatoNumero
+                ? buildTitoloAllegato(titoloRaw, allegatoNumero)
+                : titoloRaw,
               disciplina: findValue(e, ["DISCIPLINA", "Disciplina"]) || disciplina,
               presenza_nc: "",
               presenza_oss: "",
@@ -1602,7 +1748,7 @@ Totale documenti=${totaleDocumenti}`,
       status: 200,
       headers: {
         "Content-Type": "application/zip",
-        "Content-Disposition": 'attachment; filename="SCHEDE_ISPETTIVE_OUTPUT_V2.zip"',
+        "Content-Disposition": 'attachment; filename="SCHEDE_ISPETTIVE_OUTPUT_V4.zip"',
         "Content-Length": zipBuffer.length.toString(),
       },
     });
