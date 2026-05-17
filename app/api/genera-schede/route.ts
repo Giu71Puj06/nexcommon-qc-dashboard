@@ -463,6 +463,28 @@ function isClosedStatus(status: string) {
   return s.includes("CLOSED") || s.includes("CHIUS");
 }
 
+function isOpenStatus(status: string) {
+  const s = String(status || "").toUpperCase().trim();
+
+  if (!s) return true;
+  if (isClosedStatus(s)) return false;
+
+  return (
+    s.includes("OPEN") ||
+    s.includes("APERT") ||
+    s.includes("WAITING") ||
+    s.includes("NEW") ||
+    s.includes("DA VERIFICARE") ||
+    s.includes("IN ATTESA") ||
+    s.includes("RISCONTRO") ||
+    true
+  );
+}
+
+function isOpenRilievoRow(row: any) {
+  return isOpenStatus(row?.Stato || row?.Status || row?.stato || "");
+}
+
 function disciplinaFromCodice(codice: string) {
   const c = String(codice || "").toUpperCase();
 
@@ -618,6 +640,11 @@ function buildRilieviFlagsByElaborato(rows: any[]) {
   const map: Record<string, { hasNC: boolean; hasOSS: boolean; sourceRow?: any }> = {};
 
   for (const row of rows) {
+    // REGOLA CORRETTA:
+    // nella tabella finale NC/OSS devono essere marcate solo se il rilievo e' aperto.
+    // Se tutti i rilievi dell'elaborato sono chiusi, andra' marcata solo ASSENZA NC/OSS.
+    if (!isOpenRilievoRow(row)) continue;
+
     const key = elaboratoAggregationKey(row?.["Codice Elaborato"] || "");
     if (!key) continue;
 
@@ -680,6 +707,46 @@ function applyRilieviFlagsToElaborati(
   }
 
   return withFlags;
+}
+
+function getTodoRilievoText(todo: any) {
+  const descrizioneTodo = findValue(todo, [
+    "Description",
+    "Descrizione",
+    "DESCRIZIONE",
+    "Commento",
+    "Testo",
+    "Rilievo",
+    "Rilievi ITS Controlli Tecnici",
+    "RILIEVI ITS CONTROLLI TECNICI",
+  ]);
+
+  const titleTodo = findValue(todo, ["Title", "Titolo", "TITLE", "Topic", "Nome"]);
+
+  return descrizioneTodo || titleTodo || "";
+}
+
+function getRilievoItsText(todo: any, bcf?: BcfTopicData | null) {
+  // REGOLA CORRETTA:
+  // il rilievo ITS deve derivare da ToDo/BCF, non dal Report_Completo.
+  // Si usa prima la descrizione ToDo, poi la descrizione BCF con data.
+  const todoText = getTodoRilievoText(todo);
+
+  if (todoText) return todoText;
+
+  return (
+    bcf?.descrizioneConData ||
+    bcf?.descrizione ||
+    ""
+  );
+}
+
+function getRispostaProgettistaText(bcf?: BcfTopicData | null) {
+  return bcf?.commentiPRG || "";
+}
+
+function getRiscontroIspettoreText(bcf?: BcfTopicData | null) {
+  return bcf?.commentiISP || "";
 }
 
 function bestBcfMatchForTodo(bcfTopics: BcfTopicData[], todo: any) {
@@ -1240,14 +1307,10 @@ export async function POST(req: Request) {
             reportInfo.revisione ||
             getRevisioneDaCodice(codiceElaborato || titoloTodo),
           Tipo: tags || tipoBase,
-          "Descrizione Rilievo":
-            bcf?.descrizioneConData ||
-            bcf?.descrizione ||
-            descrizioneTodo ||
-            "",
+          "Descrizione Rilievo": getRilievoItsText(todo, bcf),
           Ispettore: ispettoreFinale,
-          "Risposta Progettista PRG": bcf?.commentiPRG || "",
-          "Riscontro Ispettore ISP": bcf?.commentiISP || "",
+          "Risposta Progettista PRG": getRispostaProgettistaText(bcf),
+          "Riscontro Ispettore ISP": getRiscontroIspettoreText(bcf),
           "Ultimo Commento": bcf?.ultimoCommento || "",
           "Azione Richiesta": "",
           Stato: normalizeStatus(findValue(todo, ["Status", "Stato"]) || bcf?.stato || "", tags),
@@ -1428,12 +1491,12 @@ export async function POST(req: Request) {
         };
       });
 
-      const numeroNC = rilievi.filter((r) =>
-        String(r.tipo_progressivo).startsWith("NC")
+      const numeroNC = rilievi.filter(
+        (r) => String(r.tipo_progressivo).startsWith("NC") && isOpenStatus(r.stato)
       ).length;
 
-      const numeroOSS = rilievi.filter((r) =>
-        String(r.tipo_progressivo).startsWith("OSS")
+      const numeroOSS = rilievi.filter(
+        (r) => String(r.tipo_progressivo).startsWith("OSS") && isOpenStatus(r.stato)
       ).length;
 
       const numeroChiuse = rilievi.filter((r) => isClosedStatus(r.stato)).length;
