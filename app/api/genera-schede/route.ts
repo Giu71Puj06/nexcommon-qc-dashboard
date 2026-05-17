@@ -1602,7 +1602,7 @@ Totale documenti=${totaleDocumenti}`,
       status: 200,
       headers: {
         "Content-Type": "application/zip",
-        "Content-Disposition": 'attachment; filename="SCHEDE_ISPETTIVE_OUTPUT.zip"',
+        "Content-Disposition": 'attachment; filename="SCHEDE_ISPETTIVE_OUTPUT_V2.zip"',
         "Content-Length": zipBuffer.length.toString(),
       },
     });
