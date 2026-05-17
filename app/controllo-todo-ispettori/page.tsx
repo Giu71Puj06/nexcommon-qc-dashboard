@@ -18,8 +18,31 @@ type CheckRow = {
   disciplinaOk: boolean;
   status: string;
   statusOk: boolean;
+  ispettoreTodo: string;
+  ispettoriAssegnati: string;
+  schedaAssegnata: string;
+  assegnazioneOk: boolean;
+  verificaAssegnazione: "OK" | "NON ASSEGNATO" | "NON VERIFICATO" | "ISPETTORE NON COERENTE" | "SCHEDA ERRATA";
   esito: "OK" | "ERRORE";
   anomalie: string[];
+};
+
+type AssignmentRow = {
+  codice: string;
+  codiceNorm: string;
+  titolo: string;
+  ispettori: string;
+  scheda: string;
+  disciplina: string;
+  verificato: boolean;
+  anomalie: string[];
+};
+
+type AssignmentCheckRow = AssignmentRow & {
+  codiceReport: string;
+  presenteInTodo: boolean;
+  presenteInReport: boolean;
+  esito: "OK" | "ERRORE";
 };
 
 type Filters = {
@@ -30,6 +53,21 @@ type Filters = {
   tags: string;
   disciplina: string;
   status: string;
+  ispettoriAssegnati: string;
+  schedaAssegnata: string;
+  verificaAssegnazione: string;
+  esito: string;
+  anomalie: string;
+};
+
+type AssignmentFilters = {
+  codice: string;
+  titolo: string;
+  ispettori: string;
+  scheda: string;
+  disciplina: string;
+  presenteInTodo: string;
+  presenteInReport: string;
   esito: string;
   anomalie: string;
 };
@@ -46,8 +84,36 @@ function normalizeCode(value: string) {
     .trim();
 }
 
+function normalizeText(value: string) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function cleanPdf(value: string) {
   return String(value || "").replace(/\.pdf$/i, "").trim();
+}
+
+function getCell(row: any[], indexes: number[]) {
+  for (const i of indexes) {
+    const value = String(row[i] || "").trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+function findHeaderIndex(headers: any[], names: string[], fallback = -1) {
+  const normalizedNames = names.map(normalizeText);
+
+  const found = headers.findIndex((h) => {
+    const header = normalizeText(String(h || ""));
+    return normalizedNames.some((n) => header === n || header.includes(n));
+  });
+
+  return found >= 0 ? found : fallback;
 }
 
 function isDescrizioneGenerale(value: string) {
@@ -88,6 +154,54 @@ function findBestReportCodeFromTitle(
   return bestOriginal;
 }
 
+function findAssignmentFromCode(
+  code: string,
+  assignments: Map<string, AssignmentRow>
+) {
+  const normalizedCode = normalizeCode(code);
+
+  if (!normalizedCode) return null;
+
+  if (assignments.has(normalizedCode)) {
+    return assignments.get(normalizedCode) || null;
+  }
+
+  let bestKey = "";
+  let bestAssignment: AssignmentRow | null = null;
+
+  for (const [assignmentCode, assignment] of assignments.entries()) {
+    if (
+      normalizedCode === assignmentCode ||
+      normalizedCode.includes(assignmentCode) ||
+      assignmentCode.includes(normalizedCode)
+    ) {
+      if (assignmentCode.length > bestKey.length) {
+        bestKey = assignmentCode;
+        bestAssignment = assignment;
+      }
+    }
+  }
+
+  return bestAssignment;
+}
+
+function ispettoreCoerente(todoValue: string, assignedValue: string) {
+  const todo = normalizeText(todoValue);
+  const assigned = normalizeText(assignedValue);
+
+  if (!assigned) return false;
+  if (!todo) return true;
+
+  const assignedParts = assigned
+    .split(/[;,/|]+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  if (assignedParts.length === 0) return true;
+
+  return assignedParts.some((p) => todo.includes(p) || p.includes(todo));
+}
+
 async function readXlsxRows(file: File, preferredSheetName?: string) {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: "array" });
@@ -113,10 +227,12 @@ export default function ControlloTodoIspettoriPage() {
   const [todoFile, setTodoFile] = useState<File | null>(null);
   const [reportFile, setReportFile] = useState<File | null>(null);
   const [elencoFile, setElencoFile] = useState<File | null>(null);
+  const [ispettoriFile, setIspettoriFile] = useState<File | null>(null);
 
   const [todoRows, setTodoRows] = useState<any[][]>([]);
   const [reportRows, setReportRows] = useState<any[][]>([]);
   const [elencoRows, setElencoRows] = useState<any[][]>([]);
+  const [ispettoriRows, setIspettoriRows] = useState<any[][]>([]);
 
   const [loading, setLoading] = useState(false);
 
@@ -128,12 +244,34 @@ export default function ControlloTodoIspettoriPage() {
     tags: "",
     disciplina: "",
     status: "",
+    ispettoriAssegnati: "",
+    schedaAssegnata: "",
+    verificaAssegnazione: "",
+    esito: "",
+    anomalie: "",
+  });
+
+  const [assignmentFilters, setAssignmentFilters] = useState<AssignmentFilters>({
+    codice: "",
+    titolo: "",
+    ispettori: "",
+    scheda: "",
+    disciplina: "",
+    presenteInTodo: "",
+    presenteInReport: "",
     esito: "",
     anomalie: "",
   });
 
   function updateFilter(key: keyof Filters, value: string) {
     setFilters((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
+  }
+
+  function updateAssignmentFilter(key: keyof AssignmentFilters, value: string) {
+    setAssignmentFilters((prev) => ({
       ...prev,
       [key]: value,
     }));
@@ -151,10 +289,12 @@ export default function ControlloTodoIspettoriPage() {
       const todo = await readXlsxRows(todoFile);
       const report = await readXlsxRows(reportFile, "Verifica Elaborati");
       const elenco = await readXlsxRows(elencoFile);
+      const ispettori = ispettoriFile ? await readXlsxRows(ispettoriFile) : [];
 
       setTodoRows(todo);
       setReportRows(report);
       setElencoRows(elenco);
+      setIspettoriRows(ispettori);
     } catch (error) {
       console.error(error);
       alert("Errore durante la lettura dei file XLSX.");
@@ -192,11 +332,58 @@ export default function ControlloTodoIspettoriPage() {
     return set;
   }, [elencoRows]);
 
+  const assignments = useMemo(() => {
+    const map = new Map<string, AssignmentRow>();
+
+    if (ispettoriRows.length === 0) return map;
+
+    const headers = ispettoriRows[0] || [];
+
+    const codiceIndex = findHeaderIndex(
+      headers,
+      ["Codice Elaborato", "Codice", "Elaborato"],
+      0
+    );
+    const titoloIndex = findHeaderIndex(headers, ["Titolo", "Titolo Elaborato"], 1);
+    const ispettoriIndex = findHeaderIndex(
+      headers,
+      ["Ispettori", "Ispettore", "Assegnatario", "Assegnatari"],
+      2
+    );
+    const schedaIndex = findHeaderIndex(
+      headers,
+      ["Scheda", "Scheda ispettiva", "Codice scheda"],
+      3
+    );
+    const disciplinaIndex = findHeaderIndex(headers, ["Disciplina"], 4);
+
+    ispettoriRows.slice(1).forEach((row) => {
+      const codice = String(row[codiceIndex] || "").trim();
+      const codiceNorm = normalizeCode(codice);
+
+      if (!codiceNorm) return;
+
+      map.set(codiceNorm, {
+        codice,
+        codiceNorm,
+        titolo: String(row[titoloIndex] || "").trim(),
+        ispettori: String(row[ispettoriIndex] || "").trim(),
+        scheda: String(row[schedaIndex] || "").trim(),
+        disciplina: String(row[disciplinaIndex] || "").trim(),
+        verificato: false,
+        anomalie: [],
+      });
+    });
+
+    return map;
+  }, [ispettoriRows]);
+
   const checks: CheckRow[] = useMemo(() => {
     return todoRows.slice(1).map((row, index) => {
       const label = String(row[0] || "").trim();
       const title = String(row[1] || "").trim();
       const status = String(row[5] || "").trim();
+      const ispettoreTodo = getCell(row, [6, 7, 10, 11]);
       const disciplina = String(row[8] || "").trim();
       const tags = String(row[9] || "").trim();
 
@@ -244,8 +431,41 @@ export default function ControlloTodoIspettoriPage() {
       if (!status) anomalie.push("Status mancante");
       else if (!statusOk) anomalie.push("Status non valido");
 
+      const assignment =
+        findAssignmentFromCode(codiceReport || codiceTitleTrimble, assignments) ||
+        null;
+
+      let verificaAssegnazione: CheckRow["verificaAssegnazione"] = "OK";
+      let assegnazioneOk = true;
+
+      if (assignments.size > 0) {
+        if (!assignment) {
+          verificaAssegnazione = "NON ASSEGNATO";
+          assegnazioneOk = false;
+          anomalie.push("Elaborato non presente nel file assegnazioni PM/Ispettori");
+        } else if (!ispettoreCoerente(ispettoreTodo, assignment.ispettori)) {
+          verificaAssegnazione = "ISPETTORE NON COERENTE";
+          assegnazioneOk = false;
+          anomalie.push(
+            `Ispettore ToDo non coerente con assegnazione PM: ${assignment.ispettori}`
+          );
+        } else if (
+          assignment.disciplina &&
+          disciplina &&
+          normalizeText(assignment.disciplina) !== normalizeText(disciplina)
+        ) {
+          verificaAssegnazione = "SCHEDA ERRATA";
+          assegnazioneOk = false;
+          anomalie.push(
+            `Disciplina/Scheda non coerente con assegnazione PM: ${assignment.disciplina}`
+          );
+        }
+      }
+
       const esito =
-        titleOk && tagsOk && disciplinaOk && statusOk ? "OK" : "ERRORE";
+        titleOk && tagsOk && disciplinaOk && statusOk && assegnazioneOk
+          ? "OK"
+          : "ERRORE";
 
       return {
         rowNumber: index + 2,
@@ -261,11 +481,69 @@ export default function ControlloTodoIspettoriPage() {
         disciplinaOk,
         status,
         statusOk,
+        ispettoreTodo,
+        ispettoriAssegnati: assignment?.ispettori || "",
+        schedaAssegnata: assignment?.scheda || assignment?.disciplina || "",
+        assegnazioneOk,
+        verificaAssegnazione,
         esito,
         anomalie,
       };
     });
-  }, [todoRows, reportCodes, disciplineAmmesse]);
+  }, [todoRows, reportCodes, disciplineAmmesse, assignments]);
+
+  const assignmentChecks: AssignmentCheckRow[] = useMemo(() => {
+    if (assignments.size === 0) return [];
+
+    const todoCodes = new Set<string>();
+    const reportCodeSet = new Set<string>();
+
+    checks.forEach((row) => {
+      const normalized = normalizeCode(row.codiceReport || row.codiceTitleTrimble);
+      if (normalized) todoCodes.add(normalized);
+    });
+
+    reportCodes.forEach((_original, normalized) => {
+      if (normalized) reportCodeSet.add(normalized);
+    });
+
+    return Array.from(assignments.values()).map((assignment) => {
+      const presenteInTodo = Array.from(todoCodes).some(
+        (code) =>
+          code === assignment.codiceNorm ||
+          code.includes(assignment.codiceNorm) ||
+          assignment.codiceNorm.includes(code)
+      );
+
+      const presenteInReport = Array.from(reportCodeSet).some(
+        (code) =>
+          code === assignment.codiceNorm ||
+          code.includes(assignment.codiceNorm) ||
+          assignment.codiceNorm.includes(code)
+      );
+
+      const anomalie: string[] = [];
+
+      if (!presenteInTodo) {
+        anomalie.push("Elaborato assegnato dal PM ma non presente nel ToDo");
+      }
+
+      if (!presenteInReport) {
+        anomalie.push("Elaborato assegnato dal PM ma non presente nel Report_Completo");
+      }
+
+      const esito = presenteInTodo && presenteInReport ? "OK" : "ERRORE";
+
+      return {
+        ...assignment,
+        codiceReport: presenteInReport ? assignment.codice : "",
+        presenteInTodo,
+        presenteInReport,
+        esito,
+        anomalie,
+      };
+    });
+  }, [assignments, checks, reportCodes]);
 
   const filteredChecks = useMemo(() => {
     return checks.filter((row) => {
@@ -288,16 +566,54 @@ export default function ControlloTodoIspettoriPage() {
           .toLowerCase()
           .includes(filters.disciplina.toLowerCase()) &&
         row.status.toLowerCase().includes(filters.status.toLowerCase()) &&
+        row.ispettoriAssegnati
+          .toLowerCase()
+          .includes(filters.ispettoriAssegnati.toLowerCase()) &&
+        row.schedaAssegnata
+          .toLowerCase()
+          .includes(filters.schedaAssegnata.toLowerCase()) &&
+        (filters.verificaAssegnazione === "" ||
+          row.verificaAssegnazione === filters.verificaAssegnazione) &&
         (filters.esito === "" || row.esito === filters.esito) &&
         anomalie.toLowerCase().includes(filters.anomalie.toLowerCase())
       );
     });
   }, [checks, filters]);
 
+  const filteredAssignmentChecks = useMemo(() => {
+    return assignmentChecks.filter((row) => {
+      const anomalie = row.anomalie.join(" | ");
+
+      return (
+        row.codice.toLowerCase().includes(assignmentFilters.codice.toLowerCase()) &&
+        row.titolo.toLowerCase().includes(assignmentFilters.titolo.toLowerCase()) &&
+        row.ispettori
+          .toLowerCase()
+          .includes(assignmentFilters.ispettori.toLowerCase()) &&
+        row.scheda.toLowerCase().includes(assignmentFilters.scheda.toLowerCase()) &&
+        row.disciplina
+          .toLowerCase()
+          .includes(assignmentFilters.disciplina.toLowerCase()) &&
+        (assignmentFilters.presenteInTodo === "" ||
+          (row.presenteInTodo ? "SI" : "NO") === assignmentFilters.presenteInTodo) &&
+        (assignmentFilters.presenteInReport === "" ||
+          (row.presenteInReport ? "SI" : "NO") ===
+            assignmentFilters.presenteInReport) &&
+        (assignmentFilters.esito === "" || row.esito === assignmentFilters.esito) &&
+        anomalie.toLowerCase().includes(assignmentFilters.anomalie.toLowerCase())
+      );
+    });
+  }, [assignmentChecks, assignmentFilters]);
+
   const totale = checks.length;
   const ok = checks.filter((r) => r.esito === "OK").length;
   const errori = checks.filter((r) => r.esito === "ERRORE").length;
   const completezza = totale > 0 ? Math.round((ok / totale) * 100) : 0;
+
+  const assegnatiTotale = assignmentChecks.length;
+  const assegnatiOk = assignmentChecks.filter((r) => r.esito === "OK").length;
+  const assegnatiErrore = assignmentChecks.filter((r) => r.esito === "ERRORE").length;
+  const assegnatiNonVerificati = assignmentChecks.filter((r) => !r.presenteInTodo).length;
 
   const completezzaColor =
     completezza === 100 ? "#16a34a" : completezza >= 51 ? "#f59e0b" : "#dc2626";
@@ -314,14 +630,42 @@ export default function ControlloTodoIspettoriPage() {
       "Esito Disciplina": row.disciplinaOk ? "OK" : "ERRORE",
       Status: row.status || "",
       "Esito Status": row.statusOk ? "OK" : "ERRORE",
+      "Ispettore ToDo": row.ispettoreTodo || "",
+      "Ispettori assegnati PM": row.ispettoriAssegnati || "",
+      "Scheda assegnata PM": row.schedaAssegnata || "",
+      "Verifica assegnazione": row.verificaAssegnazione,
       Esito: row.esito,
       Anomalie: row.anomalie.join(" | "),
     }));
 
-    const worksheet = XLSX.utils.json_to_sheet(rows);
+    const assignmentRows = filteredAssignmentChecks.map((row) => ({
+      "Codice elaborato assegnato": row.codice,
+      Titolo: row.titolo,
+      Ispettori: row.ispettori,
+      Scheda: row.scheda,
+      Disciplina: row.disciplina,
+      "Presente nel ToDo": row.presenteInTodo ? "SI" : "NO",
+      "Presente nel Report_Completo": row.presenteInReport ? "SI" : "NO",
+      Esito: row.esito,
+      Anomalie: row.anomalie.join(" | "),
+    }));
+
     const workbook = XLSX.utils.book_new();
 
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Controllo ToDo");
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.json_to_sheet(rows),
+      "Controllo ToDo"
+    );
+
+    if (assignmentRows.length > 0) {
+      XLSX.utils.book_append_sheet(
+        workbook,
+        XLSX.utils.json_to_sheet(assignmentRows),
+        "Controllo Assegnazioni PM"
+      );
+    }
+
     XLSX.writeFile(workbook, "Report_Controllo_ToDo_Ispettori.xlsx");
   }
 
@@ -349,21 +693,20 @@ export default function ControlloTodoIspettoriPage() {
         Controllo ToDo Ispettori
       </h1>
 
-      <p style={{ color: "#475569", fontSize: 18, maxWidth: 1050 }}>
-        Verifica automatica di Title, Tags, Disciplina e Status. Il codice nella
-        colonna B “Title” del ToDo viene confrontato con la colonna C “Codice
-        elaborato” della scheda “Verifica Elaborati” del Report_Completo.xlsx,
-        ignorando trattini, underscore, punti e spazi. La disciplina viene
-        validata con la colonna F “DISCIPLINA” di ELENCO_ELABORATI.xlsx.
+      <p style={{ color: "#475569", fontSize: 18, maxWidth: 1150 }}>
+        Verifica automatica di Title, Tags, Disciplina, Status e assegnazioni PM.
+        Il file Ispettori.xlsx permette di controllare se gli elaborati assegnati
+        dal PM sono stati effettivamente verificati dagli ispettori e se risultano
+        nella scheda corretta.
       </p>
 
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "1fr 1fr 1fr",
+          gridTemplateColumns: "repeat(4, 1fr)",
           gap: 16,
           marginTop: 24,
-          maxWidth: 1200,
+          maxWidth: 1500,
         }}
       >
         <div style={cardStyle}>
@@ -395,6 +738,19 @@ export default function ControlloTodoIspettoriPage() {
             style={inputStyle}
           />
         </div>
+
+        <div style={cardStyle}>
+          <b>Assegnazioni PM / Ispettori.xlsx</b>
+          <input
+            type="file"
+            accept=".xlsx,.xls"
+            onChange={(e) => setIspettoriFile(e.target.files?.[0] || null)}
+            style={inputStyle}
+          />
+          <div style={{ marginTop: 8, color: "#64748b", fontSize: 12 }}>
+            Opzionale, ma consigliato per verificare gli elaborati assegnati.
+          </div>
+        </div>
       </div>
 
       <button
@@ -419,7 +775,7 @@ export default function ControlloTodoIspettoriPage() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(4, 1fr)",
+              gridTemplateColumns: "repeat(7, 1fr)",
               gap: 12,
               marginTop: 28,
             }}
@@ -450,6 +806,21 @@ export default function ControlloTodoIspettoriPage() {
             <div style={cardStyle}>
               <div style={kpiLabel}>Righe con errori</div>
               <div style={{ ...kpiValue, color: "#dc2626" }}>{errori}</div>
+            </div>
+
+            <div style={cardStyle}>
+              <div style={kpiLabel}>Elaborati assegnati PM</div>
+              <div style={kpiValue}>{assegnatiTotale}</div>
+            </div>
+
+            <div style={cardStyle}>
+              <div style={kpiLabel}>Assegnati verificati</div>
+              <div style={{ ...kpiValue, color: "#16a34a" }}>{assegnatiOk}</div>
+            </div>
+
+            <div style={cardStyle}>
+              <div style={kpiLabel}>Assegnati non verificati</div>
+              <div style={{ ...kpiValue, color: "#dc2626" }}>{assegnatiNonVerificati}</div>
             </div>
           </div>
 
@@ -503,6 +874,10 @@ export default function ControlloTodoIspettoriPage() {
                     <th style={th}>Tags</th>
                     <th style={th}>Disciplina</th>
                     <th style={th}>Status</th>
+                    <th style={th}>Ispettore ToDo</th>
+                    <th style={th}>Ispettori PM</th>
+                    <th style={th}>Scheda PM</th>
+                    <th style={th}>Assegnazione</th>
                     <th style={th}>Esito</th>
                     <th style={th}>Anomalie</th>
                   </tr>
@@ -580,6 +955,57 @@ export default function ControlloTodoIspettoriPage() {
                         placeholder="Filtra status"
                         style={filterInput}
                       />
+                    </th>
+
+                    <th style={th}>
+                      <input
+                        value={filters.ispettoriAssegnati}
+                        onChange={(e) =>
+                          updateFilter("ispettoriAssegnati", e.target.value)
+                        }
+                        placeholder="Filtra ispettori"
+                        style={filterInput}
+                      />
+                    </th>
+
+                    <th style={th}>
+                      <input
+                        value={filters.ispettoriAssegnati}
+                        onChange={(e) =>
+                          updateFilter("ispettoriAssegnati", e.target.value)
+                        }
+                        placeholder="Filtra PM"
+                        style={filterInput}
+                      />
+                    </th>
+
+                    <th style={th}>
+                      <input
+                        value={filters.schedaAssegnata}
+                        onChange={(e) =>
+                          updateFilter("schedaAssegnata", e.target.value)
+                        }
+                        placeholder="Filtra scheda"
+                        style={filterInput}
+                      />
+                    </th>
+
+                    <th style={th}>
+                      <select
+                        value={filters.verificaAssegnazione}
+                        onChange={(e) =>
+                          updateFilter("verificaAssegnazione", e.target.value)
+                        }
+                        style={filterInput}
+                      >
+                        <option value="">Tutte</option>
+                        <option value="OK">OK</option>
+                        <option value="NON ASSEGNATO">NON ASSEGNATO</option>
+                        <option value="ISPETTORE NON COERENTE">
+                          ISPETTORE NON COERENTE
+                        </option>
+                        <option value="SCHEDA ERRATA">SCHEDA ERRATA</option>
+                      </select>
                     </th>
 
                     <th style={th}>
@@ -662,6 +1088,23 @@ export default function ControlloTodoIspettoriPage() {
                         </b>
                       </td>
 
+                      <td style={td}>{row.ispettoreTodo || "-"}</td>
+                      <td style={td}>{row.ispettoriAssegnati || "-"}</td>
+                      <td style={td}>{row.schedaAssegnata || "-"}</td>
+
+                      <td
+                        style={{
+                          ...td,
+                          fontWeight: 700,
+                          color:
+                            row.verificaAssegnazione === "OK"
+                              ? "#16a34a"
+                              : "#dc2626",
+                        }}
+                      >
+                        {row.verificaAssegnazione}
+                      </td>
+
                       <td
                         style={{
                           ...td,
@@ -678,7 +1121,7 @@ export default function ControlloTodoIspettoriPage() {
 
                   {filteredChecks.length === 0 && (
                     <tr>
-                      <td style={td} colSpan={9}>
+                      <td style={td} colSpan={13}>
                         Nessuna riga trovata con i filtri impostati.
                       </td>
                     </tr>
@@ -687,6 +1130,177 @@ export default function ControlloTodoIspettoriPage() {
               </table>
             </div>
           </div>
+
+          {assignmentChecks.length > 0 && (
+            <div style={{ marginTop: 28, ...cardStyle }}>
+              <h2 style={{ marginTop: 0 }}>Controllo elaborati assegnati dal PM</h2>
+
+              <div style={{ marginBottom: 14, color: "#64748b", fontSize: 13 }}>
+                Verifica che ogni elaborato assegnato nel file Ispettori.xlsx sia
+                presente nel ToDo e nel Report_Completo.
+              </div>
+
+              <div style={{ overflowX: "auto" }}>
+                <table
+                  style={{
+                    width: "100%",
+                    borderCollapse: "collapse",
+                    fontSize: 13,
+                  }}
+                >
+                  <thead>
+                    <tr style={{ background: "#f8fafc" }}>
+                      <th style={th}>Codice elaborato assegnato</th>
+                      <th style={th}>Titolo</th>
+                      <th style={th}>Ispettori</th>
+                      <th style={th}>Scheda</th>
+                      <th style={th}>Disciplina</th>
+                      <th style={th}>Presente ToDo</th>
+                      <th style={th}>Presente Report</th>
+                      <th style={th}>Esito</th>
+                      <th style={th}>Anomalie</th>
+                    </tr>
+
+                    <tr style={{ background: "white" }}>
+                      <th style={th}>
+                        <input
+                          value={assignmentFilters.codice}
+                          onChange={(e) =>
+                            updateAssignmentFilter("codice", e.target.value)
+                          }
+                          placeholder="Filtra codice"
+                          style={filterInput}
+                        />
+                      </th>
+                      <th style={th}>
+                        <input
+                          value={assignmentFilters.titolo}
+                          onChange={(e) =>
+                            updateAssignmentFilter("titolo", e.target.value)
+                          }
+                          placeholder="Filtra titolo"
+                          style={filterInput}
+                        />
+                      </th>
+                      <th style={th}>
+                        <input
+                          value={assignmentFilters.ispettori}
+                          onChange={(e) =>
+                            updateAssignmentFilter("ispettori", e.target.value)
+                          }
+                          placeholder="Filtra ispettori"
+                          style={filterInput}
+                        />
+                      </th>
+                      <th style={th}>
+                        <input
+                          value={assignmentFilters.scheda}
+                          onChange={(e) =>
+                            updateAssignmentFilter("scheda", e.target.value)
+                          }
+                          placeholder="Filtra scheda"
+                          style={filterInput}
+                        />
+                      </th>
+                      <th style={th}>
+                        <input
+                          value={assignmentFilters.disciplina}
+                          onChange={(e) =>
+                            updateAssignmentFilter("disciplina", e.target.value)
+                          }
+                          placeholder="Filtra disciplina"
+                          style={filterInput}
+                        />
+                      </th>
+                      <th style={th}>
+                        <select
+                          value={assignmentFilters.presenteInTodo}
+                          onChange={(e) =>
+                            updateAssignmentFilter("presenteInTodo", e.target.value)
+                          }
+                          style={filterInput}
+                        >
+                          <option value="">Tutti</option>
+                          <option value="SI">SI</option>
+                          <option value="NO">NO</option>
+                        </select>
+                      </th>
+                      <th style={th}>
+                        <select
+                          value={assignmentFilters.presenteInReport}
+                          onChange={(e) =>
+                            updateAssignmentFilter("presenteInReport", e.target.value)
+                          }
+                          style={filterInput}
+                        >
+                          <option value="">Tutti</option>
+                          <option value="SI">SI</option>
+                          <option value="NO">NO</option>
+                        </select>
+                      </th>
+                      <th style={th}>
+                        <select
+                          value={assignmentFilters.esito}
+                          onChange={(e) =>
+                            updateAssignmentFilter("esito", e.target.value)
+                          }
+                          style={filterInput}
+                        >
+                          <option value="">Tutti</option>
+                          <option value="OK">OK</option>
+                          <option value="ERRORE">ERRORE</option>
+                        </select>
+                      </th>
+                      <th style={th}>
+                        <input
+                          value={assignmentFilters.anomalie}
+                          onChange={(e) =>
+                            updateAssignmentFilter("anomalie", e.target.value)
+                          }
+                          placeholder="Filtra anomalie"
+                          style={filterInput}
+                        />
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {filteredAssignmentChecks.map((row) => (
+                      <tr key={row.codiceNorm}>
+                        <td style={td}>{row.codice}</td>
+                        <td style={td}>{row.titolo}</td>
+                        <td style={td}>{row.ispettori || "-"}</td>
+                        <td style={td}>{row.scheda || "-"}</td>
+                        <td style={td}>{row.disciplina || "-"}</td>
+                        <td style={td}>{row.presenteInTodo ? "✅ SI" : "❌ NO"}</td>
+                        <td style={td}>
+                          {row.presenteInReport ? "✅ SI" : "❌ NO"}
+                        </td>
+                        <td
+                          style={{
+                            ...td,
+                            fontWeight: 700,
+                            color: row.esito === "OK" ? "#16a34a" : "#dc2626",
+                          }}
+                        >
+                          {row.esito}
+                        </td>
+                        <td style={td}>{row.anomalie.join(" | ")}</td>
+                      </tr>
+                    ))}
+
+                    {filteredAssignmentChecks.length === 0 && (
+                      <tr>
+                        <td style={td} colSpan={9}>
+                          Nessuna assegnazione trovata con i filtri impostati.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </>
       )}
     </main>
