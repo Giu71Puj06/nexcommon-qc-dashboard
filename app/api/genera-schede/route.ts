@@ -852,6 +852,51 @@ function elaboratoAggregationKeyFromValues(codice: string, titolo: string) {
 }
 
 
+function mergeElaboratiFromRows(
+  elaborati: ElaboratoVerificatoRow[],
+  rows: any[]
+) {
+  const map: Record<string, ElaboratoVerificatoRow> = {};
+
+  function addRow(e: ElaboratoVerificatoRow) {
+    const key = elaboratoAggregationKeyFromValues(
+      e.codice_file || e.codice_elaborato,
+      e.titolo_elaborato || ""
+    );
+
+    if (!key) return;
+
+    const existing = map[key];
+
+    if (!existing) {
+      map[key] = e;
+      return;
+    }
+
+    map[key] = {
+      ...existing,
+      codice_elaborato: existing.codice_elaborato || e.codice_elaborato,
+      codice_file: existing.codice_file || e.codice_file,
+      revisione: existing.revisione || e.revisione,
+      titolo_elaborato: existing.titolo_elaborato || e.titolo_elaborato,
+      disciplina: existing.disciplina || e.disciplina,
+      presenza_nc: existing.presenza_nc || e.presenza_nc,
+      presenza_oss: existing.presenza_oss || e.presenza_oss,
+      assenza_nc_oss:
+        existing.presenza_nc || existing.presenza_oss || e.presenza_nc || e.presenza_oss
+          ? ""
+          : existing.assenza_nc_oss || e.assenza_nc_oss || "X",
+    };
+  }
+
+  elaborati.forEach(addRow);
+
+  buildElaboratiFromRowsDisciplina(rows).forEach(addRow);
+
+  return Object.values(map);
+}
+
+
 function bestBcfMatchForTodo(bcfTopics: BcfTopicData[], todo: any) {
   const titoloTodo = findValue(todo, ["Title", "Titolo", "TITLE", "Topic", "Nome"]);
   const descrizioneTodo = findValue(todo, ["Description", "Descrizione", "DESCRIZIONE"]);
@@ -1530,7 +1575,7 @@ export async function POST(req: Request) {
       );
 
       elaboratiVerificati = applyRilieviFlagsToElaborati(
-        elaboratiVerificati,
+        mergeElaboratiFromRows(elaboratiVerificati, rowsDisciplina),
         rowsDisciplina
       );
 
@@ -1640,7 +1685,7 @@ export async function POST(req: Request) {
         }
 
         elaboratiVerificati = applyRilieviFlagsToElaborati(
-          elaboratiVerificati,
+          mergeElaboratiFromRows(elaboratiVerificati, rowsDisciplina),
           rowsDisciplina
         );
       }
@@ -1748,7 +1793,7 @@ Totale documenti=${totaleDocumenti}`,
       status: 200,
       headers: {
         "Content-Type": "application/zip",
-        "Content-Disposition": 'attachment; filename="SCHEDE_ISPETTIVE_OUTPUT_V4.zip"',
+        "Content-Disposition": 'attachment; filename="SCHEDE_ISPETTIVE_OUTPUT_V5.zip"',
         "Content-Length": zipBuffer.length.toString(),
       },
     });
