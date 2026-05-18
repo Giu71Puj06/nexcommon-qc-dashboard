@@ -67,6 +67,52 @@ function esitoIcon(ok: boolean) {
   return ok ? "✅" : "❌";
 }
 
+
+function isErroreBloccante(row: CheckRow) {
+  const anomalie = row.anomalie || [];
+
+  return anomalie.some((a) => {
+    const t = String(a || "").toLowerCase();
+
+    return (
+      t.includes("title mancante") ||
+      t.includes("title contiene .pdf") ||
+      t.includes("tags non valido") ||
+      t.includes("status non valido") ||
+      t.includes("status non riconosciuto") ||
+      t.includes("disciplina mancante")
+    );
+  });
+}
+
+function livelloReale(row: CheckRow): "OK" | "WARNING" | "ERRORE" {
+  if (isErroreBloccante(row)) return "ERRORE";
+
+  const anomalie = row.anomalie || [];
+  const warning = row.warning || [];
+  const hasWarning =
+    warning.length > 0 ||
+    anomalie.some((a) => {
+      const t = String(a || "").toLowerCase();
+
+      return (
+        t.includes("codice elaborato non presente") ||
+        t.includes("disciplina non presente") ||
+        t.includes("bcf non trovato") ||
+        t.includes("manca risposta") ||
+        t.includes("manca riscontro") ||
+        t.includes("chiuso senza riscontro") ||
+        t.includes("tags mancanti")
+      );
+    });
+
+  return hasWarning ? "WARNING" : "OK";
+}
+
+function esitoReale(row: CheckRow): "OK" | "ERRORE" {
+  return isErroreBloccante(row) ? "ERRORE" : "OK";
+}
+
 export default function ControlloTodoIspettoriPage() {
   const [todoFile, setTodoFile] = useState<File | null>(null);
   const [reportFile, setReportFile] = useState<File | null>(null);
@@ -146,6 +192,7 @@ export default function ControlloTodoIspettoriPage() {
       const n = `${row.progressivo}${row.label ? ` (${row.label})` : ""}`;
       const esitoCodice = row.titleOk ? "OK" : "ERRORE";
       const anomalie = [...(row.anomalie || []), ...(row.warning || [])].join(" | ");
+      const esitoEffettivo = esitoReale(row);
 
       return (
         n.toLowerCase().includes(filters.n.toLowerCase()) &&
@@ -164,17 +211,17 @@ export default function ControlloTodoIspettoriPage() {
         row.status.toLowerCase().includes(filters.status.toLowerCase()) &&
         row.tr.toLowerCase().includes(filters.tr.toLowerCase()) &&
         (filters.esitoStoria === "" || row.esitoStoria === filters.esitoStoria) &&
-        (filters.esito === "" || row.esito === filters.esito) &&
+        (filters.esito === "" || esitoEffettivo === filters.esito) &&
         anomalie.toLowerCase().includes(filters.anomalie.toLowerCase())
       );
     });
   }, [checks, filters]);
 
-  const totale = summary?.totale || checks.length;
-  const ok = summary?.ok || checks.filter((r) => r.esito === "OK").length;
-  const errori = summary?.errori || checks.filter((r) => r.esito === "ERRORE").length;
-  const warning = summary?.warning || checks.filter((r) => r.livello === "WARNING").length;
-  const completezza = summary?.completezza ?? (totale > 0 ? Math.round((ok / totale) * 100) : 0);
+  const totale = checks.length;
+  const errori = checks.filter((r) => livelloReale(r) === "ERRORE").length;
+  const warning = checks.filter((r) => livelloReale(r) === "WARNING").length;
+  const ok = checks.filter((r) => livelloReale(r) !== "ERRORE").length;
+  const completezza = totale > 0 ? Math.round((ok / totale) * 100) : 0;
   const storieComplete = summary?.storieComplete || checks.filter((r) => r.esitoStoria === "COMPLETA").length;
   const bcfWarning = summary?.bcfWarning || checks.filter(
     (r) =>
@@ -206,8 +253,8 @@ export default function ControlloTodoIspettoriPage() {
       "Risposta progettista": row.rispostaProgettista || "",
       "Riscontro ispettore ITS": row.riscontroIspettore || "",
       "Esito storia rilievo": row.esitoStoria,
-      Livello: row.livello || row.esito,
-      Esito: row.esito,
+      Livello: livelloReale(row),
+      Esito: esitoReale(row),
       Warning: (row.warning || []).join(" | "),
       Anomalie: (row.anomalie || []).join(" | "),
     }));
@@ -603,7 +650,7 @@ export default function ControlloTodoIspettoriPage() {
                             color: row.titleOk ? "#16a34a" : "#dc2626",
                           }}
                         >
-                          {esitoIcon(row.titleOk)}
+                          {esitoIcon(!isErroreBloccante(row) || row.titleOk)}
                         </b>
                       </td>
 
@@ -672,14 +719,14 @@ export default function ControlloTodoIspettoriPage() {
                           ...td,
                           fontWeight: 700,
                           color:
-                            row.livello === "OK"
+                            livelloReale(row) === "OK"
                               ? "#16a34a"
-                              : row.livello === "WARNING"
+                              : livelloReale(row) === "WARNING"
                               ? "#f59e0b"
                               : "#dc2626",
                         }}
                       >
-                        {row.livello || row.esito}
+                        {livelloReale(row)}
                       </td>
 
                       <td style={td}>{[...(row.anomalie || []), ...(row.warning || [])].join(" | ")}</td>
