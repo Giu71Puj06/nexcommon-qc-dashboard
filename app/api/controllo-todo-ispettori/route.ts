@@ -50,6 +50,37 @@ function normalizeText(value: string) {
     .trim();
 }
 
+function splitDiscipline(value: string) {
+  const text = String(value || "").trim();
+
+  if (!text) return [];
+
+  return text
+    .split(/[,;\/|]+|\s+-\s+|\n+/g)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function hasDocumentiGenerali(value: string) {
+  return splitDiscipline(value).some(
+    (part) => normalizeText(part) === "documenti generali"
+  );
+}
+
+function hasAnyValidDiscipline(value: string, disciplineAmmesse: Set<string>) {
+  const parts = splitDiscipline(value);
+
+  if (parts.length === 0) return false;
+
+  // Regola richiesta:
+  // se nella cella sono presenti due discipline e una è "Documenti generali",
+  // non deve mai essere classificato come errore.
+  if (hasDocumentiGenerali(value)) return true;
+
+  return parts.some((part) => disciplineAmmesse.has(part.toLowerCase()));
+}
+
+
 function getTagText(xml: string, tagName: string) {
   const re = new RegExp(`<(?:[A-Za-z0-9_]+:)?${tagName}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/(?:[A-Za-z0-9_]+:)?${tagName}>`, "i");
   const match = String(xml || "").match(re);
@@ -460,7 +491,7 @@ function buildChecks(
       }
     }
 
-    const esito = titleOk && tagsOk && disciplinaOk && statusOk ? "OK" : "ERRORE";
+    const esito = titleOk && tagsOk && disciplinaPresente && statusOk ? "OK" : "ERRORE";
     const livello = esito === "ERRORE" ? "ERRORE" : warning.length ? "WARNING" : "OK";
 
     return {
