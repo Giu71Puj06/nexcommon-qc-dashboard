@@ -3,6 +3,7 @@
 import React, { useMemo, useState } from "react";
 import Link from "next/link";
 import * as XLSX from "xlsx";
+import JSZip from "jszip";
 
 type CheckRow = {
   rowNumber: number;
@@ -18,6 +19,20 @@ type CheckRow = {
   disciplinaOk: boolean;
   status: string;
   statusOk: boolean;
+  description: string;
+  tr: string;
+  bcfTitle: string;
+  bcfDescription: string;
+  rispostaProgettista: string;
+  riscontroIspettore: string;
+  storiaOk: boolean;
+  esitoStoria:
+    | "COMPLETA"
+    | "BCF NON TROVATO"
+    | "MANCA RISPOSTA PROGETTISTA"
+    | "MANCA RISCONTRO ITS"
+    | "CHIUSO SENZA RISCONTRO"
+    | "NON APPLICABILE";
   ispettoreTodo: string;
   ispettoriAssegnati: string;
   schedaAssegnata: string;
@@ -45,6 +60,15 @@ type AssignmentCheckRow = AssignmentRow & {
   esito: "OK" | "ERRORE";
 };
 
+type BcfTopic = {
+  tr: string;
+  title: string;
+  description: string;
+  commentsPrg: string;
+  commentsIsp: string;
+  allComments: string;
+};
+
 type Filters = {
   n: string;
   codiceReport: string;
@@ -53,6 +77,8 @@ type Filters = {
   tags: string;
   disciplina: string;
   status: string;
+  tr: string;
+  esitoStoria: string;
   ispettoriAssegnati: string;
   schedaAssegnata: string;
   verificaAssegnazione: string;
@@ -132,6 +158,151 @@ function getCell(row: any[], indexes: number[]) {
     if (value) return value;
   }
   return "";
+}
+
+function getXmlText(parent: Element | Document, tagName: string) {
+  const node = parent.getElementsByTagName(tagName)[0];
+  return node?.textContent?.trim() || "";
+}
+
+function getXmlTexts(parent: Element | Document, tagName: string) {
+  return Array.from(parent.getElementsByTagName(tagName))
+    .map((node) => node.textContent?.trim() || "")
+    .filter(Boolean);
+}
+
+function extractTR(value: string) {
+  const text = String(value || "").toUpperCase();
+
+  const direct = text.match(/TR[-_\s]*0*(\d+[A-Z]?)/i);
+  if (direct) return `TR-${direct[1]}`;
+
+  const label = text.match(/IT\d+[-_\s]*0*(\d+[A-Z]?)/i);
+  if (label) return `TR-${label[1]}`;
+
+  return "";
+}
+
+function extractTRFromTodo(label: string, title: string, description: string) {
+  return extractTR(label) || extractTR(title) || extractTR(description);
+}
+
+function isPrgAuthor(author: string) {
+  const a = normalizeText(author);
+
+  return (
+    a.includes("prg") ||
+    a.includes("progett") ||
+    a.includes("pcq") ||
+    a.includes("rtp") ||
+    a.includes("mandante")
+  );
+}
+
+function isIspAuthor(author: string) {
+  const a = normalizeText(author);
+
+  return (
+    a.includes("its") ||
+    a.includes("isp") ||
+    a.includes("controlli tecnici") ||
+    a.includes("odi") ||
+    a.includes("ispett")
+  );
+}
+
+function formatComment(date: string, author: string, text: string) {
+  const cleanDate = String(date || "").slice(0, 10);
+  const parts = [cleanDate, author].filter(Boolean).join(" - ");
+  return parts ? `${parts}: ${text}` : text;
+}
+
+async function parseBcfFiles(files: File[]) {
+  const topics: BcfTopic[] = [];
+
+  for (const file of files) {
+    const zip = await JSZip.loadAsync(await file.arrayBuffer());
+    const markupFiles = Object.values(zip.files).filter((entry) =>
+      entry.name.toLowerCase().endsWith("markup.bcf")
+    );
+
+    for (const entry of markupFiles) {
+      const xml = await entry.async("text");
+      const doc = new DOMParser().parseFromString(xml, "application/xml");
+
+      const topicNode = doc.getElementsByTagName("Topic")[0];
+      const title = topicNode ? getXmlText(topicNode, "Title") : "";
+      const description = topicNode ? getXmlText(topicNode, "Description") : "";
+      const topicLabels = topicNode ? getXmlTexts(topicNode, "Label").join(" ") : "";
+
+      const comments = Array.from(doc.getElementsByTagName("Comment"));
+
+      const prgComments: string[] = [];
+      const ispComments: string[] = [];
+      const allComments: string[] = [];
+
+      comments.forEach((comment) => {
+        const author =
+          getXmlText(comment, "Author") ||
+          getXmlText(comment, "ModifiedAuthor") ||
+          "";
+        const date =
+          getXmlText(comment, "Date") ||
+          getXmlText(comment, "ModifiedDate") ||
+          "";
+        const text = getXmlText(comment, "Comment");
+
+        if (!text) return;
+
+        const formatted = formatComment(date, author, text);
+        allComments.push(formatted);
+
+        if (isPrgAuthor(author)) {
+          prgComments.push(formatted);
+        } else if (isIspAuthor(author)) {
+          ispComments.push(formatted);
+        }
+      });
+
+      const tr =
+        extractTR(topicLabels) ||
+        extractTR(title) ||
+        extractTR(description) ||
+        extractTR(allComments.join(" "));
+
+      if (!tr && !title && !description && allComments.length === 0) {
+        continue;
+      }
+
+      topics.push({
+        tr,
+        title,
+        description,
+        commentsPrg: prgComments.join("\\n\\n"),
+        commentsIsp: ispComments.join("\\n\\n"),
+        allComments: allComments.join("\\n\\n"),
+      });
+    }
+  }
+
+  return topics;
+}
+
+function findBcfByTR(tr: string, topics: BcfTopic[]) {
+  if (!tr) return null;
+
+  const exact = topics.find((topic) => topic.tr === tr);
+  if (exact) return exact;
+
+  const normalizedTr = normalizeCode(tr);
+
+  return (
+    topics.find((topic) => normalizeCode(topic.title).includes(normalizedTr)) ||
+    topics.find((topic) =>
+      normalizeCode(`${topic.description} ${topic.allComments}`).includes(normalizedTr)
+    ) ||
+    null
+  );
 }
 
 function findHeaderIndex(headers: any[], names: string[], fallback = -1) {
@@ -262,11 +433,13 @@ export default function ControlloTodoIspettoriPage() {
   const [reportFile, setReportFile] = useState<File | null>(null);
   const [elencoFile, setElencoFile] = useState<File | null>(null);
   const [ispettoriFile, setIspettoriFile] = useState<File | null>(null);
+  const [bcfFiles, setBcfFiles] = useState<File[]>([]);
 
   const [todoRows, setTodoRows] = useState<any[][]>([]);
   const [reportRows, setReportRows] = useState<any[][]>([]);
   const [elencoRows, setElencoRows] = useState<any[][]>([]);
   const [ispettoriRows, setIspettoriRows] = useState<any[][]>([]);
+  const [bcfTopics, setBcfTopics] = useState<BcfTopic[]>([]);
 
   const [loading, setLoading] = useState(false);
 
@@ -278,6 +451,8 @@ export default function ControlloTodoIspettoriPage() {
     tags: "",
     disciplina: "",
     status: "",
+    tr: "",
+    esitoStoria: "",
     ispettoriAssegnati: "",
     schedaAssegnata: "",
     verificaAssegnazione: "",
@@ -324,14 +499,16 @@ export default function ControlloTodoIspettoriPage() {
       const report = await readXlsxRows(reportFile, "Verifica Elaborati");
       const elenco = await readXlsxRows(elencoFile);
       const ispettori = ispettoriFile ? await readXlsxRows(ispettoriFile) : [];
+      const bcf = bcfFiles.length > 0 ? await parseBcfFiles(bcfFiles) : [];
 
       setTodoRows(todo);
       setReportRows(report);
       setElencoRows(elenco);
       setIspettoriRows(ispettori);
+      setBcfTopics(bcf);
     } catch (error) {
       console.error(error);
-      alert("Errore durante la lettura dei file XLSX.");
+      alert("Errore durante la lettura dei file XLSX/BCFZIP.");
     } finally {
       setLoading(false);
     }
@@ -440,6 +617,7 @@ export default function ControlloTodoIspettoriPage() {
     return todoRows.slice(1).map((row, index) => {
       const label = String(row[0] || "").trim();
       const title = String(row[1] || "").trim();
+      const description = String(row[2] || "").trim();
       const status = String(row[5] || "").trim();
       const ispettoreTodo = getCell(row, [6, 7, 10, 11]);
       const disciplina = String(row[8] || "").trim();
@@ -489,6 +667,42 @@ export default function ControlloTodoIspettoriPage() {
       if (!status) anomalie.push("Status mancante");
       else if (!statusOk) anomalie.push("Status non valido");
 
+      const tr = extractTRFromTodo(label, title, description);
+      const bcf = findBcfByTR(tr, bcfTopics);
+      const isRilievo = ["NC", "OSS", "Da NC a OSS"].some(
+        (tag) => tag.toLowerCase() === tags.toLowerCase()
+      );
+      const isClosed = status.toLowerCase() === "closed";
+
+      let esitoStoria: CheckRow["esitoStoria"] = "NON APPLICABILE";
+      let storiaOk = true;
+
+      if (isRilievo) {
+        if (!tr) {
+          esitoStoria = "BCF NON TROVATO";
+          storiaOk = false;
+          anomalie.push("Codice TR non trovato nel ToDo");
+        } else if (!bcf) {
+          esitoStoria = "BCF NON TROVATO";
+          storiaOk = false;
+          anomalie.push(`BCF non trovato per ${tr}`);
+        } else if (!bcf.commentsPrg) {
+          esitoStoria = "MANCA RISPOSTA PROGETTISTA";
+          storiaOk = false;
+          anomalie.push("Manca risposta progettista nei commenti BCF");
+        } else if (!bcf.commentsIsp && isClosed) {
+          esitoStoria = "CHIUSO SENZA RISCONTRO";
+          storiaOk = false;
+          anomalie.push("ToDo chiuso senza riscontro ispettore nei BCF");
+        } else if (!bcf.commentsIsp) {
+          esitoStoria = "MANCA RISCONTRO ITS";
+          storiaOk = false;
+          anomalie.push("Manca riscontro ispettore nei commenti BCF");
+        } else {
+          esitoStoria = "COMPLETA";
+        }
+      }
+
       const assignment =
         findAssignmentFromCode(codiceReport || codiceTitleTrimble, assignments) ||
         null;
@@ -516,7 +730,7 @@ export default function ControlloTodoIspettoriPage() {
       }
 
       const esito =
-        titleOk && tagsOk && disciplinaOk && statusOk && assegnazioneOk
+        titleOk && tagsOk && disciplinaOk && statusOk && assegnazioneOk && storiaOk
           ? "OK"
           : "ERRORE";
 
@@ -525,6 +739,7 @@ export default function ControlloTodoIspettoriPage() {
         progressivo: index + 1,
         label,
         title,
+        description,
         codiceTitleTrimble,
         codiceReport,
         titleOk,
@@ -534,6 +749,13 @@ export default function ControlloTodoIspettoriPage() {
         disciplinaOk,
         status,
         statusOk,
+        tr,
+        bcfTitle: bcf?.title || "",
+        bcfDescription: bcf?.description || "",
+        rispostaProgettista: bcf?.commentsPrg || "",
+        riscontroIspettore: bcf?.commentsIsp || "",
+        storiaOk,
+        esitoStoria,
         ispettoreTodo,
         ispettoriAssegnati: assignment?.ispettori || "",
         schedaAssegnata: assignment?.scheda || assignment?.disciplina || "",
@@ -543,7 +765,7 @@ export default function ControlloTodoIspettoriPage() {
         anomalie,
       };
     });
-  }, [todoRows, reportCodes, disciplineAmmesse, assignments]);
+  }, [todoRows, reportCodes, disciplineAmmesse, assignments, bcfTopics]);
 
   const assignmentChecks: AssignmentCheckRow[] = useMemo(() => {
     if (assignments.size === 0) return [];
@@ -619,6 +841,8 @@ export default function ControlloTodoIspettoriPage() {
           .toLowerCase()
           .includes(filters.disciplina.toLowerCase()) &&
         row.status.toLowerCase().includes(filters.status.toLowerCase()) &&
+        row.tr.toLowerCase().includes(filters.tr.toLowerCase()) &&
+        (filters.esitoStoria === "" || row.esitoStoria === filters.esitoStoria) &&
         row.ispettoriAssegnati
           .toLowerCase()
           .includes(filters.ispettoriAssegnati.toLowerCase()) &&
@@ -662,6 +886,14 @@ export default function ControlloTodoIspettoriPage() {
   const ok = checks.filter((r) => r.esito === "OK").length;
   const errori = checks.filter((r) => r.esito === "ERRORE").length;
   const completezza = totale > 0 ? Math.round((ok / totale) * 100) : 0;
+  const storieComplete = checks.filter((r) => r.esitoStoria === "COMPLETA").length;
+  const bcfNonTrovati = checks.filter((r) => r.esitoStoria === "BCF NON TROVATO").length;
+  const mancanoRisposte = checks.filter(
+    (r) =>
+      r.esitoStoria === "MANCA RISPOSTA PROGETTISTA" ||
+      r.esitoStoria === "MANCA RISCONTRO ITS" ||
+      r.esitoStoria === "CHIUSO SENZA RISCONTRO"
+  ).length;
 
   const assegnatiTotale = assignmentChecks.length;
   const assegnatiOk = assignmentChecks.filter((r) => r.esito === "OK").length;
@@ -674,6 +906,7 @@ export default function ControlloTodoIspettoriPage() {
   function esportaExcel() {
     const rows = filteredChecks.map((row) => ({
       "N.": `${row.progressivo}${row.label ? ` (${row.label})` : ""}`,
+      TR: row.tr || "",
       "Codice elaborato Report": row.codiceReport || "",
       "Codice elaborato nel Title Trimble": row.codiceTitleTrimble || "",
       "Esito codice": row.titleOk ? "OK" : "ERRORE",
@@ -683,6 +916,12 @@ export default function ControlloTodoIspettoriPage() {
       "Esito Disciplina": row.disciplinaOk ? "OK" : "ERRORE",
       Status: row.status || "",
       "Esito Status": row.statusOk ? "OK" : "ERRORE",
+      "Description ToDo": row.description || "",
+      "Titolo BCF": row.bcfTitle || "",
+      "Descrizione BCF": row.bcfDescription || "",
+      "Risposta progettista": row.rispostaProgettista || "",
+      "Riscontro ispettore ITS": row.riscontroIspettore || "",
+      "Esito storia rilievo": row.esitoStoria,
       "Ispettore ToDo": row.ispettoreTodo || "",
       "Ispettori assegnati PM": row.ispettoriAssegnati || "",
       "Scheda assegnata PM": row.schedaAssegnata || "",
@@ -747,16 +986,16 @@ export default function ControlloTodoIspettoriPage() {
       </h1>
 
       <p style={{ color: "#475569", fontSize: 18, maxWidth: 1150 }}>
-        Verifica automatica di Title, Tags, Disciplina, Status e assegnazioni PM.
-        Il file Ispettori.xlsx permette di controllare se gli elaborati assegnati
-        dal PM sono stati effettivamente verificati dagli ispettori e se risultano
-        nella scheda corretta.
+        Verifica automatica di Title, Tags, Disciplina, Status, assegnazioni PM
+        e storia del rilievo. I file BCFZIP permettono di confrontare la
+        Description iniziale del ToDo con i commenti del progettista e il
+        riscontro finale dell'ispettore ITS.
       </p>
 
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(4, 1fr)",
+          gridTemplateColumns: "repeat(5, 1fr)",
           gap: 16,
           marginTop: 24,
           maxWidth: 1500,
@@ -804,6 +1043,25 @@ export default function ControlloTodoIspettoriPage() {
             Opzionale, ma consigliato per verificare gli elaborati assegnati.
           </div>
         </div>
+
+        <div style={cardStyle}>
+          <b>BCFZIP / ZIP</b>
+          <input
+            type="file"
+            accept=".bcfzip,.zip"
+            multiple
+            onChange={(e) => setBcfFiles(Array.from(e.target.files || []))}
+            style={inputStyle}
+          />
+          <div style={{ marginTop: 8, color: "#64748b", fontSize: 12 }}>
+            Opzionale, ma consigliato per verificare la storia dei rilievi.
+          </div>
+          {bcfFiles.length > 0 && (
+            <div style={{ marginTop: 8, color: "#64748b", fontSize: 12 }}>
+              File BCF caricati: {bcfFiles.length}
+            </div>
+          )}
+        </div>
       </div>
 
       <button
@@ -828,7 +1086,7 @@ export default function ControlloTodoIspettoriPage() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(7, 1fr)",
+              gridTemplateColumns: "repeat(9, 1fr)",
               gap: 12,
               marginTop: 28,
             }}
@@ -859,6 +1117,18 @@ export default function ControlloTodoIspettoriPage() {
             <div style={cardStyle}>
               <div style={kpiLabel}>Righe con errori</div>
               <div style={{ ...kpiValue, color: "#dc2626" }}>{errori}</div>
+            </div>
+
+            <div style={cardStyle}>
+              <div style={kpiLabel}>Storie complete</div>
+              <div style={{ ...kpiValue, color: "#16a34a" }}>{storieComplete}</div>
+            </div>
+
+            <div style={cardStyle}>
+              <div style={kpiLabel}>BCF/riscontri mancanti</div>
+              <div style={{ ...kpiValue, color: "#dc2626" }}>
+                {bcfNonTrovati + mancanoRisposte}
+              </div>
             </div>
 
             <div style={cardStyle}>
@@ -921,12 +1191,17 @@ export default function ControlloTodoIspettoriPage() {
                 <thead>
                   <tr style={{ background: "#f8fafc" }}>
                     <th style={th}>N.</th>
+                    <th style={th}>TR</th>
                     <th style={th}>Codice elaborato Report</th>
                     <th style={th}>Codice elaborato nel Title Trimble</th>
                     <th style={th}>Esito codice</th>
                     <th style={th}>Tags</th>
                     <th style={th}>Disciplina</th>
                     <th style={th}>Status</th>
+                    <th style={th}>Description ToDo</th>
+                    <th style={th}>Risposta progettista</th>
+                    <th style={th}>Riscontro ITS</th>
+                    <th style={th}>Storia rilievo</th>
                     <th style={th}>Ispettore ToDo</th>
                     <th style={th}>Ispettori PM</th>
                     <th style={th}>Scheda PM</th>
@@ -941,6 +1216,15 @@ export default function ControlloTodoIspettoriPage() {
                         value={filters.n}
                         onChange={(e) => updateFilter("n", e.target.value)}
                         placeholder="Filtra N."
+                        style={filterInput}
+                      />
+                    </th>
+
+                    <th style={th}>
+                      <input
+                        value={filters.tr}
+                        onChange={(e) => updateFilter("tr", e.target.value)}
+                        placeholder="Filtra TR"
                         style={filterInput}
                       />
                     </th>
@@ -1008,6 +1292,33 @@ export default function ControlloTodoIspettoriPage() {
                         placeholder="Filtra status"
                         style={filterInput}
                       />
+                    </th>
+
+                    <th style={th}></th>
+                    <th style={th}></th>
+                    <th style={th}></th>
+                    <th style={th}>
+                      <select
+                        value={filters.esitoStoria}
+                        onChange={(e) =>
+                          updateFilter("esitoStoria", e.target.value)
+                        }
+                        style={filterInput}
+                      >
+                        <option value="">Tutte</option>
+                        <option value="COMPLETA">COMPLETA</option>
+                        <option value="BCF NON TROVATO">BCF NON TROVATO</option>
+                        <option value="MANCA RISPOSTA PROGETTISTA">
+                          MANCA RISPOSTA PROGETTISTA
+                        </option>
+                        <option value="MANCA RISCONTRO ITS">
+                          MANCA RISCONTRO ITS
+                        </option>
+                        <option value="CHIUSO SENZA RISCONTRO">
+                          CHIUSO SENZA RISCONTRO
+                        </option>
+                        <option value="NON APPLICABILE">NON APPLICABILE</option>
+                      </select>
                     </th>
 
                     <th style={th}>
@@ -1094,6 +1405,8 @@ export default function ControlloTodoIspettoriPage() {
                         {row.label ? ` (${row.label})` : ""}
                       </td>
 
+                      <td style={td}>{row.tr || "-"}</td>
+
                       <td style={td}>{row.codiceReport || ""}</td>
 
                       <td style={td}>{row.codiceTitleTrimble || "-"}</td>
@@ -1141,6 +1454,28 @@ export default function ControlloTodoIspettoriPage() {
                         </b>
                       </td>
 
+                      <td style={{ ...td, minWidth: 260, whiteSpace: "pre-wrap" }}>
+                        {row.description || "-"}
+                      </td>
+
+                      <td style={{ ...td, minWidth: 260, whiteSpace: "pre-wrap" }}>
+                        {row.rispostaProgettista || "-"}
+                      </td>
+
+                      <td style={{ ...td, minWidth: 260, whiteSpace: "pre-wrap" }}>
+                        {row.riscontroIspettore || "-"}
+                      </td>
+
+                      <td
+                        style={{
+                          ...td,
+                          fontWeight: 700,
+                          color: row.storiaOk ? "#16a34a" : "#dc2626",
+                        }}
+                      >
+                        {row.esitoStoria}
+                      </td>
+
                       <td style={td}>{row.ispettoreTodo || "-"}</td>
                       <td style={td}>{row.ispettoriAssegnati || "-"}</td>
                       <td style={td}>{row.schedaAssegnata || "-"}</td>
@@ -1174,7 +1509,7 @@ export default function ControlloTodoIspettoriPage() {
 
                   {filteredChecks.length === 0 && (
                     <tr>
-                      <td style={td} colSpan={13}>
+                      <td style={td} colSpan={18}>
                         Nessuna riga trovata con i filtri impostati.
                       </td>
                     </tr>
