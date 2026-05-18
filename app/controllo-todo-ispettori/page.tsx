@@ -33,31 +33,8 @@ type CheckRow = {
     | "MANCA RISCONTRO ITS"
     | "CHIUSO SENZA RISCONTRO"
     | "NON APPLICABILE";
-  ispettoreTodo: string;
-  ispettoriAssegnati: string;
-  schedaAssegnata: string;
-  assegnazioneOk: boolean;
-  verificaAssegnazione: "OK" | "NON ASSEGNATO" | "NON VERIFICATO" | "ISPETTORE NON COERENTE" | "SCHEDA ERRATA";
   esito: "OK" | "ERRORE";
   anomalie: string[];
-};
-
-type AssignmentRow = {
-  codice: string;
-  codiceNorm: string;
-  titolo: string;
-  ispettori: string;
-  scheda: string;
-  disciplina: string;
-  verificato: boolean;
-  anomalie: string[];
-};
-
-type AssignmentCheckRow = AssignmentRow & {
-  codiceReport: string;
-  presenteInTodo: boolean;
-  presenteInReport: boolean;
-  esito: "OK" | "ERRORE";
 };
 
 type BcfTopic = {
@@ -79,21 +56,6 @@ type Filters = {
   status: string;
   tr: string;
   esitoStoria: string;
-  ispettoriAssegnati: string;
-  schedaAssegnata: string;
-  verificaAssegnazione: string;
-  esito: string;
-  anomalie: string;
-};
-
-type AssignmentFilters = {
-  codice: string;
-  titolo: string;
-  ispettori: string;
-  scheda: string;
-  disciplina: string;
-  presenteInTodo: string;
-  presenteInReport: string;
   esito: string;
   anomalie: string;
 };
@@ -123,43 +85,6 @@ function cleanPdf(value: string) {
   return String(value || "").replace(/\.pdf$/i, "").trim();
 }
 
-function looksLikeElaboratoCode(value: string) {
-  const text = String(value || "").trim();
-
-  return /^PV\d{3}-[A-Z0-9]+-[A-Z0-9]+-[A-Z]{3}-\d{5}-[A-Z]{3}-\d{6}/i.test(text);
-}
-
-function normalizeInspectorList(value: string) {
-  return String(value || "")
-    .replace(/\s+-\s+/g, ";")
-    .replace(/\s*;\s*/g, ";")
-    .replace(/\s*,\s*/g, ";")
-    .replace(/\s*\/\s*/g, ";")
-    .replace(/\s*\|\s*/g, ";")
-    .trim();
-}
-
-function disciplinaCodeFromCodice(value: string) {
-  const match = String(value || "").match(/^PV\d{3}-[A-Z0-9]+-[A-Z0-9]+-([A-Z]{3})-/i);
-
-  return match ? match[1].toUpperCase() : "";
-}
-
-function getAssignmentSchedaDisciplina(value: string) {
-  const text = String(value || "").trim();
-  const parts = text.split(/\s+-\s+/);
-
-  return parts.length > 1 ? parts.slice(1).join(" - ").trim() : text;
-}
-
-function getCell(row: any[], indexes: number[]) {
-  for (const i of indexes) {
-    const value = String(row[i] || "").trim();
-    if (value) return value;
-  }
-  return "";
-}
-
 function getXmlText(parent: Element | Document, tagName: string) {
   const node = parent.getElementsByTagName(tagName)[0];
   return node?.textContent?.trim() || "";
@@ -171,14 +96,35 @@ function getXmlTexts(parent: Element | Document, tagName: string) {
     .filter(Boolean);
 }
 
+function getByLocalName(parent: Element | Document, localName: string) {
+  return Array.from(parent.getElementsByTagName("*")).filter(
+    (node) => node.localName.toLowerCase() === localName.toLowerCase()
+  );
+}
+
+function getLocalText(parent: Element | Document, localName: string) {
+  const node = getByLocalName(parent, localName)[0];
+  return node?.textContent?.trim() || "";
+}
+
+function getLocalTexts(parent: Element | Document, localName: string) {
+  return getByLocalName(parent, localName)
+    .map((node) => node.textContent?.trim() || "")
+    .filter(Boolean);
+}
+
+
 function extractTR(value: string) {
   const text = String(value || "").toUpperCase();
 
-  const direct = text.match(/TR[-_\s]*0*(\d+[A-Z]?)/i);
-  if (direct) return `TR-${direct[1]}`;
+  const tr = text.match(/\bTR[-_\s]*0*(\d+[A-Z]?)\b/i);
+  if (tr) return `TR-${tr[1]}`;
 
-  const label = text.match(/IT\d+[-_\s]*0*(\d+[A-Z]?)/i);
-  if (label) return `TR-${label[1]}`;
+  const it = text.match(/\bIT(?:\d+)?[-_\s]*0*(\d+[A-Z]?)\b/i);
+  if (it) return `TR-${it[1]}`;
+
+  const bracket = text.match(/\((?:TR|IT)[-_\s]*0*(\d+[A-Z]?)\)/i);
+  if (bracket) return `TR-${bracket[1]}`;
 
   return "";
 }
@@ -186,6 +132,32 @@ function extractTR(value: string) {
 function extractTRFromTodo(label: string, title: string, description: string) {
   return extractTR(label) || extractTR(title) || extractTR(description);
 }
+
+function extractComparableCode(value: string) {
+  const text = String(value || "");
+  const match = text.match(/PV\d{3}-[A-Z0-9]+-[A-Z0-9]+-[A-Z]{3}-\d{5}-[A-Z]{3}-\d{6}(?:[-_ ]?\d+)?/i);
+  return match ? normalizeCode(match[0]) : "";
+}
+
+function isKnownInspectorAuthor(author: string) {
+  const a = normalizeText(author);
+
+  return (
+    a.includes("massimo tamberi") ||
+    a.includes("edoardo oddo") ||
+    a.includes("guido bonin") ||
+    a.includes("ilaria martarelli") ||
+    a.includes("michea sciorra") ||
+    a.includes("stefano arcangeli") ||
+    a.includes("massimo") ||
+    a.includes("edoardo") ||
+    a.includes("guido") ||
+    a.includes("ilaria") ||
+    a.includes("michea") ||
+    a.includes("stefano")
+  );
+}
+
 
 function isPrgAuthor(author: string) {
   const a = normalizeText(author);
@@ -207,7 +179,8 @@ function isIspAuthor(author: string) {
     a.includes("isp") ||
     a.includes("controlli tecnici") ||
     a.includes("odi") ||
-    a.includes("ispett")
+    a.includes("ispett") ||
+    isKnownInspectorAuthor(author)
   );
 }
 
@@ -220,100 +193,153 @@ function formatComment(date: string, author: string, text: string) {
 async function parseBcfFiles(files: File[]) {
   const topics: BcfTopic[] = [];
 
-  for (const file of files) {
-    const zip = await JSZip.loadAsync(await file.arrayBuffer());
-    const markupFiles = Object.values(zip.files).filter((entry) =>
-      entry.name.toLowerCase().endsWith("markup.bcf")
+  async function parseMarkupXml(xml: string, sourceName: string) {
+    const doc = new DOMParser().parseFromString(xml, "application/xml");
+
+    const topicNode =
+      getByLocalName(doc, "Topic")[0] ||
+      doc.getElementsByTagName("Topic")[0];
+
+    const title = topicNode
+      ? getLocalText(topicNode, "Title") || getXmlText(topicNode, "Title")
+      : "";
+    const description = topicNode
+      ? getLocalText(topicNode, "Description") || getXmlText(topicNode, "Description")
+      : "";
+    const topicLabels = topicNode
+      ? getLocalTexts(topicNode, "Label").join(" ") || getXmlTexts(topicNode, "Label").join(" ")
+      : "";
+
+    const comments = getByLocalName(doc, "Comment").filter((node) =>
+      Array.from(node.children || []).some((child) =>
+        ["Date", "Author", "Comment", "ModifiedAuthor", "ModifiedDate"].includes(child.localName)
+      )
     );
 
-    for (const entry of markupFiles) {
-      const xml = await entry.async("text");
-      const doc = new DOMParser().parseFromString(xml, "application/xml");
+    const prgComments: string[] = [];
+    const ispComments: string[] = [];
+    const allComments: string[] = [];
 
-      const topicNode = doc.getElementsByTagName("Topic")[0];
-      const title = topicNode ? getXmlText(topicNode, "Title") : "";
-      const description = topicNode ? getXmlText(topicNode, "Description") : "";
-      const topicLabels = topicNode ? getXmlTexts(topicNode, "Label").join(" ") : "";
+    comments.forEach((comment) => {
+      const author =
+        getLocalText(comment, "Author") ||
+        getLocalText(comment, "ModifiedAuthor") ||
+        "";
+      const date =
+        getLocalText(comment, "Date") ||
+        getLocalText(comment, "ModifiedDate") ||
+        "";
 
-      const comments = Array.from(doc.getElementsByTagName("Comment"));
+      const commentTexts = getByLocalName(comment, "Comment")
+        .filter((node) => node !== comment)
+        .map((node) => node.textContent?.trim() || "")
+        .filter(Boolean);
 
-      const prgComments: string[] = [];
-      const ispComments: string[] = [];
-      const allComments: string[] = [];
+      const text = commentTexts[0] || "";
+      if (!text) return;
 
-      comments.forEach((comment) => {
-        const author =
-          getXmlText(comment, "Author") ||
-          getXmlText(comment, "ModifiedAuthor") ||
-          "";
-        const date =
-          getXmlText(comment, "Date") ||
-          getXmlText(comment, "ModifiedDate") ||
-          "";
-        const text = getXmlText(comment, "Comment");
+      const formatted = formatComment(date, author, text);
+      allComments.push(formatted);
 
-        if (!text) return;
-
-        const formatted = formatComment(date, author, text);
-        allComments.push(formatted);
-
-        if (isPrgAuthor(author)) {
-          prgComments.push(formatted);
-        } else if (isIspAuthor(author)) {
-          ispComments.push(formatted);
-        }
-      });
-
-      const tr =
-        extractTR(topicLabels) ||
-        extractTR(title) ||
-        extractTR(description) ||
-        extractTR(allComments.join(" "));
-
-      if (!tr && !title && !description && allComments.length === 0) {
-        continue;
+      if (isIspAuthor(author)) {
+        ispComments.push(formatted);
+      } else {
+        prgComments.push(formatted);
       }
+    });
 
-      topics.push({
-        tr,
-        title,
-        description,
-        commentsPrg: prgComments.join("\\n\\n"),
-        commentsIsp: ispComments.join("\\n\\n"),
-        allComments: allComments.join("\\n\\n"),
-      });
+    const tr =
+      extractTR(sourceName) ||
+      extractTR(topicLabels) ||
+      extractTR(title) ||
+      extractTR(description) ||
+      extractTR(allComments.join(" "));
+
+    const comparableCode =
+      extractComparableCode(title) ||
+      extractComparableCode(description) ||
+      extractComparableCode(sourceName) ||
+      extractComparableCode(allComments.join(" "));
+
+    if (!tr && !title && !description && allComments.length === 0 && !comparableCode) {
+      return;
+    }
+
+    topics.push({
+      tr,
+      title,
+      description: comparableCode ? `${description}\n${comparableCode}`.trim() : description,
+      commentsPrg: prgComments.join("\n\n"),
+      commentsIsp: ispComments.join("\n\n"),
+      allComments: allComments.join("\n\n"),
+    });
+  }
+
+  for (const file of files) {
+    const lowerName = file.name.toLowerCase();
+
+    if (lowerName.endsWith(".bcf") || lowerName.endsWith(".xml")) {
+      await parseMarkupXml(await file.text(), file.name);
+      continue;
+    }
+
+    const zip = await JSZip.loadAsync(await file.arrayBuffer());
+
+    const markupFiles = Object.values(zip.files).filter((entry) => {
+      const name = entry.name.toLowerCase();
+
+      return (
+        !entry.dir &&
+        (name.endsWith("markup.bcf") ||
+          name.endsWith(".bcf") ||
+          name.endsWith(".xml"))
+      );
+    });
+
+    for (const entry of markupFiles) {
+      try {
+        const xml = await entry.async("text");
+        await parseMarkupXml(xml, entry.name);
+      } catch {
+        // ignora file non XML dentro lo ZIP
+      }
     }
   }
 
   return topics;
 }
 
-function findBcfByTR(tr: string, topics: BcfTopic[]) {
-  if (!tr) return null;
-
-  const exact = topics.find((topic) => topic.tr === tr);
-  if (exact) return exact;
-
+function findBcfByTR(
+  tr: string,
+  topics: BcfTopic[],
+  title = "",
+  description = "",
+  codiceReport = ""
+) {
   const normalizedTr = normalizeCode(tr);
+  const comparableCode =
+    extractComparableCode(title) ||
+    extractComparableCode(codiceReport) ||
+    extractComparableCode(description);
 
-  return (
-    topics.find((topic) => normalizeCode(topic.title).includes(normalizedTr)) ||
-    topics.find((topic) =>
-      normalizeCode(`${topic.description} ${topic.allComments}`).includes(normalizedTr)
-    ) ||
-    null
-  );
-}
+  if (normalizedTr) {
+    const exact = topics.find((topic) => normalizeCode(topic.tr) === normalizedTr);
+    if (exact) return exact;
 
-function findHeaderIndex(headers: any[], names: string[], fallback = -1) {
-  const normalizedNames = names.map(normalizeText);
+    const byText = topics.find((topic) =>
+      normalizeCode(`${topic.tr} ${topic.title} ${topic.description} ${topic.allComments}`).includes(normalizedTr)
+    );
+    if (byText) return byText;
+  }
 
-  const found = headers.findIndex((h) => {
-    const header = normalizeText(String(h || ""));
-    return normalizedNames.some((n) => header === n || header.includes(n));
-  });
+  if (comparableCode) {
+    const byCode = topics.find((topic) =>
+      normalizeCode(`${topic.title} ${topic.description} ${topic.allComments}`).includes(comparableCode)
+    );
+    if (byCode) return byCode;
+  }
 
-  return found >= 0 ? found : fallback;
+  return null;
 }
 
 function isDescrizioneGenerale(value: string) {
@@ -354,59 +380,6 @@ function findBestReportCodeFromTitle(
   return bestOriginal;
 }
 
-function findAssignmentFromCode(
-  code: string,
-  assignments: Map<string, AssignmentRow>
-) {
-  const normalizedCode = normalizeCode(code);
-
-  if (!normalizedCode) return null;
-
-  if (assignments.has(normalizedCode)) {
-    return assignments.get(normalizedCode) || null;
-  }
-
-  let bestKey = "";
-  let bestAssignment: AssignmentRow | null = null;
-
-  for (const [assignmentCode, assignment] of assignments.entries()) {
-    if (
-      normalizedCode === assignmentCode ||
-      normalizedCode.includes(assignmentCode) ||
-      assignmentCode.includes(normalizedCode)
-    ) {
-      if (assignmentCode.length > bestKey.length) {
-        bestKey = assignmentCode;
-        bestAssignment = assignment;
-      }
-    }
-  }
-
-  return bestAssignment;
-}
-
-function ispettoreCoerente(todoValue: string, assignedValue: string) {
-  const todo = normalizeText(todoValue);
-  const assigned = normalizeText(assignedValue);
-
-  if (!assigned) return false;
-
-  // Nel file PM la dicitura "Tutti" significa che qualunque ispettore del ToDo
-  // e' coerente con l'assegnazione.
-  if (assigned === "tutti" || assigned.includes("tutti")) return true;
-
-  if (!todo) return true;
-
-  const assignedParts = normalizeInspectorList(assignedValue)
-    .split(";")
-    .map((p) => normalizeText(p))
-    .filter(Boolean);
-
-  if (assignedParts.length === 0) return true;
-
-  return assignedParts.some((p) => todo.includes(p) || p.includes(todo));
-}
-
 async function readXlsxRows(file: File, preferredSheetName?: string) {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: "array" });
@@ -432,13 +405,11 @@ export default function ControlloTodoIspettoriPage() {
   const [todoFile, setTodoFile] = useState<File | null>(null);
   const [reportFile, setReportFile] = useState<File | null>(null);
   const [elencoFile, setElencoFile] = useState<File | null>(null);
-  const [ispettoriFile, setIspettoriFile] = useState<File | null>(null);
   const [bcfFiles, setBcfFiles] = useState<File[]>([]);
 
   const [todoRows, setTodoRows] = useState<any[][]>([]);
   const [reportRows, setReportRows] = useState<any[][]>([]);
   const [elencoRows, setElencoRows] = useState<any[][]>([]);
-  const [ispettoriRows, setIspettoriRows] = useState<any[][]>([]);
   const [bcfTopics, setBcfTopics] = useState<BcfTopic[]>([]);
 
   const [loading, setLoading] = useState(false);
@@ -453,34 +424,12 @@ export default function ControlloTodoIspettoriPage() {
     status: "",
     tr: "",
     esitoStoria: "",
-    ispettoriAssegnati: "",
-    schedaAssegnata: "",
-    verificaAssegnazione: "",
-    esito: "",
-    anomalie: "",
-  });
-
-  const [assignmentFilters, setAssignmentFilters] = useState<AssignmentFilters>({
-    codice: "",
-    titolo: "",
-    ispettori: "",
-    scheda: "",
-    disciplina: "",
-    presenteInTodo: "",
-    presenteInReport: "",
     esito: "",
     anomalie: "",
   });
 
   function updateFilter(key: keyof Filters, value: string) {
     setFilters((prev) => ({
-      ...prev,
-      [key]: value,
-    }));
-  }
-
-  function updateAssignmentFilter(key: keyof AssignmentFilters, value: string) {
-    setAssignmentFilters((prev) => ({
       ...prev,
       [key]: value,
     }));
@@ -498,13 +447,11 @@ export default function ControlloTodoIspettoriPage() {
       const todo = await readXlsxRows(todoFile);
       const report = await readXlsxRows(reportFile, "Verifica Elaborati");
       const elenco = await readXlsxRows(elencoFile);
-      const ispettori = ispettoriFile ? await readXlsxRows(ispettoriFile) : [];
       const bcf = bcfFiles.length > 0 ? await parseBcfFiles(bcfFiles) : [];
 
       setTodoRows(todo);
       setReportRows(report);
       setElencoRows(elenco);
-      setIspettoriRows(ispettori);
       setBcfTopics(bcf);
     } catch (error) {
       console.error(error);
@@ -543,83 +490,12 @@ export default function ControlloTodoIspettoriPage() {
     return set;
   }, [elencoRows]);
 
-  const assignments = useMemo(() => {
-    const map = new Map<string, AssignmentRow>();
-
-    if (ispettoriRows.length === 0) return map;
-
-    let currentDisciplinaSezione = "";
-
-    // Struttura file PM/Ispettori.xlsx:
-    // A = Codice Elaborato oppure titolo sezione/disciplina in azzurro
-    // B = Titolo elaborato
-    // C = Commessa
-    // D = Fase
-    // E = Origine
-    // F = Disciplina sintetica, es. GEN, STR, SIC
-    // G = WBS
-    // H = Tipo
-    // I = Progressivo
-    // J = Revisione
-    // K = Commenti PM
-    // L = Ispettori assegnati
-    // M = Scheda ispettiva
-    ispettoriRows.forEach((row) => {
-      const colA = String(row[0] || "").trim();
-      const colB = String(row[1] || "").trim();
-
-      if (!colA) return;
-
-      const normalizedA = normalizeText(colA);
-      if (
-        normalizedA.includes("codice elaborato") ||
-        normalizedA.includes("elenco elaborati") ||
-        normalizedA.includes("intervento")
-      ) {
-        return;
-      }
-
-      // Le righe sezione hanno la disciplina in colonna A e titolo vuoto in colonna B.
-      if (!looksLikeElaboratoCode(colA)) {
-        if (!colB) currentDisciplinaSezione = colA;
-        return;
-      }
-
-      const codice = colA;
-      const codiceNorm = normalizeCode(codice);
-
-      if (!codiceNorm) return;
-
-      const disciplinaCodice = String(row[5] || "").trim();
-      const ispettori = String(row[11] || "").trim();
-      const scheda = String(row[12] || "").trim();
-
-      map.set(codiceNorm, {
-        codice,
-        codiceNorm,
-        titolo: colB,
-        ispettori,
-        scheda,
-        disciplina:
-          getAssignmentSchedaDisciplina(scheda) ||
-          currentDisciplinaSezione ||
-          disciplinaCodice ||
-          disciplinaCodeFromCodice(codice),
-        verificato: false,
-        anomalie: [],
-      });
-    });
-
-    return map;
-  }, [ispettoriRows]);
-
   const checks: CheckRow[] = useMemo(() => {
     return todoRows.slice(1).map((row, index) => {
       const label = String(row[0] || "").trim();
       const title = String(row[1] || "").trim();
       const description = String(row[2] || "").trim();
       const status = String(row[5] || "").trim();
-      const ispettoreTodo = getCell(row, [6, 7, 10, 11]);
       const disciplina = String(row[8] || "").trim();
       const tags = String(row[9] || "").trim();
 
@@ -668,7 +544,7 @@ export default function ControlloTodoIspettoriPage() {
       else if (!statusOk) anomalie.push("Status non valido");
 
       const tr = extractTRFromTodo(label, title, description);
-      const bcf = findBcfByTR(tr, bcfTopics);
+      const bcf = findBcfByTR(tr, bcfTopics, title, description, codiceReport);
       const isRilievo = ["NC", "OSS", "Da NC a OSS"].some(
         (tag) => tag.toLowerCase() === tags.toLowerCase()
       );
@@ -686,7 +562,7 @@ export default function ControlloTodoIspettoriPage() {
           esitoStoria = "BCF NON TROVATO";
           storiaOk = false;
           anomalie.push(`BCF non trovato per ${tr}`);
-        } else if (!bcf.commentsPrg) {
+        } else if (!bcf.commentsPrg && !bcf.allComments) {
           esitoStoria = "MANCA RISPOSTA PROGETTISTA";
           storiaOk = false;
           anomalie.push("Manca risposta progettista nei commenti BCF");
@@ -703,34 +579,8 @@ export default function ControlloTodoIspettoriPage() {
         }
       }
 
-      const assignment =
-        findAssignmentFromCode(codiceReport || codiceTitleTrimble, assignments) ||
-        null;
-
-      let verificaAssegnazione: CheckRow["verificaAssegnazione"] = "OK";
-      let assegnazioneOk = true;
-
-      if (assignments.size > 0) {
-        if (!assignment) {
-          verificaAssegnazione = "NON ASSEGNATO";
-          assegnazioneOk = false;
-          anomalie.push("Elaborato non presente nel file assegnazioni PM/Ispettori");
-        } else if (!ispettoreCoerente(ispettoreTodo, assignment.ispettori)) {
-          verificaAssegnazione = "ISPETTORE NON COERENTE";
-          assegnazioneOk = false;
-          anomalie.push(
-            `Ispettore ToDo non coerente con assegnazione PM: ${assignment.ispettori}`
-          );
-        } else {
-          // La coerenza della scheda PM viene derivata dal codice elaborato e
-          // dall'assegnazione trovata. Non confrontiamo il testo esteso della
-          // disciplina ToDo con il codice sintetico del file PM (GEN, STR, SIC...),
-          // per evitare falsi errori.
-        }
-      }
-
       const esito =
-        titleOk && tagsOk && disciplinaOk && statusOk && assegnazioneOk && storiaOk
+        titleOk && tagsOk && disciplinaOk && statusOk && storiaOk
           ? "OK"
           : "ERRORE";
 
@@ -752,73 +602,15 @@ export default function ControlloTodoIspettoriPage() {
         tr,
         bcfTitle: bcf?.title || "",
         bcfDescription: bcf?.description || "",
-        rispostaProgettista: bcf?.commentsPrg || "",
+        rispostaProgettista: bcf?.commentsPrg || (bcf?.commentsIsp ? "" : bcf?.allComments || ""),
         riscontroIspettore: bcf?.commentsIsp || "",
         storiaOk,
         esitoStoria,
-        ispettoreTodo,
-        ispettoriAssegnati: assignment?.ispettori || "",
-        schedaAssegnata: assignment?.scheda || assignment?.disciplina || "",
-        assegnazioneOk,
-        verificaAssegnazione,
         esito,
         anomalie,
       };
     });
-  }, [todoRows, reportCodes, disciplineAmmesse, assignments, bcfTopics]);
-
-  const assignmentChecks: AssignmentCheckRow[] = useMemo(() => {
-    if (assignments.size === 0) return [];
-
-    const todoCodes = new Set<string>();
-    const reportCodeSet = new Set<string>();
-
-    checks.forEach((row) => {
-      const normalized = normalizeCode(row.codiceReport || row.codiceTitleTrimble);
-      if (normalized) todoCodes.add(normalized);
-    });
-
-    reportCodes.forEach((_original, normalized) => {
-      if (normalized) reportCodeSet.add(normalized);
-    });
-
-    return Array.from(assignments.values()).map((assignment) => {
-      const presenteInTodo = Array.from(todoCodes).some(
-        (code) =>
-          code === assignment.codiceNorm ||
-          code.includes(assignment.codiceNorm) ||
-          assignment.codiceNorm.includes(code)
-      );
-
-      const presenteInReport = Array.from(reportCodeSet).some(
-        (code) =>
-          code === assignment.codiceNorm ||
-          code.includes(assignment.codiceNorm) ||
-          assignment.codiceNorm.includes(code)
-      );
-
-      const anomalie: string[] = [];
-
-      if (!presenteInTodo) {
-        anomalie.push("Elaborato assegnato dal PM ma non presente nel ToDo");
-      }
-
-      if (!presenteInReport) {
-        anomalie.push("Elaborato assegnato dal PM ma non presente nel Report_Completo");
-      }
-
-      const esito = presenteInTodo && presenteInReport ? "OK" : "ERRORE";
-
-      return {
-        ...assignment,
-        codiceReport: presenteInReport ? assignment.codice : "",
-        presenteInTodo,
-        presenteInReport,
-        esito,
-        anomalie,
-      };
-    });
-  }, [assignments, checks, reportCodes]);
+  }, [todoRows, reportCodes, disciplineAmmesse, bcfTopics]);
 
   const filteredChecks = useMemo(() => {
     return checks.filter((row) => {
@@ -843,44 +635,11 @@ export default function ControlloTodoIspettoriPage() {
         row.status.toLowerCase().includes(filters.status.toLowerCase()) &&
         row.tr.toLowerCase().includes(filters.tr.toLowerCase()) &&
         (filters.esitoStoria === "" || row.esitoStoria === filters.esitoStoria) &&
-        row.ispettoriAssegnati
-          .toLowerCase()
-          .includes(filters.ispettoriAssegnati.toLowerCase()) &&
-        row.schedaAssegnata
-          .toLowerCase()
-          .includes(filters.schedaAssegnata.toLowerCase()) &&
-        (filters.verificaAssegnazione === "" ||
-          row.verificaAssegnazione === filters.verificaAssegnazione) &&
         (filters.esito === "" || row.esito === filters.esito) &&
         anomalie.toLowerCase().includes(filters.anomalie.toLowerCase())
       );
     });
   }, [checks, filters]);
-
-  const filteredAssignmentChecks = useMemo(() => {
-    return assignmentChecks.filter((row) => {
-      const anomalie = row.anomalie.join(" | ");
-
-      return (
-        row.codice.toLowerCase().includes(assignmentFilters.codice.toLowerCase()) &&
-        row.titolo.toLowerCase().includes(assignmentFilters.titolo.toLowerCase()) &&
-        row.ispettori
-          .toLowerCase()
-          .includes(assignmentFilters.ispettori.toLowerCase()) &&
-        row.scheda.toLowerCase().includes(assignmentFilters.scheda.toLowerCase()) &&
-        row.disciplina
-          .toLowerCase()
-          .includes(assignmentFilters.disciplina.toLowerCase()) &&
-        (assignmentFilters.presenteInTodo === "" ||
-          (row.presenteInTodo ? "SI" : "NO") === assignmentFilters.presenteInTodo) &&
-        (assignmentFilters.presenteInReport === "" ||
-          (row.presenteInReport ? "SI" : "NO") ===
-            assignmentFilters.presenteInReport) &&
-        (assignmentFilters.esito === "" || row.esito === assignmentFilters.esito) &&
-        anomalie.toLowerCase().includes(assignmentFilters.anomalie.toLowerCase())
-      );
-    });
-  }, [assignmentChecks, assignmentFilters]);
 
   const totale = checks.length;
   const ok = checks.filter((r) => r.esito === "OK").length;
@@ -894,11 +653,6 @@ export default function ControlloTodoIspettoriPage() {
       r.esitoStoria === "MANCA RISCONTRO ITS" ||
       r.esitoStoria === "CHIUSO SENZA RISCONTRO"
   ).length;
-
-  const assegnatiTotale = assignmentChecks.length;
-  const assegnatiOk = assignmentChecks.filter((r) => r.esito === "OK").length;
-  const assegnatiErrore = assignmentChecks.filter((r) => r.esito === "ERRORE").length;
-  const assegnatiNonVerificati = assignmentChecks.filter((r) => !r.presenteInTodo).length;
 
   const completezzaColor =
     completezza === 100 ? "#16a34a" : completezza >= 51 ? "#f59e0b" : "#dc2626";
@@ -922,22 +676,6 @@ export default function ControlloTodoIspettoriPage() {
       "Risposta progettista": row.rispostaProgettista || "",
       "Riscontro ispettore ITS": row.riscontroIspettore || "",
       "Esito storia rilievo": row.esitoStoria,
-      "Ispettore ToDo": row.ispettoreTodo || "",
-      "Ispettori assegnati PM": row.ispettoriAssegnati || "",
-      "Scheda assegnata PM": row.schedaAssegnata || "",
-      "Verifica assegnazione": row.verificaAssegnazione,
-      Esito: row.esito,
-      Anomalie: row.anomalie.join(" | "),
-    }));
-
-    const assignmentRows = filteredAssignmentChecks.map((row) => ({
-      "Codice elaborato assegnato": row.codice,
-      Titolo: row.titolo,
-      Ispettori: row.ispettori,
-      Scheda: row.scheda,
-      Disciplina: row.disciplina,
-      "Presente nel ToDo": row.presenteInTodo ? "SI" : "NO",
-      "Presente nel Report_Completo": row.presenteInReport ? "SI" : "NO",
       Esito: row.esito,
       Anomalie: row.anomalie.join(" | "),
     }));
@@ -950,15 +688,7 @@ export default function ControlloTodoIspettoriPage() {
       "Controllo ToDo"
     );
 
-    if (assignmentRows.length > 0) {
-      XLSX.utils.book_append_sheet(
-        workbook,
-        XLSX.utils.json_to_sheet(assignmentRows),
-        "Controllo Assegnazioni PM"
-      );
-    }
-
-    XLSX.writeFile(workbook, "Report_Controllo_ToDo_Ispettori.xlsx");
+    XLSX.writeFile(workbook, "Report_Controllo_ToDo_BCF.xlsx");
   }
 
   return (
@@ -986,16 +716,15 @@ export default function ControlloTodoIspettoriPage() {
       </h1>
 
       <p style={{ color: "#475569", fontSize: 18, maxWidth: 1150 }}>
-        Verifica automatica di Title, Tags, Disciplina, Status, assegnazioni PM
-        e storia del rilievo. I file BCFZIP permettono di confrontare la
-        Description iniziale del ToDo con i commenti del progettista e il
-        riscontro finale dell'ispettore ITS.
+        Verifica automatica di Title, Tags, Disciplina, Status e storia del rilievo.
+        I file BCFZIP permettono di confrontare la Description iniziale del ToDo
+        con i commenti del progettista e il riscontro finale dell'ispettore ITS.
       </p>
 
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(5, 1fr)",
+          gridTemplateColumns: "repeat(4, 1fr)",
           gap: 16,
           marginTop: 24,
           maxWidth: 1500,
@@ -1029,19 +758,6 @@ export default function ControlloTodoIspettoriPage() {
             onChange={(e) => setElencoFile(e.target.files?.[0] || null)}
             style={inputStyle}
           />
-        </div>
-
-        <div style={cardStyle}>
-          <b>Assegnazioni PM / Ispettori.xlsx</b>
-          <input
-            type="file"
-            accept=".xlsx,.xls"
-            onChange={(e) => setIspettoriFile(e.target.files?.[0] || null)}
-            style={inputStyle}
-          />
-          <div style={{ marginTop: 8, color: "#64748b", fontSize: 12 }}>
-            Opzionale, ma consigliato per verificare gli elaborati assegnati.
-          </div>
         </div>
 
         <div style={cardStyle}>
@@ -1086,7 +802,7 @@ export default function ControlloTodoIspettoriPage() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(9, 1fr)",
+              gridTemplateColumns: "repeat(6, 1fr)",
               gap: 12,
               marginTop: 28,
             }}
@@ -1129,21 +845,6 @@ export default function ControlloTodoIspettoriPage() {
               <div style={{ ...kpiValue, color: "#dc2626" }}>
                 {bcfNonTrovati + mancanoRisposte}
               </div>
-            </div>
-
-            <div style={cardStyle}>
-              <div style={kpiLabel}>Elaborati assegnati PM</div>
-              <div style={kpiValue}>{assegnatiTotale}</div>
-            </div>
-
-            <div style={cardStyle}>
-              <div style={kpiLabel}>Assegnati verificati</div>
-              <div style={{ ...kpiValue, color: "#16a34a" }}>{assegnatiOk}</div>
-            </div>
-
-            <div style={cardStyle}>
-              <div style={kpiLabel}>Assegnati non verificati</div>
-              <div style={{ ...kpiValue, color: "#dc2626" }}>{assegnatiNonVerificati}</div>
             </div>
           </div>
 
@@ -1202,10 +903,6 @@ export default function ControlloTodoIspettoriPage() {
                     <th style={th}>Risposta progettista</th>
                     <th style={th}>Riscontro ITS</th>
                     <th style={th}>Storia rilievo</th>
-                    <th style={th}>Ispettore ToDo</th>
-                    <th style={th}>Ispettori PM</th>
-                    <th style={th}>Scheda PM</th>
-                    <th style={th}>Assegnazione</th>
                     <th style={th}>Esito</th>
                     <th style={th}>Anomalie</th>
                   </tr>
@@ -1322,57 +1019,6 @@ export default function ControlloTodoIspettoriPage() {
                     </th>
 
                     <th style={th}>
-                      <input
-                        value={filters.ispettoriAssegnati}
-                        onChange={(e) =>
-                          updateFilter("ispettoriAssegnati", e.target.value)
-                        }
-                        placeholder="Filtra ispettori"
-                        style={filterInput}
-                      />
-                    </th>
-
-                    <th style={th}>
-                      <input
-                        value={filters.ispettoriAssegnati}
-                        onChange={(e) =>
-                          updateFilter("ispettoriAssegnati", e.target.value)
-                        }
-                        placeholder="Filtra PM"
-                        style={filterInput}
-                      />
-                    </th>
-
-                    <th style={th}>
-                      <input
-                        value={filters.schedaAssegnata}
-                        onChange={(e) =>
-                          updateFilter("schedaAssegnata", e.target.value)
-                        }
-                        placeholder="Filtra scheda"
-                        style={filterInput}
-                      />
-                    </th>
-
-                    <th style={th}>
-                      <select
-                        value={filters.verificaAssegnazione}
-                        onChange={(e) =>
-                          updateFilter("verificaAssegnazione", e.target.value)
-                        }
-                        style={filterInput}
-                      >
-                        <option value="">Tutte</option>
-                        <option value="OK">OK</option>
-                        <option value="NON ASSEGNATO">NON ASSEGNATO</option>
-                        <option value="ISPETTORE NON COERENTE">
-                          ISPETTORE NON COERENTE
-                        </option>
-                        <option value="SCHEDA ERRATA">SCHEDA ERRATA</option>
-                      </select>
-                    </th>
-
-                    <th style={th}>
                       <select
                         value={filters.esito}
                         onChange={(e) => updateFilter("esito", e.target.value)}
@@ -1476,23 +1122,6 @@ export default function ControlloTodoIspettoriPage() {
                         {row.esitoStoria}
                       </td>
 
-                      <td style={td}>{row.ispettoreTodo || "-"}</td>
-                      <td style={td}>{row.ispettoriAssegnati || "-"}</td>
-                      <td style={td}>{row.schedaAssegnata || "-"}</td>
-
-                      <td
-                        style={{
-                          ...td,
-                          fontWeight: 700,
-                          color:
-                            row.verificaAssegnazione === "OK"
-                              ? "#16a34a"
-                              : "#dc2626",
-                        }}
-                      >
-                        {row.verificaAssegnazione}
-                      </td>
-
                       <td
                         style={{
                           ...td,
@@ -1509,7 +1138,7 @@ export default function ControlloTodoIspettoriPage() {
 
                   {filteredChecks.length === 0 && (
                     <tr>
-                      <td style={td} colSpan={18}>
+                      <td style={td} colSpan={14}>
                         Nessuna riga trovata con i filtri impostati.
                       </td>
                     </tr>
@@ -1518,177 +1147,6 @@ export default function ControlloTodoIspettoriPage() {
               </table>
             </div>
           </div>
-
-          {assignmentChecks.length > 0 && (
-            <div style={{ marginTop: 28, ...cardStyle }}>
-              <h2 style={{ marginTop: 0 }}>Controllo elaborati assegnati dal PM</h2>
-
-              <div style={{ marginBottom: 14, color: "#64748b", fontSize: 13 }}>
-                Verifica che ogni elaborato assegnato nel file Ispettori.xlsx sia
-                presente nel ToDo e nel Report_Completo.
-              </div>
-
-              <div style={{ overflowX: "auto" }}>
-                <table
-                  style={{
-                    width: "100%",
-                    borderCollapse: "collapse",
-                    fontSize: 13,
-                  }}
-                >
-                  <thead>
-                    <tr style={{ background: "#f8fafc" }}>
-                      <th style={th}>Codice elaborato assegnato</th>
-                      <th style={th}>Titolo</th>
-                      <th style={th}>Ispettori</th>
-                      <th style={th}>Scheda</th>
-                      <th style={th}>Disciplina</th>
-                      <th style={th}>Presente ToDo</th>
-                      <th style={th}>Presente Report</th>
-                      <th style={th}>Esito</th>
-                      <th style={th}>Anomalie</th>
-                    </tr>
-
-                    <tr style={{ background: "white" }}>
-                      <th style={th}>
-                        <input
-                          value={assignmentFilters.codice}
-                          onChange={(e) =>
-                            updateAssignmentFilter("codice", e.target.value)
-                          }
-                          placeholder="Filtra codice"
-                          style={filterInput}
-                        />
-                      </th>
-                      <th style={th}>
-                        <input
-                          value={assignmentFilters.titolo}
-                          onChange={(e) =>
-                            updateAssignmentFilter("titolo", e.target.value)
-                          }
-                          placeholder="Filtra titolo"
-                          style={filterInput}
-                        />
-                      </th>
-                      <th style={th}>
-                        <input
-                          value={assignmentFilters.ispettori}
-                          onChange={(e) =>
-                            updateAssignmentFilter("ispettori", e.target.value)
-                          }
-                          placeholder="Filtra ispettori"
-                          style={filterInput}
-                        />
-                      </th>
-                      <th style={th}>
-                        <input
-                          value={assignmentFilters.scheda}
-                          onChange={(e) =>
-                            updateAssignmentFilter("scheda", e.target.value)
-                          }
-                          placeholder="Filtra scheda"
-                          style={filterInput}
-                        />
-                      </th>
-                      <th style={th}>
-                        <input
-                          value={assignmentFilters.disciplina}
-                          onChange={(e) =>
-                            updateAssignmentFilter("disciplina", e.target.value)
-                          }
-                          placeholder="Filtra disciplina"
-                          style={filterInput}
-                        />
-                      </th>
-                      <th style={th}>
-                        <select
-                          value={assignmentFilters.presenteInTodo}
-                          onChange={(e) =>
-                            updateAssignmentFilter("presenteInTodo", e.target.value)
-                          }
-                          style={filterInput}
-                        >
-                          <option value="">Tutti</option>
-                          <option value="SI">SI</option>
-                          <option value="NO">NO</option>
-                        </select>
-                      </th>
-                      <th style={th}>
-                        <select
-                          value={assignmentFilters.presenteInReport}
-                          onChange={(e) =>
-                            updateAssignmentFilter("presenteInReport", e.target.value)
-                          }
-                          style={filterInput}
-                        >
-                          <option value="">Tutti</option>
-                          <option value="SI">SI</option>
-                          <option value="NO">NO</option>
-                        </select>
-                      </th>
-                      <th style={th}>
-                        <select
-                          value={assignmentFilters.esito}
-                          onChange={(e) =>
-                            updateAssignmentFilter("esito", e.target.value)
-                          }
-                          style={filterInput}
-                        >
-                          <option value="">Tutti</option>
-                          <option value="OK">OK</option>
-                          <option value="ERRORE">ERRORE</option>
-                        </select>
-                      </th>
-                      <th style={th}>
-                        <input
-                          value={assignmentFilters.anomalie}
-                          onChange={(e) =>
-                            updateAssignmentFilter("anomalie", e.target.value)
-                          }
-                          placeholder="Filtra anomalie"
-                          style={filterInput}
-                        />
-                      </th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {filteredAssignmentChecks.map((row) => (
-                      <tr key={row.codiceNorm}>
-                        <td style={td}>{row.codice}</td>
-                        <td style={td}>{row.titolo}</td>
-                        <td style={td}>{row.ispettori || "-"}</td>
-                        <td style={td}>{row.scheda || "-"}</td>
-                        <td style={td}>{row.disciplina || "-"}</td>
-                        <td style={td}>{row.presenteInTodo ? "✅ SI" : "❌ NO"}</td>
-                        <td style={td}>
-                          {row.presenteInReport ? "✅ SI" : "❌ NO"}
-                        </td>
-                        <td
-                          style={{
-                            ...td,
-                            fontWeight: 700,
-                            color: row.esito === "OK" ? "#16a34a" : "#dc2626",
-                          }}
-                        >
-                          {row.esito}
-                        </td>
-                        <td style={td}>{row.anomalie.join(" | ")}</td>
-                      </tr>
-                    ))}
-
-                    {filteredAssignmentChecks.length === 0 && (
-                      <tr>
-                        <td style={td} colSpan={9}>
-                          Nessuna assegnazione trovata con i filtri impostati.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
         </>
       )}
     </main>
