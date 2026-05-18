@@ -348,7 +348,7 @@ export default function ControlloTodoIspettoriPage() {
     const ispettoriIndex = findHeaderIndex(
       headers,
       ["Ispettori", "Ispettore", "Assegnatario", "Assegnatari"],
-      2
+      11
     );
     const schedaIndex = findHeaderIndex(
       headers,
