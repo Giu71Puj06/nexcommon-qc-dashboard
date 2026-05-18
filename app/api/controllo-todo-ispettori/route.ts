@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const TAGS_AMMESSI = ["NC", "OSS", "Nessun rilievo", "Da NC a OSS"];
-const STATUS_AMMESSI = ["New", "Closed"];
+const STATUS_AMMESSI = ["New", "Closed", "Waiting", "Open", "Aperta", "Chiusa"];
 
 type BcfTopic = {
   tr: string;
@@ -354,9 +354,28 @@ function buildDiscipline(elencoRows: any[][]) {
   const set = new Set<string>();
 
   elencoRows.slice(1).forEach((row) => {
-    const disciplina = String(row[5] || "").trim();
-    if (disciplina) set.add(disciplina.toLowerCase());
+    // ELENCO_ELABORATI può avere la disciplina come codice in colonna F
+    // oppure come intestazione/descrizione in altre colonne. Inseriamo più chiavi.
+    [0, 1, 5].forEach((idx) => {
+      const value = String(row[idx] || "").trim();
+      if (value) set.add(value.toLowerCase());
+    });
   });
+
+  // Nomi disciplina usati da ToDo / schede ispettive.
+  [
+    "Documenti generali",
+    "Generale",
+    "Ambiente e vincoli",
+    "Strutture",
+    "Sicurezza cantierizzazione e BOB",
+    "Sicurezza",
+    "Interferenze e espropri",
+    "Interferenze",
+    "Economico",
+    "Computi",
+    "Bonifica bellica",
+  ].forEach((d) => set.add(d.toLowerCase()));
 
   return set;
 }
