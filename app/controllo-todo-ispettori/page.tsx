@@ -77,12 +77,39 @@ function isErroreBloccante(row: CheckRow) {
     return (
       t.includes("title mancante") ||
       t.includes("title contiene .pdf") ||
-      t.includes("tags non valido") ||
-      t.includes("status non valido") ||
-      t.includes("status non riconosciuto") ||
       t.includes("disciplina mancante")
     );
   });
+}
+
+function hasDocumentiGenerali(value: string) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .includes("documenti generali");
+}
+
+function disciplinaOkReale(row: CheckRow) {
+  if (!row.disciplina) return false;
+  if (hasDocumentiGenerali(row.disciplina)) return true;
+
+  // Una disciplina valorizzata è valida ai fini del report:
+  // l'eventuale mancato allineamento con ELENCO_ELABORATI resta warning.
+  return true;
+}
+
+function titleOkReale(row: CheckRow) {
+  return !isErroreBloccante(row) || row.titleOk;
+}
+
+function tagsOkReale(row: CheckRow) {
+  // Tags mancanti / non perfettamente riconosciuti sono warning.
+  return true;
+}
+
+function statusOkReale(row: CheckRow) {
+  return !String(row.status || "").trim() ? true : row.statusOk;
 }
 
 function livelloReale(row: CheckRow): "OK" | "WARNING" | "ERRORE" {
@@ -190,7 +217,7 @@ export default function ControlloTodoIspettoriPage() {
   const filteredChecks = useMemo(() => {
     return checks.filter((row) => {
       const n = `${row.progressivo}${row.label ? ` (${row.label})` : ""}`;
-      const esitoCodice = row.titleOk ? "OK" : "ERRORE";
+      const esitoCodice = titleOkReale(row) ? "OK" : "ERRORE";
       const anomalie = [...(row.anomalie || []), ...(row.warning || [])].join(" | ");
       const esitoEffettivo = esitoReale(row);
 
@@ -240,13 +267,13 @@ export default function ControlloTodoIspettoriPage() {
       TR: row.tr || "",
       "Codice elaborato Report": row.codiceReport || "",
       "Codice elaborato nel Title Trimble": row.codiceTitleTrimble || "",
-      "Esito codice": row.titleOk ? "OK" : "ERRORE",
+      "Esito codice": titleOkReale(row) ? "OK" : "ERRORE",
       Tags: row.tags || "",
-      "Esito Tags": row.tagsOk ? "OK" : "ERRORE",
+      "Esito Tags": tagsOkReale(row) ? "OK" : "WARNING",
       Disciplina: row.disciplina || "",
-      "Esito Disciplina": row.disciplinaOk ? "OK" : "ERRORE",
+      "Esito Disciplina": disciplinaOkReale(row) ? "OK" : "WARNING",
       Status: row.status || "",
-      "Esito Status": row.statusOk ? "OK" : "ERRORE",
+      "Esito Status": statusOkReale(row) ? "OK" : "WARNING",
       "Description ToDo": row.description || "",
       "Titolo BCF": row.bcfTitle || "",
       "Descrizione BCF": row.bcfDescription || "",
@@ -647,10 +674,10 @@ export default function ControlloTodoIspettoriPage() {
                       <td style={td}>
                         <b
                           style={{
-                            color: row.titleOk ? "#16a34a" : "#dc2626",
+                            color: titleOkReale(row) ? "#16a34a" : "#dc2626",
                           }}
                         >
-                          {esitoIcon(!isErroreBloccante(row) || row.titleOk)}
+                          {esitoIcon(titleOkReale(row))}
                         </b>
                       </td>
 
@@ -658,10 +685,10 @@ export default function ControlloTodoIspettoriPage() {
                         {row.tags || "-"}{" "}
                         <b
                           style={{
-                            color: row.tagsOk ? "#16a34a" : "#dc2626",
+                            color: tagsOkReale(row) ? "#16a34a" : "#f59e0b",
                           }}
                         >
-                          {esitoIcon(row.tagsOk)}
+                          {esitoIcon(tagsOkReale(row))}
                         </b>
                       </td>
 
@@ -669,10 +696,10 @@ export default function ControlloTodoIspettoriPage() {
                         {row.disciplina || "-"}{" "}
                         <b
                           style={{
-                            color: row.disciplinaOk ? "#16a34a" : "#dc2626",
+                            color: disciplinaOkReale(row) ? "#16a34a" : "#f59e0b",
                           }}
                         >
-                          {esitoIcon(row.disciplinaOk)}
+                          {esitoIcon(disciplinaOkReale(row))}
                         </b>
                       </td>
 
@@ -680,10 +707,10 @@ export default function ControlloTodoIspettoriPage() {
                         {row.status || "-"}{" "}
                         <b
                           style={{
-                            color: row.statusOk ? "#16a34a" : "#dc2626",
+                            color: statusOkReale(row) ? "#16a34a" : "#f59e0b",
                           }}
                         >
-                          {esitoIcon(row.statusOk)}
+                          {esitoIcon(statusOkReale(row))}
                         </b>
                       </td>
 
