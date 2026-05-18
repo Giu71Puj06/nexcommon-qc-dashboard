@@ -304,24 +304,76 @@ function findBestReportCodeFromTitle(title: string, reportCodes: Map<string, str
   return bestOriginal;
 }
 
+function compactText(value: string) {
+  return normalizeText(value)
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function firstUsefulText(value: string, maxLen = 220) {
+  return compactText(value).slice(0, maxLen);
+}
+
 function textScore(source: string, needle: string, points: number) {
   if (!needle) return 0;
+
   return normalizeCode(source).includes(normalizeCode(needle)) ? points : 0;
 }
 
 function wordOverlapScore(source: string, value: string, pointsPerWord: number, maxPoints: number) {
-  const sourceText = normalizeText(source);
-  const words = normalizeText(value)
+  const sourceText = compactText(source);
+  const words = compactText(value)
     .split(" ")
-    .filter((word) => word.length >= 6)
-    .slice(0, 20);
+    .filter((word) => word.length >= 5)
+    .slice(0, 35);
 
   let score = 0;
+  const used = new Set<string>();
+
   words.forEach((word) => {
-    if (sourceText.includes(word)) score += pointsPerWord;
+    if (!used.has(word) && sourceText.includes(word)) {
+      used.add(word);
+      score += pointsPerWord;
+    }
   });
 
   return Math.min(score, maxPoints);
+}
+
+function descriptionDirectScore(source: string, description: string) {
+  const sourceText = compactText(source);
+  const desc = firstUsefulText(description, 180);
+
+  if (!desc || desc.length < 20) return 0;
+
+  if (sourceText.includes(desc) || desc.includes(sourceText.slice(0, Math.min(sourceText.length, 140)))) {
+    return 1800;
+  }
+
+  const chunks = compactText(description)
+    .split(" ")
+    .filter((w) => w.length >= 5)
+    .slice(0, 18);
+
+  const matched = chunks.filter((w) => sourceText.includes(w)).length;
+
+  if (chunks.length >= 6 && matched / chunks.length >= 0.65) return 900;
+  if (chunks.length >= 6 && matched / chunks.length >= 0.45) return 450;
+
+  return 0;
+}
+
+function disciplinePenalty(haystack: string, disciplina: string) {
+  const h = compactText(haystack);
+  const d = compactText(disciplina);
+
+  if (d.includes("sicurezza") && h.includes("econom")) return -350;
+  if (d.includes("strutt") && h.includes("economic")) return -350;
+  if (d.includes("ambiente") && h.includes("economic")) return -350;
+  if (d.includes("documenti generali") && h.includes("economic")) return -250;
+
+  return 0;
 }
 
 function findBcfTopic(
@@ -351,23 +403,25 @@ function findBcfTopic(
     const trExact = !!normalizedTr && normalizeCode(topic.tr) === normalizedTr;
     const trText = !!normalizedTr && normalizeCode(haystack).includes(normalizedTr);
 
-    const disciplinaScore = wordOverlapScore(haystack, disciplina, 25, 120);
-    const titleScore = wordOverlapScore(haystack, title, 12, 150);
-    const descriptionScore = wordOverlapScore(haystack, description, 8, 220);
-    const semanticScore = disciplinaScore + titleScore + descriptionScore;
-
     let score = 0;
 
-    if (labelMatch) score += 1200;
+    if (labelMatch) score += 2500;
 
-    if (codeMatch && (labelMatch || semanticScore >= 80)) score += 500;
+    score += descriptionDirectScore(haystack, description);
+
+    if (codeMatch) score += 350;
 
     if (trExact) score += 180;
-    else if (trText) score += 100;
+    else if (trText) score += 80;
 
-    score += semanticScore;
+    score += wordOverlapScore(haystack, disciplina, 20, 120);
+    score += wordOverlapScore(haystack, title, 8, 120);
+    score += wordOverlapScore(haystack, description, 10, 300);
+    score += disciplinePenalty(haystack, disciplina);
 
-    if (labelIT && !labelMatch && score < 350) score = 0;
+    if (labelIT && !labelMatch && score < 450) {
+      score = 0;
+    }
 
     if (score > bestScore) {
       bestScore = score;
