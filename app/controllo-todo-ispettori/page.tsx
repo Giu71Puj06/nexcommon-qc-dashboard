@@ -97,6 +97,35 @@ function cleanPdf(value: string) {
   return String(value || "").replace(/\.pdf$/i, "").trim();
 }
 
+function looksLikeElaboratoCode(value: string) {
+  const text = String(value || "").trim();
+
+  return /^PV\d{3}-[A-Z0-9]+-[A-Z0-9]+-[A-Z]{3}-\d{5}-[A-Z]{3}-\d{6}/i.test(text);
+}
+
+function normalizeInspectorList(value: string) {
+  return String(value || "")
+    .replace(/\s+-\s+/g, ";")
+    .replace(/\s*;\s*/g, ";")
+    .replace(/\s*,\s*/g, ";")
+    .replace(/\s*\/\s*/g, ";")
+    .replace(/\s*\|\s*/g, ";")
+    .trim();
+}
+
+function disciplinaCodeFromCodice(value: string) {
+  const match = String(value || "").match(/^PV\d{3}-[A-Z0-9]+-[A-Z0-9]+-([A-Z]{3})-/i);
+
+  return match ? match[1].toUpperCase() : "";
+}
+
+function getAssignmentSchedaDisciplina(value: string) {
+  const text = String(value || "").trim();
+  const parts = text.split(/\s+-\s+/);
+
+  return parts.length > 1 ? parts.slice(1).join(" - ").trim() : text;
+}
+
 function getCell(row: any[], indexes: number[]) {
   for (const i of indexes) {
     const value = String(row[i] || "").trim();
@@ -190,11 +219,16 @@ function ispettoreCoerente(todoValue: string, assignedValue: string) {
   const assigned = normalizeText(assignedValue);
 
   if (!assigned) return false;
+
+  // Nel file PM la dicitura "Tutti" significa che qualunque ispettore del ToDo
+  // e' coerente con l'assegnazione.
+  if (assigned === "tutti" || assigned.includes("tutti")) return true;
+
   if (!todo) return true;
 
-  const assignedParts = assigned
-    .split(/[;,/|]+/)
-    .map((p) => p.trim())
+  const assignedParts = normalizeInspectorList(assignedValue)
+    .split(";")
+    .map((p) => normalizeText(p))
     .filter(Boolean);
 
   if (assignedParts.length === 0) return true;
@@ -337,39 +371,63 @@ export default function ControlloTodoIspettoriPage() {
 
     if (ispettoriRows.length === 0) return map;
 
-    const headers = ispettoriRows[0] || [];
+    let currentDisciplinaSezione = "";
 
-    const codiceIndex = findHeaderIndex(
-      headers,
-      ["Codice Elaborato", "Codice", "Elaborato"],
-      0
-    );
-    const titoloIndex = findHeaderIndex(headers, ["Titolo", "Titolo Elaborato"], 1);
-    const ispettoriIndex = findHeaderIndex(
-      headers,
-      ["Ispettori", "Ispettore", "Assegnatario", "Assegnatari"],
-      11
-    );
-    const schedaIndex = findHeaderIndex(
-      headers,
-      ["Scheda", "Scheda ispettiva", "Codice scheda"],
-      3
-    );
-    const disciplinaIndex = findHeaderIndex(headers, ["Disciplina"], 4);
+    // Struttura file PM/Ispettori.xlsx:
+    // A = Codice Elaborato oppure titolo sezione/disciplina in azzurro
+    // B = Titolo elaborato
+    // C = Commessa
+    // D = Fase
+    // E = Origine
+    // F = Disciplina sintetica, es. GEN, STR, SIC
+    // G = WBS
+    // H = Tipo
+    // I = Progressivo
+    // J = Revisione
+    // K = Commenti PM
+    // L = Ispettori assegnati
+    // M = Scheda ispettiva
+    ispettoriRows.forEach((row) => {
+      const colA = String(row[0] || "").trim();
+      const colB = String(row[1] || "").trim();
 
-    ispettoriRows.slice(1).forEach((row) => {
-      const codice = String(row[codiceIndex] || "").trim();
+      if (!colA) return;
+
+      const normalizedA = normalizeText(colA);
+      if (
+        normalizedA.includes("codice elaborato") ||
+        normalizedA.includes("elenco elaborati") ||
+        normalizedA.includes("intervento")
+      ) {
+        return;
+      }
+
+      // Le righe sezione hanno la disciplina in colonna A e titolo vuoto in colonna B.
+      if (!looksLikeElaboratoCode(colA)) {
+        if (!colB) currentDisciplinaSezione = colA;
+        return;
+      }
+
+      const codice = colA;
       const codiceNorm = normalizeCode(codice);
 
       if (!codiceNorm) return;
 
+      const disciplinaCodice = String(row[5] || "").trim();
+      const ispettori = String(row[11] || "").trim();
+      const scheda = String(row[12] || "").trim();
+
       map.set(codiceNorm, {
         codice,
         codiceNorm,
-        titolo: String(row[titoloIndex] || "").trim(),
-        ispettori: String(row[ispettoriIndex] || "").trim(),
-        scheda: String(row[schedaIndex] || "").trim(),
-        disciplina: String(row[disciplinaIndex] || "").trim(),
+        titolo: colB,
+        ispettori,
+        scheda,
+        disciplina:
+          getAssignmentSchedaDisciplina(scheda) ||
+          currentDisciplinaSezione ||
+          disciplinaCodice ||
+          disciplinaCodeFromCodice(codice),
         verificato: false,
         anomalie: [],
       });
@@ -449,16 +507,11 @@ export default function ControlloTodoIspettoriPage() {
           anomalie.push(
             `Ispettore ToDo non coerente con assegnazione PM: ${assignment.ispettori}`
           );
-        } else if (
-          assignment.disciplina &&
-          disciplina &&
-          normalizeText(assignment.disciplina) !== normalizeText(disciplina)
-        ) {
-          verificaAssegnazione = "SCHEDA ERRATA";
-          assegnazioneOk = false;
-          anomalie.push(
-            `Disciplina/Scheda non coerente con assegnazione PM: ${assignment.disciplina}`
-          );
+        } else {
+          // La coerenza della scheda PM viene derivata dal codice elaborato e
+          // dall'assegnazione trovata. Non confrontiamo il testo esteso della
+          // disciplina ToDo con il codice sintetico del file PM (GEN, STR, SIC...),
+          // per evitare falsi errori.
         }
       }
 
