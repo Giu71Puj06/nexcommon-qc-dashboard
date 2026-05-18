@@ -1,1528 +1,609 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import JSZip from "jszip";
-import { XMLParser } from "fast-xml-parser";
-import PizZip from "pizzip";
-import Docxtemplater from "docxtemplater";
 
-const FASE_PROGETTO = "Progetto Esecutivo";
-const REVISIONE_SCHEDA = "0";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-const ISPETTORE_ELENCO_COLUMNS = [
-  "Ispettore",
-  "ISPETTORE",
-  "Nome ispettore",
-  "Nome Ispettore",
-  "Nome_Ispettore",
-  "Verificatore",
-  "VERIFICATORE",
-  "Nome verificatore",
-  "Nome Verificatore",
-  "Nome_verificatore",
-];
+const TAGS_AMMESSI = ["NC", "OSS", "Nessun rilievo", "Da NC a OSS", "Nessun Rilievo"];
+const STATUS_AMMESSI = ["New", "Closed", "Waiting", "Open", "Aperta", "Chiusa"];
 
-const ISPETTORE_TODO_COLUMNS = [
-  "Created by",
-  "CREATED BY",
-  "Creato da",
-  "Autore",
-  "Author",
-  "Ispettore",
-  "ISPETTORE",
-  "Nome ispettore",
-  "Nome Ispettore",
-  "Nome_Ispettore",
-  "Verificatore",
-  "Nome verificatore",
-];
-
-const TITOLO_ELABORATO_COLUMNS = [
-  "Titolo elenco",
-  "Titolo Elenco",
-  "TITOLO ELENCO",
-  "Titolo elaborato",
-  "Titolo Elaborato",
-  "TITOLO ELABORATO",
-  "Nome elaborato",
-  "Nome Elaborato",
-];
-
-const REPORT_CODICE_COLUMNS = [
-  "Codice elenco",
-  "Codice Elenco",
-  "CODICE ELENCO",
-  "Codice cartiglio",
-  "Codice Cartiglio",
-  "CODICE CARTIGLIO",
-  "Nome file PDF",
-  "Nome File PDF",
-  "NOME FILE PDF",
-  "Codice elaborato",
-  "Codice Elaborato",
-  "CODICE ELABORATO",
-  "Codice",
-  "CODICE",
-];
-
-type BcfTopicData = {
-  topicGuid: string;
-  titolo: string;
-  descrizione: string;
-  descrizioneConData: string;
-  ispettore: string;
-  ispettoreNomeBcf: string;
-  labels: string;
-  stato: string;
-  commentiPRG: string;
-  commentiISP: string;
-  ultimoCommento: string;
+type BcfTopic = {
+  sourceName: string;
+  tr: string;
+  title: string;
+  description: string;
+  commentsPrg: string;
+  commentsIsp: string;
+  allComments: string;
 };
 
-type ElaboratoVerificatoRow = {
-  codice_elaborato: string;
-  codice_file: string;
-  revisione: string;
-  titolo_elaborato: string;
-  disciplina: string;
-  presenza_nc: string;
-  presenza_oss: string;
-  assenza_nc_oss: string;
-};
-
-type SchedaIspettivaSintesi = {
-  totaleElaboratiAnalizzati: number;
-  totaleNC: number;
-  totaleOSS: number;
-  totaleChiuse: number;
-};
-
-
-function descrizioneRevisioneScheda(rev: string) {
-  const n = Number(String(rev || "0").trim());
-
-  if (!Number.isFinite(n) || n <= 0) return "Prima Emissione - Rilievi";
-  if (n === 1) return "Seconda emissione - Riscontri";
-  if (n === 2) return "Terza emissione - Riscontri";
-  if (n === 3) return "Quarta emissione - Riscontri";
-  if (n === 4) return "Quinta emissione - Riscontri";
-
-  return `${n + 1}ª emissione - Riscontri`;
-}
-
-function safeName(value: string) {
-  return String(value || "SENZA_DISCIPLINA")
-    .replace(/[\\/:*?"<>|]/g, "_")
-    .replace(/\s+/g, "_");
-}
-
-function normalizeKey(value: string) {
+function xmlDecode(value: string) {
   return String(value || "")
-    .trim()
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .trim();
+}
+
+function stripTags(value: string) {
+  return xmlDecode(String(value || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " "));
+}
+
+function normalizeCode(value: string) {
+  return String(value || "")
     .toUpperCase()
+    .replace(/\.PDF$/i, "")
     .replace(/\s+/g, "")
-    .replace(/[^A-Z0-9]/g, "");
+    .replace(/[_\-.]/g, "")
+    .trim();
 }
 
 function normalizeText(value: string) {
   return String(value || "")
-    .toUpperCase()
+    .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^A-Z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-function normalizeAccount(value: string) {
+function splitDiscipline(value: string) {
   return String(value || "")
-    .toUpperCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^A-Z0-9@._ -]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function parsePeopleList(value: FormDataEntryValue | null) {
-  return String(value || "")
-    .split(/[\n,;]+/)
-    .map(normalizeAccount)
+    .split(/[,;\/|]+|\s+-\s+|\n+/g)
+    .map((part) => part.trim())
     .filter(Boolean);
 }
 
-function getCommentAuthor(c: any) {
-  return String(
-    c?.Author ||
-      c?.CreationAuthor ||
-      c?.ModifiedAuthor ||
-      c?.["@_Author"] ||
-      c?.["@_CreationAuthor"] ||
-      c?.["@_ModifiedAuthor"] ||
-      ""
-  ).trim();
+function hasDocumentiGenerali(value: string) {
+  return splitDiscipline(value).some((part) => normalizeText(part) === "documenti generali");
 }
 
-function getCommentDateValue(c: any) {
-  return String(
-    c?.Date ||
-      c?.CreationDate ||
-      c?.ModifiedDate ||
-      c?.["@_Date"] ||
-      c?.["@_CreationDate"] ||
-      c?.["@_ModifiedDate"] ||
-      ""
-  ).trim();
+function hasAnyValidDiscipline(value: string, disciplineAmmesse: Set<string>) {
+  const parts = splitDiscipline(value);
+  if (parts.length === 0) return false;
+  if (hasDocumentiGenerali(value)) return true;
+  return parts.some((part) => disciplineAmmesse.has(part.toLowerCase()));
 }
 
-function getTopicDateValue(topic: any) {
-  return String(
-    topic?.CreationDate ||
-      topic?.Date ||
-      topic?.ModifiedDate ||
-      topic?.["@_CreationDate"] ||
-      topic?.["@_Date"] ||
-      topic?.["@_ModifiedDate"] ||
-      ""
-  ).trim();
+function getTagText(xml: string, tagName: string) {
+  const re = new RegExp(`<(?:[A-Za-z0-9_]+:)?${tagName}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/(?:[A-Za-z0-9_]+:)?${tagName}>`, "i");
+  const match = String(xml || "").match(re);
+  return match ? stripTags(match[1]) : "";
 }
 
-function formatBcfCommentDate(value: string) {
-  const raw = String(value || "").trim();
-  if (!raw) return "";
+function getTagTexts(xml: string, tagName: string) {
+  const re = new RegExp(`<(?:[A-Za-z0-9_]+:)?${tagName}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/(?:[A-Za-z0-9_]+:)?${tagName}>`, "gi");
+  const values: string[] = [];
+  let match: RegExpExecArray | null;
 
-  const datePart = raw.split("T")[0].split(" ")[0];
-
-  const isoMatch = datePart.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (isoMatch) return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
-
-  const italianMatch = datePart.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/);
-  if (italianMatch) {
-    const day = italianMatch[1].padStart(2, "0");
-    const month = italianMatch[2].padStart(2, "0");
-    const year = italianMatch[3].length === 2 ? `20${italianMatch[3]}` : italianMatch[3];
-    return `${day}/${month}/${year}`;
+  while ((match = re.exec(String(xml || ""))) !== null) {
+    const value = stripTags(match[1]);
+    if (value) values.push(value);
   }
 
-  const parsed = new Date(raw);
-  if (!Number.isNaN(parsed.getTime())) {
-    const day = String(parsed.getDate()).padStart(2, "0");
-    const month = String(parsed.getMonth() + 1).padStart(2, "0");
-    const year = parsed.getFullYear();
-    return `${day}/${month}/${year}`;
-  }
-
-  return raw;
+  return values;
 }
 
-function prefixCommentWithDate(text: string, dateValue: string) {
-  const cleanText = String(text || "").trim();
-  if (!cleanText) return "";
-
-  const formattedDate = formatBcfCommentDate(dateValue);
-  if (!formattedDate) return cleanText;
-
-  if (cleanText.startsWith(`${formattedDate} - `)) return cleanText;
-  if (cleanText.startsWith(`[${formattedDate}]`)) return cleanText;
-
-  return `${formattedDate} - ${cleanText}`;
-}
-
-function isInPeopleList(author: string, people: string[]) {
-  const a = normalizeAccount(author);
-  if (!a) return false;
-  return people.some((p) => a === p || a.includes(p) || p.includes(a));
-}
-
-function findValue(row: any, names: string[]) {
-  for (const name of names) {
-    if (
-      row?.[name] !== undefined &&
-      row?.[name] !== null &&
-      String(row[name]).trim() !== ""
-    ) {
-      return String(row[name]).trim();
-    }
-  }
-  return "";
-}
-
-function getTitoloProgetto(row: any) {
-  return findValue(row, [
-    "Titolo_progetto",
-    "Titiolo_progetto",
-    "Titolo progetto",
-    "Titolo Progetto",
-    "TITOLO PROGETTO",
-  ]);
-}
-
-function getFaseProgetto(row: any) {
-  return (
-    findValue(row, [
-      "Fase_di_progetto",
-      "Fase_di_ progetto",
-      "Fase di progetto",
-      "Fase Progetto",
-      "FASE DI PROGETTO",
-    ]) || FASE_PROGETTO
-  );
-}
-
-function getIspettoreFromTodo(row: any) {
-  return findValue(row, ISPETTORE_TODO_COLUMNS);
-}
-
-function getTitoloElaboratoFromTodo(row: any) {
-  return findValue(row, TITOLO_ELABORATO_COLUMNS);
-}
-
-function cleanCodiceElaborato(value: string) {
-  return String(value || "")
-    .replace(/\.pdf$/i, "")
-    .replace(/[.,;:]+$/g, "")
-    .trim();
-}
-
-function extractCodiceElaborato(value: string) {
-  const text = cleanCodiceElaborato(value);
-  const match = text.match(/[A-Z0-9]{2,}(?:[-_][A-Z0-9]+){5,}(?:[-_]\d{1,2})?/i);
-  return match ? cleanCodiceElaborato(match[0]) : text;
-}
-
-function getElaboratoBase(value: string) {
-  return cleanCodiceElaborato(value)
-    .replace(/\.[A-Za-z0-9]+$/g, "")
-    .replace(/[_-]\d{1,2}$/g, "")
-    .trim();
-}
-
-function sameElaboratoCode(a: string, b: string) {
-  const aa = normalizeKey(getElaboratoBase(extractCodiceElaborato(a)));
-  const bb = normalizeKey(getElaboratoBase(extractCodiceElaborato(b)));
-  return aa && bb && aa === bb;
-}
-
-function getRevisioneDaCodice(value: string) {
-  const clean = cleanCodiceElaborato(value);
-  const match = clean.match(/[_-](\d{1,2})$/);
-  return match ? match[1] : "";
-}
-
-function labelToTR(label: string) {
-  const value = String(label || "").trim();
-  const match = value.match(/-(\d+[A-Z]?)$/i);
-  if (match) return `TR-${match[1]}`;
-  return value.replace(/^.{5}/, "TR-");
+function getTagBlocks(xml: string, tagName: string) {
+  const re = new RegExp(`<(?:[A-Za-z0-9_]+:)?${tagName}(?:\\s[^>]*)?>[\\s\\S]*?<\\/(?:[A-Za-z0-9_]+:)?${tagName}>`, "gi");
+  return String(xml || "").match(re) || [];
 }
 
 function extractTR(value: string) {
   const text = String(value || "").toUpperCase();
-  const match = text.match(/TR[-_\s]?(\d+[A-Z]?)/i);
-  if (!match) return "";
-  return `TR-${match[1]}`;
+
+  const tr = text.match(/\bTR[-_\s]*0*(\d+[A-Z]?)\b/i);
+  if (tr) return `TR-${tr[1]}`;
+
+  const it = text.match(/\bIT(?:\d+)?[-_\s]*0*(\d+[A-Z]?)\b/i);
+  if (it) return `TR-${it[1]}`;
+
+  const bracket = text.match(/\((?:TR|IT)[-_\s]*0*(\d+[A-Z]?)\)/i);
+  if (bracket) return `TR-${bracket[1]}`;
+
+  return "";
 }
 
-function normalizeTR(value: string) {
+function extractITLabel(value: string) {
   const text = String(value || "").toUpperCase();
-
-  const trMatch = text.match(/TR[-_\s]?0*(\d+[A-Z]?)/i);
-  if (trMatch) return `TR-${trMatch[1]}`;
-
-  const itMatch = text.match(/IT\d+[-_\s]?0*(\d+[A-Z]?)/i);
-  if (itMatch) return `TR-${itMatch[1]}`;
-
-  return "";
+  const it = text.match(/\bIT(?:\d+)?[-_\s]*0*(\d+[A-Z]?)\b/i);
+  return it ? `IT-${it[1]}` : "";
 }
 
-
-function cleanRolePrefix(text: string) {
-  return String(text || "")
-    .replace(/\(\s*ISP\s*\)/gi, "")
-    .replace(/\(\s*PRG\s*\)/gi, "")
-    .trim();
+function extractComparableCode(value: string) {
+  const match = String(value || "").match(/PV\d{3}-[A-Z0-9]+-[A-Z0-9]+-[A-Z]{3}-\d{5}-[A-Z]{3}-\d{6}(?:[-_ ]?\d+)?/i);
+  return match ? normalizeCode(match[0]) : "";
 }
 
-function mergeText(existing: string, additions: string[]) {
-  const values = [existing || "", ...additions]
-    .map((v) => String(v || "").trim())
-    .filter(Boolean);
-
-  return Array.from(new Set(values)).join("\n");
+function isDescrizioneGenerale(value: string) {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  if (/\.pdf/i.test(text)) return false;
+  return !extractComparableCode(text);
 }
 
-function remapIspettoreByDisciplina(sigla: string, disciplina: string) {
-  const s = String(sigla || "").trim().toUpperCase();
-  const d = normalizeKey(disciplina);
-
-  if (d === "SICUREZZACANTIERE") {
-    if (s === "(CR)" || s === "(CA)" || s === "(GB)") return "(FM)";
-  }
-
-  if (d === "DOCUMENTAZIONEECONOMICA") {
-    if (s === "(CS)") return "(MG)";
-    if (s === "(CR)" || s === "(CA)" || s === "(GB)") return "(OB)";
-  }
-
-  return sigla;
-}
-
-function remapIspettoreFinale(sigla: string, disciplina: string) {
-  const s = String(sigla || "").trim().toUpperCase();
-  const d = normalizeKey(disciplina);
-
-  if (s === "(CR)" || s === "(CA)") return "(OB)";
-  if (d === "SICUREZZACANTIERE" && s === "(GB)") return "(FM)";
-  if (d === "DOCUMENTAZIONEECONOMICA" && s === "(GB)") return "(OB)";
-  if (d === "DOCUMENTAZIONEECONOMICA" && s === "(CS)") return "(MG)";
-
-  return remapIspettoreByDisciplina(sigla, disciplina);
-}
-
-function siglaDaNome(nome: string) {
-  const value = String(nome || "")
-    .replace(/\bArch\.?\b/gi, "")
-    .replace(/\bIng\.?\b/gi, "")
-    .replace(/\bGeom\.?\b/gi, "")
-    .replace(/\bDott\.?\b/gi, "")
-    .replace(/\bP\.?\s*I\.?\b/gi, "")
-    .replace(/\./g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  const parts = value.split(" ").filter(Boolean);
-  if (parts.length === 0) return "";
-
-  const sigla =
-    parts.length === 1
-      ? parts[0].slice(0, 2).toUpperCase()
-      : `${parts[0][0] || ""}${parts[parts.length - 1][0] || ""}`.toUpperCase();
-
-  return sigla ? `(${sigla})` : "";
-}
-
-function getCommentText(c: any) {
-  const value = c?.Comment || c?.CommentText || c?.Text || "";
-  return typeof value === "string" ? value : String(value || "");
-}
-
-function isGiuseppePizzi(value: string) {
-  const normalized = normalizeText(value);
+function isKnownInspectorAuthor(author: string) {
+  const a = normalizeText(author);
   return (
-    normalized === "GIUSEPPE PIZZI" ||
-    normalized.includes("GIUSEPPE PIZZI") ||
-    normalized === "PIZZI GIUSEPPE"
+    a.includes("massimo tamberi") ||
+    a.includes("edoardo oddo") ||
+    a.includes("guido bonin") ||
+    a.includes("ilaria martarelli") ||
+    a.includes("michea sciorra") ||
+    a.includes("stefano arcangeli") ||
+    a.includes("massimo") ||
+    a.includes("edoardo") ||
+    a.includes("guido") ||
+    a.includes("ilaria") ||
+    a.includes("michea") ||
+    a.includes("stefano")
   );
 }
 
-function isIspettoreGiuseppePizzi(sigla: string, nomeBcf: string) {
-  if (isGiuseppePizzi(nomeBcf)) return true;
-  return String(sigla || "").trim().toUpperCase() === "(GP)";
-}
-
-function resolveIspettoreFinale(
-  ispettoreBcf: string,
-  nomeBcf: string,
-  disciplina: string,
-  ispettoreSostitutivo: string
-) {
-  const ispettoreRemappato = remapIspettoreFinale(ispettoreBcf || "", disciplina);
-
-  if (isIspettoreGiuseppePizzi(ispettoreBcf, nomeBcf) && ispettoreSostitutivo) {
-    return remapIspettoreFinale(siglaDaNome(ispettoreSostitutivo), disciplina);
-  }
-
-  return ispettoreRemappato;
-}
-
-function normalizeStatus(status: string, tags: string) {
-  const s = String(status || "").toUpperCase();
-  const t = String(tags || "").toUpperCase();
-
-  if (
-    t.includes("DA NC A OSS") ||
-    t.includes("NC A OSS") ||
-    t.includes("DA NC AD OSS")
-  ) {
-    return "NC declassata a OSS";
-  }
-
-  if (s.includes("CLOSED") || s.includes("CHIUS")) return "Chiusa";
-  if (s.includes("NEW") || s.includes("OPEN") || s.includes("APERT")) return "Aperta";
-
-  return status || "";
-}
-
-function isNessunRilievo(tags: string, descrizione: string) {
-  return `${tags || ""} ${descrizione || ""}`
-    .toUpperCase()
-    .includes("NESSUN RILIEVO");
-}
-
-function isClosedStatus(status: string) {
-  const s = String(status || "").toUpperCase();
-  return s.includes("CLOSED") || s.includes("CHIUS");
-}
-
-function disciplinaFromCodice(codice: string) {
-  const c = String(codice || "").toUpperCase();
-
-  if (c.includes("_ARC_") || c.includes("-ARC-") || c.includes("ARC")) return "Architettonico";
-  if (c.includes("_STR_") || c.includes("-STR-") || c.includes("STR")) return "Strutturale";
-  if (c.includes("_MEP_") || c.includes("-MEP-") || c.includes("MEP")) return "Impianti";
-  if (c.includes("_IMP_") || c.includes("-IMP-") || c.includes("IMP")) return "Impianti";
-  if (c.includes("_ECO_") || c.includes("-ECO-") || c.includes("ECO")) return "Documentazione economica";
-  if (c.includes("_SIC_") || c.includes("-SIC-") || c.includes("SIC")) return "Sicurezza Cantiere";
-  if (c.includes("_GEN_") || c.includes("-GEN-") || c.includes("GEN")) return "Documentazione generale";
-  if (c.includes("_AMB_") || c.includes("-AMB-") || c.includes("AMB")) return "Documentazione generale";
-
-  return "";
-}
-
-function disciplinaFromReportCartella(value: string) {
-  const v = normalizeText(value);
-
-  if (v.includes("GENERALE")) return "Documenti generali";
-  if (v.includes("STRUTTURE")) return "Strutture";
-  if (v.includes("AMBIENTE")) return "Ambiente e vincoli";
-  if (v.includes("SICUREZZA")) return "Sicurezza cantierizzazione e BOB";
-  if (v.includes("INTERFERENZE") || v.includes("ESPROPRI")) return "Interferenze e espropri";
-  if (v.includes("ECONOMICO")) return "Economico";
-
-  return "";
-}
-
-function sameDisciplina(a: string, b: string) {
-  const aa = normalizeText(a);
-  const bb = normalizeText(b);
-
-  if (!aa || !bb) return false;
-
-  if (aa === bb) return true;
-  if (aa.includes(bb)) return true;
-  if (bb.includes(aa)) return true;
-
-  const ka = normalizeKey(a);
-  const kb = normalizeKey(b);
-
-  const aliases: Record<string, string[]> = {
-    DOCUMENTAZIONEECONOMICA: [
-      "ECONOMICO",
-      "ECONOMICA",
-      "DOCUMENTAZIONE ECONOMICA",
-    ],
-    ECONOMICO: ["DOCUMENTAZIONE ECONOMICA", "ECONOMICA", "ECONOMICO"],
-    DOCUMENTAZIONEGENERALE: [
-      "GENERALE",
-      "DOCUMENTI GENERALI",
-      "DOCUMENTAZIONE GENERALE",
-      "DOCUMENTI GENERALI AMBIENTE E VINCOLI",
-      "DOCUMENTI GENERALI STRUTTURE",
-    ],
-    DOCUMENTIGENERALI: [
-      "GENERALE",
-      "DOCUMENTAZIONE GENERALE",
-      "DOCUMENTI GENERALI",
-      "DOCUMENTI GENERALI AMBIENTE E VINCOLI",
-      "DOCUMENTI GENERALI STRUTTURE",
-    ],
-    SICUREZZACANTIERE: [
-      "SICUREZZA",
-      "SICUREZZA CANTIERE",
-      "SICUREZZA CANTIERIZZAZIONE E BOB",
-      "SICUREZZACANTIERIZZAZIONEEBOB",
-    ],
-    SICUREZZACANTIERIZZAZIONEEBOB: [
-      "SICUREZZA",
-      "SICUREZZA CANTIERE",
-      "SICUREZZA CANTIERIZZAZIONE E BOB",
-    ],
-    IMPIANTI: ["MEP", "IMPIANTISTICO", "IMPIANTI"],
-    ARCHITETTONICO: ["ARCHITETTURA", "ARCHITETTONICO"],
-    STRUTTURALE: ["STRUTTURE", "STRUTTURALE"],
-    STRUTTURE: ["STRUTTURALE", "STRUTTURE", "DOCUMENTI GENERALI STRUTTURE"],
-    AMBIENTEEVINCOLI: [
-      "AMBIENTE",
-      "VINCOLI",
-      "AMBIENTE E VINCOLI",
-      "DOCUMENTI GENERALI AMBIENTE E VINCOLI",
-    ],
-    INTERFERENZEEESPROPRI: [
-      "INTERFERENZE",
-      "ESPROPRI",
-      "INTERFERENZE E ESPROPRI",
-      "INTERFERENZE ED ESPROPRI",
-    ],
-  };
-
-  const aliasesA = aliases[ka] || [];
-  const aliasesB = aliases[kb] || [];
-
+function isIspAuthor(author: string) {
+  const a = normalizeText(author);
   return (
-    aliasesA.some((x) => bb.includes(normalizeText(x))) ||
-    aliasesB.some((x) => aa.includes(normalizeText(x)))
+    a.includes("its") ||
+    a.includes("isp") ||
+    a.includes("controlli tecnici") ||
+    a.includes("odi") ||
+    a.includes("ispett") ||
+    isKnownInspectorAuthor(author)
   );
 }
 
-function topicKey(title: string, description: string) {
-  return `${normalizeKey(title)}__${normalizeKey(description).slice(0, 120)}`;
-}
-
-function descriptionScore(a: string, b: string) {
-  const aa = normalizeText(a);
-  const bb = normalizeText(b);
-  if (!aa || !bb) return 0;
-  if (aa === bb) return 1000;
-  if (aa.includes(bb) || bb.includes(aa)) return 900;
-
-  const aWords = new Set(aa.split(" ").filter((w) => w.length > 3));
-  const bWords = new Set(bb.split(" ").filter((w) => w.length > 3));
-  if (aWords.size === 0 || bWords.size === 0) return 0;
-
-  let common = 0;
-  aWords.forEach((w) => {
-    if (bWords.has(w)) common += 1;
-  });
-
-  return common / Math.max(aWords.size, bWords.size);
-}
-
-function getElencoInfoByCode(elencoInfoMap: Record<string, any>, codice: string) {
+function isPrgAuthor(author: string) {
+  const a = normalizeText(author);
   return (
-    elencoInfoMap[normalizeKey(cleanCodiceElaborato(codice))] ||
-    elencoInfoMap[normalizeKey(extractCodiceElaborato(codice))] ||
-    elencoInfoMap[normalizeKey(getElaboratoBase(codice))] ||
-    {}
+    a.includes("prg") ||
+    a.includes("progett") ||
+    a.includes("pcq") ||
+    a.includes("rtp") ||
+    a.includes("mandante") ||
+    a.includes("consorzio") ||
+    a.includes("committente")
   );
 }
 
-function findReportInfo(reportInfoMap: Record<string, any>, codice: string) {
-  const estratto = extractCodiceElaborato(codice);
-  return (
-    reportInfoMap[normalizeKey(cleanCodiceElaborato(codice))] ||
-    reportInfoMap[normalizeKey(estratto)] ||
-    reportInfoMap[normalizeKey(getElaboratoBase(estratto))] ||
-    {}
+function formatComment(date: string, author: string, text: string) {
+  const cleanDate = String(date || "").slice(0, 10);
+  const parts = [cleanDate, author].filter(Boolean).join(" - ");
+  return parts ? `${parts}: ${text}` : text;
+}
+
+function getCommentBlocks(xml: string) {
+  return getTagBlocks(xml, "Comment").filter((block) =>
+    /<(?:[A-Za-z0-9_]+:)?(Date|Author|ModifiedAuthor)[\s>]/i.test(block)
   );
 }
 
-function elaboratoAggregationKey(value: string) {
-  return normalizeKey(getElaboratoBase(extractCodiceElaborato(value)));
+function extractCommentText(block: string) {
+  const withoutOuterStart = block.replace(/^<[^>]*Comment[^>]*>/i, "");
+  const inner = withoutOuterStart.match(/<(?:[A-Za-z0-9_]+:)?Comment(?:\s[^>]*)?>([\s\S]*?)<\/(?:[A-Za-z0-9_]+:)?Comment>/i);
+  if (inner) return stripTags(inner[1]);
+
+  return (
+    getTagText(block, "Text") ||
+    getTagText(block, "Description") ||
+    getTagText(block, "Body") ||
+    getTagText(block, "Content")
+  );
 }
 
-function isRilievoOSS(row: any) {
-  const tipo = normalizeKey(row?.TipoBase || row?.Tipo || row?.["Codice Rilievo"] || "");
-  return tipo.includes("OSS");
+async function readXlsxRows(file: File, preferredSheetName?: string) {
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, { type: "array" });
+  const sheetName =
+    preferredSheetName && workbook.SheetNames.includes(preferredSheetName)
+      ? preferredSheetName
+      : workbook.SheetNames[0];
+
+  return XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
+    header: 1,
+    defval: "",
+  }) as any[][];
 }
 
-function buildRilieviFlagsByElaborato(rows: any[]) {
-  const map: Record<string, { hasNC: boolean; hasOSS: boolean; sourceRow?: any }> = {};
+async function parseBcfFiles(files: File[]) {
+  const topics: BcfTopic[] = [];
 
-  for (const row of rows) {
-    const key = elaboratoAggregationKey(row?.["Codice Elaborato"] || "");
-    if (!key) continue;
+  async function parseMarkupXml(xml: string, sourceName: string) {
+    const topicBlock = getTagBlocks(xml, "Topic")[0] || "";
+    const title = getTagText(topicBlock, "Title") || getTagText(xml, "Title");
+    const description = getTagText(topicBlock, "Description") || getTagText(xml, "Description");
+    const topicLabels = getTagTexts(topicBlock, "Label").join(" ");
 
-    if (!map[key]) map[key] = { hasNC: false, hasOSS: false, sourceRow: row };
+    const prgComments: string[] = [];
+    const ispComments: string[] = [];
+    const allComments: string[] = [];
 
-    if (isRilievoOSS(row)) {
-      map[key].hasOSS = true;
-    } else {
-      map[key].hasNC = true;
+    for (const block of getCommentBlocks(xml)) {
+      const author = getTagText(block, "Author") || getTagText(block, "ModifiedAuthor") || "";
+      const date = getTagText(block, "Date") || getTagText(block, "ModifiedDate") || "";
+      const text = extractCommentText(block);
+      if (!text) continue;
+
+      const formatted = formatComment(date, author, text);
+      allComments.push(formatted);
+
+      if (isIspAuthor(author)) ispComments.push(formatted);
+      else if (isPrgAuthor(author)) prgComments.push(formatted);
+      else prgComments.push(formatted);
     }
 
-    if (!map[key].sourceRow) map[key].sourceRow = row;
+    const tr =
+      extractTR(sourceName) ||
+      extractTR(topicLabels) ||
+      extractTR(title) ||
+      extractTR(description) ||
+      extractTR(allComments.join(" "));
+
+    const comparableCode =
+      extractComparableCode(title) ||
+      extractComparableCode(description) ||
+      extractComparableCode(sourceName) ||
+      extractComparableCode(allComments.join(" "));
+
+    if (!tr && !title && !description && allComments.length === 0 && !comparableCode) return;
+
+    topics.push({
+      sourceName,
+      tr,
+      title,
+      description: comparableCode ? `${description}\n${comparableCode}`.trim() : description,
+      commentsPrg: prgComments.join("\n\n"),
+      commentsIsp: ispComments.join("\n\n"),
+      allComments: allComments.join("\n\n"),
+    });
   }
 
+  for (const file of files) {
+    const lowerName = file.name.toLowerCase();
+
+    if (lowerName.endsWith(".bcf") || lowerName.endsWith(".xml")) {
+      await parseMarkupXml(await file.text(), file.name);
+      continue;
+    }
+
+    const zip = await JSZip.loadAsync(await file.arrayBuffer());
+    const entries = Object.values(zip.files).filter((entry) => {
+      const name = entry.name.toLowerCase();
+      return !entry.dir && (name.endsWith("markup.bcf") || name.endsWith(".bcf") || name.endsWith(".xml"));
+    });
+
+    for (const entry of entries) {
+      try {
+        await parseMarkupXml(await entry.async("text"), entry.name);
+      } catch {
+        // ignora file non XML dentro BCFZIP/ZIP
+      }
+    }
+  }
+
+  return topics;
+}
+
+function findBestReportCodeFromTitle(title: string, reportCodes: Map<string, string>) {
+  const normalizedTitle = normalizeCode(title);
+  let bestNormalized = "";
+  let bestOriginal = "";
+
+  for (const [normalizedReportCode, originalReportCode] of reportCodes.entries()) {
+    if (normalizedTitle === normalizedReportCode || normalizedTitle.includes(normalizedReportCode)) {
+      if (normalizedReportCode.length > bestNormalized.length) {
+        bestNormalized = normalizedReportCode;
+        bestOriginal = originalReportCode;
+      }
+    }
+  }
+
+  return bestOriginal;
+}
+
+function textScore(source: string, needle: string, points: number) {
+  if (!needle) return 0;
+  return normalizeCode(source).includes(normalizeCode(needle)) ? points : 0;
+}
+
+function wordOverlapScore(source: string, value: string, pointsPerWord: number, maxPoints: number) {
+  const sourceText = normalizeText(source);
+  const words = normalizeText(value)
+    .split(" ")
+    .filter((word) => word.length >= 6)
+    .slice(0, 20);
+
+  let score = 0;
+  words.forEach((word) => {
+    if (sourceText.includes(word)) score += pointsPerWord;
+  });
+
+  return Math.min(score, maxPoints);
+}
+
+function findBcfTopic(
+  tr: string,
+  topics: BcfTopic[],
+  title = "",
+  description = "",
+  codiceReport = "",
+  label = "",
+  disciplina = ""
+) {
+  const normalizedTr = normalizeCode(tr);
+  const labelIT = extractITLabel(label);
+  const comparableCode =
+    extractComparableCode(title) ||
+    extractComparableCode(codiceReport) ||
+    extractComparableCode(description);
+
+  let bestTopic: BcfTopic | null = null;
+  let bestScore = 0;
+
+  topics.forEach((topic) => {
+    const haystack = `${topic.sourceName} ${topic.tr} ${topic.title} ${topic.description} ${topic.allComments}`;
+
+    const labelMatch = !!labelIT && normalizeCode(haystack).includes(normalizeCode(labelIT));
+    const codeMatch = !!comparableCode && normalizeCode(haystack).includes(normalizeCode(comparableCode));
+    const trExact = !!normalizedTr && normalizeCode(topic.tr) === normalizedTr;
+    const trText = !!normalizedTr && normalizeCode(haystack).includes(normalizedTr);
+
+    const disciplinaScore = wordOverlapScore(haystack, disciplina, 25, 120);
+    const titleScore = wordOverlapScore(haystack, title, 12, 150);
+    const descriptionScore = wordOverlapScore(haystack, description, 8, 220);
+    const semanticScore = disciplinaScore + titleScore + descriptionScore;
+
+    let score = 0;
+
+    if (labelMatch) score += 1200;
+
+    if (codeMatch && (labelMatch || semanticScore >= 80)) score += 500;
+
+    if (trExact) score += 180;
+    else if (trText) score += 100;
+
+    score += semanticScore;
+
+    if (labelIT && !labelMatch && score < 350) score = 0;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestTopic = topic;
+    }
+  });
+
+  return bestScore >= 300 ? bestTopic : null;
+}
+
+function buildReportCodes(reportRows: any[][]) {
+  const map = new Map<string, string>();
+  reportRows.slice(1).forEach((row) => {
+    const codiceReport = String(row[2] || "").trim();
+    const normalized = normalizeCode(codiceReport);
+    if (normalized && normalized !== "NAN") map.set(normalized, codiceReport);
+  });
   return map;
 }
 
-function applyRilieviFlagsToElaborati(
-  elaborati: ElaboratoVerificatoRow[],
-  rows: any[]
-) {
-  const flagsByElaborato = buildRilieviFlagsByElaborato(rows);
-  const existingKeys = new Set<string>();
+function buildDiscipline(elencoRows: any[][]) {
+  const set = new Set<string>();
 
-  const withFlags = elaborati.map((e) => {
-    const key = elaboratoAggregationKey(e.codice_file || e.codice_elaborato);
-    if (key) existingKeys.add(key);
-
-    const flags = key ? flagsByElaborato[key] : null;
-    const hasNC = !!flags?.hasNC;
-    const hasOSS = !!flags?.hasOSS;
-
-    return {
-      ...e,
-      presenza_nc: hasNC ? "X" : "",
-      presenza_oss: hasOSS ? "X" : "",
-      assenza_nc_oss: !hasNC && !hasOSS ? "X" : "",
-    };
+  elencoRows.slice(1).forEach((row) => {
+    [0, 1, 5].forEach((idx) => {
+      const value = String(row[idx] || "").trim();
+      if (value) set.add(value.toLowerCase());
+    });
   });
 
-  for (const [key, flags] of Object.entries(flagsByElaborato)) {
-    if (!key || existingKeys.has(key)) continue;
+  [
+    "Documenti generali",
+    "Generale",
+    "Ambiente e vincoli",
+    "Strutture",
+    "Sicurezza cantierizzazione e BOB",
+    "Sicurezza",
+    "Interferenze e espropri",
+    "Interferenze",
+    "Economico",
+    "Computi",
+    "Bonifica bellica",
+  ].forEach((d) => set.add(d.toLowerCase()));
 
-    const row = flags.sourceRow || {};
-    const codiceFile = extractCodiceElaborato(row?.["Codice Elaborato"] || "");
-    if (!codiceFile) continue;
-
-    withFlags.push({
-      codice_elaborato: getElaboratoBase(codiceFile),
-      codice_file: codiceFile,
-      revisione: row?.Revisione || getRevisioneDaCodice(codiceFile),
-      titolo_elaborato: row?.["Titolo Elaborato"] || codiceFile,
-      disciplina: row?.Disciplina || disciplinaFromCodice(codiceFile),
-      presenza_nc: flags.hasNC ? "X" : "",
-      presenza_oss: flags.hasOSS ? "X" : "",
-      assenza_nc_oss: !flags.hasNC && !flags.hasOSS ? "X" : "",
-    });
-
-    existingKeys.add(key);
-  }
-
-  return withFlags;
+  return set;
 }
 
-function bestBcfMatchForTodo(bcfTopics: BcfTopicData[], todo: any) {
-  const titoloTodo = findValue(todo, ["Title", "Titolo", "TITLE", "Topic", "Nome"]);
-  const descrizioneTodo = findValue(todo, ["Description", "Descrizione"]);
-  const labelTodo = findValue(todo, ["Label", "Etichetta"]);
-  const codiceTodo = extractCodiceElaborato(titoloTodo || descrizioneTodo);
+function buildChecks(todoRows: any[][], reportCodes: Map<string, string>, disciplineAmmesse: Set<string>, bcfTopics: BcfTopic[]) {
+  return todoRows.slice(1).map((row, index) => {
+    const label = String(row[0] || "").trim();
+    const title = String(row[1] || "").trim();
+    const description = String(row[2] || "").trim();
+    const status = String(row[5] || "").trim();
+    const disciplina = String(row[8] || "").trim();
+    const tags = String(row[9] || "").trim();
 
-  const ranked = bcfTopics
-    .map((bcf) => {
-      const codiceBcf = extractCodiceElaborato(bcf.titolo || bcf.descrizione);
-      let score = 0;
+    const anomalie: string[] = [];
+    const warning: string[] = [];
 
-      if (codiceTodo && sameElaboratoCode(codiceBcf, codiceTodo)) score += 10;
-      if (normalizeKey(bcf.titolo) === normalizeKey(titoloTodo)) score += 5;
-      if (labelTodo && extractTR(labelTodo) && extractTR(labelTodo) === extractTR(bcf.titolo)) {
-        score += 3;
-      }
+    const codiceTitleTrimble = title.replace(/\.pdf$/i, "").trim();
+    const titleContienePdf = /\.pdf/i.test(title);
+    const titleDescrittivo = isDescrizioneGenerale(title);
+    const codiceReport = titleDescrittivo ? "" : findBestReportCodeFromTitle(title, reportCodes);
 
-      score += descriptionScore(bcf.descrizione, descrizioneTodo);
-
-      return { row: bcf, score };
-    })
-    .sort((a, b) => b.score - a.score);
-
-  return ranked[0] && ranked[0].score > 0.05 ? ranked[0].row : null;
-}
-
-function readFirstSheet(workbook: XLSX.WorkBook) {
-  return XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
-}
-
-function readReportRows(workbook: XLSX.WorkBook) {
-  const sheetName =
-    workbook.SheetNames.find((n) => normalizeKey(n) === "VERIFICAELABORATI") ||
-    workbook.SheetNames[0];
-
-  return XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]) as any[];
-}
-
-function escapeXml(value: string | number) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
-}
-
-function getPlainTextFromWordXml(xml: string) {
-  return String(xml || "")
-    .replace(/<w:tab\/>/g, "\t")
-    .replace(/<w:br\/>/g, "\n")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function rowContainsStatoChiusa(rowXml: string) {
-  const plain = getPlainTextFromWordXml(rowXml);
-  return (
-    /(^|\s)Chiusa(\s|$)/i.test(plain) ||
-    /(^|\s)Chiuso(\s|$)/i.test(plain) ||
-    /(^|\s)Closed(\s|$)/i.test(plain)
-  );
-}
-
-function applyGreyTextToWordRow(rowXml: string) {
-  return rowXml.replace(/<w:r\b[^>]*>[\s\S]*?<\/w:r>/g, (runXml) => {
-    const runWithoutColor = runXml.replace(
-      /<w:color\b[^>]*(?:\/>|>[\s\S]*?<\/w:color>)/g,
-      ""
-    );
-
-    if (/<w:rPr\b[^>]*>/.test(runWithoutColor)) {
-      return runWithoutColor.replace(
-        /<w:rPr\b([^>]*)>/,
-        '<w:rPr$1><w:color w:val="808080"/>'
-      );
+    let titleOk = false;
+    if (!title) {
+      anomalie.push("Title mancante");
+    } else if (titleContienePdf) {
+      anomalie.push("Il Title contiene .pdf");
+    } else if (titleDescrittivo) {
+      titleOk = true;
+    } else if (!codiceReport) {
+      titleOk = true;
+      warning.push("Codice elaborato non presente nel Report_Completo.xlsx");
+    } else {
+      titleOk = true;
     }
 
-    return runWithoutColor.replace(
-      /<w:r\b([^>]*)>/,
-      '<w:r$1><w:rPr><w:color w:val="808080"/></w:rPr>'
-    );
+    const tagsOk =
+      !tags ||
+      TAGS_AMMESSI.some((tag) => tag.toLowerCase() === tags.toLowerCase());
+
+    if (!tags) warning.push("Tags mancanti");
+    else if (!tagsOk) warning.push("Tags non riconosciuto");
+
+    const disciplinaPresente = !!disciplina;
+    const disciplinaOk =
+      disciplinaPresente &&
+      (hasDocumentiGenerali(disciplina) ||
+        hasAnyValidDiscipline(disciplina, disciplineAmmesse));
+
+    if (!disciplinaPresente) {
+      anomalie.push("Disciplina mancante");
+    } else if (!disciplinaOk) {
+      warning.push("Disciplina non presente in ELENCO_ELABORATI.xlsx");
+    }
+
+    const statusOk =
+      !status ||
+      STATUS_AMMESSI.some((s) => s.toLowerCase() === status.toLowerCase());
+
+    if (!status) warning.push("Status mancante");
+    else if (!statusOk) warning.push("Status non riconosciuto");
+
+    const tr = extractTR(label) || extractTR(title) || extractTR(description);
+    const bcf = findBcfTopic(tr, bcfTopics, title, description, codiceReport, label, disciplina);
+
+    const isRilievo = ["NC", "OSS", "Da NC a OSS"].some((tag) => tag.toLowerCase() === tags.toLowerCase());
+    const isClosed = status.toLowerCase() === "closed" || status.toLowerCase() === "chiusa";
+
+    let esitoStoria = "NON APPLICABILE";
+
+    if (isRilievo) {
+      if (!tr && !extractComparableCode(title) && !extractComparableCode(codiceReport)) {
+        esitoStoria = "BCF NON TROVATO";
+        warning.push("Codice TR o codice elaborato non trovato nel ToDo");
+      } else if (!bcf) {
+        esitoStoria = "BCF NON TROVATO";
+        warning.push(`BCF non trovato per ${tr || codiceReport || title}`);
+      } else if (!bcf.commentsPrg && !bcf.allComments) {
+        esitoStoria = "MANCA RISPOSTA PROGETTISTA";
+        warning.push("Manca risposta progettista nei commenti BCF");
+      } else if (!bcf.commentsIsp && isClosed) {
+        esitoStoria = "CHIUSO SENZA RISCONTRO";
+        warning.push("ToDo chiuso senza riscontro ispettore nei BCF");
+      } else if (!bcf.commentsIsp) {
+        esitoStoria = "MANCA RISCONTRO ITS";
+        warning.push("Manca riscontro ispettore nei commenti BCF");
+      } else {
+        esitoStoria = "COMPLETA";
+      }
+    }
+
+    const esito = titleOk && disciplinaPresente && statusOk ? "OK" : "ERRORE";
+    const livello = esito === "ERRORE" ? "ERRORE" : warning.length ? "WARNING" : "OK";
+
+    return {
+      rowNumber: index + 2,
+      progressivo: index + 1,
+      label,
+      title,
+      description,
+      codiceTitleTrimble,
+      codiceReport,
+      titleOk,
+      tags,
+      tagsOk,
+      disciplina,
+      disciplinaOk,
+      status,
+      statusOk,
+      tr,
+      bcfTitle: bcf?.title || "",
+      bcfDescription: bcf?.description || "",
+      rispostaProgettista: bcf?.commentsPrg || (bcf?.commentsIsp ? "" : bcf?.allComments || ""),
+      riscontroIspettore: bcf?.commentsIsp || "",
+      storiaOk: esitoStoria === "COMPLETA" || esitoStoria === "NON APPLICABILE",
+      esitoStoria,
+      esito,
+      livello,
+      warning,
+      anomalie,
+    };
   });
 }
 
-function applyClosedRowsGreyText(documentXml: string) {
-  return documentXml.replace(/<w:tr\b[^>]*>[\s\S]*?<\/w:tr>/g, (rowXml) => {
-    if (!rowContainsStatoChiusa(rowXml)) return rowXml;
-    return applyGreyTextToWordRow(rowXml);
-  });
-}
-
-function buildSintesiFinaleDocxXml(sintesi: SchedaIspettivaSintesi) {
-  const rows: Array<[string, number]> = [
-    ["Totale elaborati verificati", sintesi.totaleElaboratiAnalizzati],
-    ["Totale NC rilevate", sintesi.totaleNC],
-    ["Totale OSS rilevate", sintesi.totaleOSS],
-    ["Totale rilievi chiusi", sintesi.totaleChiuse],
-  ];
-
-  const tableRows = rows
-    .map(
-      ([label, value]) => `
-      <w:tr>
-        <w:tc>
-          <w:tcPr><w:tcW w:w="7000" w:type="dxa"/></w:tcPr>
-          <w:p><w:r><w:t>${escapeXml(label)}</w:t></w:r></w:p>
-        </w:tc>
-        <w:tc>
-          <w:tcPr><w:tcW w:w="2000" w:type="dxa"/></w:tcPr>
-          <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>${escapeXml(value)}</w:t></w:r></w:p>
-        </w:tc>
-      </w:tr>`
-    )
-    .join("");
-
-  return `
-  <w:p>
-    <w:pPr><w:spacing w:before="240" w:after="120"/></w:pPr>
-    <w:r><w:rPr><w:b/></w:rPr><w:t>SINTESI FINALE</w:t></w:r>
-  </w:p>
-  <w:tbl>
-    <w:tblPr>
-      <w:tblW w:w="9000" w:type="dxa"/>
-      <w:tblBorders>
-        <w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/>
-        <w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/>
-        <w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/>
-        <w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/>
-        <w:insideH w:val="single" w:sz="4" w:space="0" w:color="000000"/>
-        <w:insideV w:val="single" w:sz="4" w:space="0" w:color="000000"/>
-      </w:tblBorders>
-    </w:tblPr>
-    ${tableRows}
-  </w:tbl>
-  <w:p/>`;
-}
-
-function appendSintesiAfterLastTable(documentXml: string, sintesi: SchedaIspettivaSintesi) {
-  const marker = "</w:tbl>";
-  const lastTableIndex = documentXml.lastIndexOf(marker);
-  const sintesiXml = buildSintesiFinaleDocxXml(sintesi);
-
-  if (lastTableIndex < 0) {
-    const bodyCloseIndex = documentXml.lastIndexOf("</w:body>");
-    if (bodyCloseIndex < 0) return documentXml + sintesiXml;
-    return documentXml.slice(0, bodyCloseIndex) + sintesiXml + documentXml.slice(bodyCloseIndex);
-  }
-
-  const insertIndex = lastTableIndex + marker.length;
-  return documentXml.slice(0, insertIndex) + sintesiXml + documentXml.slice(insertIndex);
-}
-
-
-function ensureDocumentNamespaces(documentXml: string) {
-  let xml = documentXml;
-
-  const namespaces: Array<[string, string]> = [
-    ["xmlns:r", "http://schemas.openxmlformats.org/officeDocument/2006/relationships"],
-    ["xmlns:wp", "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"],
-    ["xmlns:a", "http://schemas.openxmlformats.org/drawingml/2006/main"],
-    ["xmlns:pic", "http://schemas.openxmlformats.org/drawingml/2006/picture"],
-  ];
-
-  namespaces.forEach(([name, value]) => {
-    if (xml.includes(`${name}=`)) return;
-    xml = xml.replace("<w:document", `<w:document ${name}="${value}"`);
-  });
-
-  return xml;
-}
-
-
-async function postProcessSchedaIspettivaDocx(
-  buffer: Buffer,
-  sintesi: SchedaIspettivaSintesi
-) {
-  const zip = await JSZip.loadAsync(buffer);
-  const documentFile = zip.file("word/document.xml");
-  if (!documentFile) return buffer;
-
-  let documentXml = await documentFile.async("string");
-
-  documentXml = applyClosedRowsGreyText(documentXml);
-  documentXml = appendSintesiAfterLastTable(documentXml, sintesi);
-
-  zip.file("word/document.xml", documentXml);
-
-  return Buffer.from(
-    await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" })
-  );
-}
-
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
 
-    const todoFile = formData.get("todo") as File;
-    const bcfFiles = formData.getAll("bcf") as File[];
-    const elencoFile = formData.get("elenco") as File;
-    const templateFile = formData.get("template") as File;
-    const reportFile = formData.get("files") as File | null;
+    const todoFile = formData.get("todo");
+    const reportFile = formData.get("report");
+    const elencoFile = formData.get("elenco");
+    const bcfFiles = formData
+      .getAll("bcf")
+      .filter((file): file is File => file instanceof File && file.size > 0);
 
-    const progettisti = parsePeopleList(formData.get("progettisti"));
-    const ispettori = parsePeopleList(formData.get("ispettori"));
-
-    const revisioneScheda = String(
-      formData.get("revisione_scheda") || REVISIONE_SCHEDA
-    ).trim();
-    const dataRevisioneScheda = String(
-      formData.get("data_revisione_scheda") || "xx/xx/xxxx"
-    ).trim();
-    const responsabilePcq = String(formData.get("responsabile_pcq") || "").trim();
-    const responsabileIts = String(formData.get("responsabile_its") || "").trim();
-
-    if (!todoFile || bcfFiles.length === 0 || !elencoFile || !templateFile) {
-      return NextResponse.json({
-        ok: false,
-        error:
-          "Carica ToDo XLSX, almeno un BCFZIP, Elenco Elaborati XLSX e Template DOCX.",
-      });
+    if (!(todoFile instanceof File)) {
+      return NextResponse.json({ ok: false, error: "ToDo XLSX mancante" }, { status: 400 });
     }
 
-    const todoWorkbook = XLSX.read(Buffer.from(await todoFile.arrayBuffer()), {
-      type: "buffer",
-    });
-    const todoRowsRaw: any[] = readFirstSheet(todoWorkbook) as any[];
-
-    const elencoWorkbook = XLSX.read(Buffer.from(await elencoFile.arrayBuffer()), {
-      type: "buffer",
-    });
-    const elencoRows: any[] = readFirstSheet(elencoWorkbook) as any[];
-
-    let reportRows: any[] = [];
-    if (reportFile) {
-      const reportWorkbook = XLSX.read(Buffer.from(await reportFile.arrayBuffer()), {
-        type: "buffer",
-      });
-      reportRows = readReportRows(reportWorkbook) as any[];
+    if (!(reportFile instanceof File)) {
+      return NextResponse.json({ ok: false, error: "Report_Completo.xlsx mancante" }, { status: 400 });
     }
 
-    const elencoInfoMap: Record<string, any> = {};
-    const disciplinaInfoMap: Record<string, any> = {};
-    const reportInfoMap: Record<string, any> = {};
-
-    elencoRows.forEach((r: any) => {
-      const codice = findValue(r, [
-        "Codice_SP",
-        "Codice SP",
-        "Codice Elaborato",
-        "CODICE ELABORATO",
-        "Codice elaborato",
-      ]);
-
-      const titolo = getTitoloProgetto(r);
-      const revisione = findValue(r, ["REV.", "REV", "Rev.", "Revisione"]);
-
-      const nomeRedattore = findValue(r, [
-        "Nome_redattore",
-        "Nome redattore",
-        "NOME REDATTORE",
-        "Nome Redattore",
-      ]);
-
-      const notaRicezione = findValue(r, [
-        "Nota_ricezione_elaborati",
-        "Nota ricezione elaborati",
-        "Nota Ricezione Elaborati",
-      ]);
-
-      const dataRicezione = findValue(r, [
-        "Data_ricezione",
-        "Data ricezione",
-        "Data Ricezione",
-      ]);
-
-      const faseProgetto = getFaseProgetto(r);
-
-      const disciplinaElenco =
-        findValue(r, ["DISCIPLINA", "Disciplina", "Oggetto", "OGGETTO"]) ||
-        disciplinaFromCodice(codice);
-
-      const ispettoreElenco = findValue(r, ISPETTORE_ELENCO_COLUMNS);
-
-      if (disciplinaElenco) {
-        disciplinaInfoMap[normalizeKey(disciplinaElenco)] = {
-          codiceScheda: codice,
-          titoloProgetto: titolo,
-          faseProgetto,
-          notaRicezione,
-          dataRicezione,
-          nomeRedattore,
-          ispettoreElenco,
-        };
-      }
-
-      const keys = [
-        normalizeKey(cleanCodiceElaborato(codice)),
-        normalizeKey(getElaboratoBase(codice)),
-      ].filter(Boolean);
-
-      keys.forEach((key) => {
-        elencoInfoMap[key] = {
-          codice,
-          titolo,
-          revisione,
-          nomeRedattore,
-          notaRicezione,
-          dataRicezione,
-          disciplina: disciplinaElenco,
-          ispettoreElenco,
-        };
-      });
-    });
-
-    reportRows.forEach((r: any) => {
-      const codice =
-        findValue(r, ["Codice elenco", "Codice Elenco", "CODICE ELENCO"]) ||
-        findValue(r, ["Codice cartiglio", "Codice Cartiglio", "CODICE CARTIGLIO"]) ||
-        findValue(r, ["Nome file PDF", "Nome File PDF", "NOME FILE PDF"]) ||
-        findValue(r, REPORT_CODICE_COLUMNS);
-
-      if (!codice) return;
-
-      const nomeFilePdf = findValue(r, ["Nome file PDF", "Nome File PDF", "NOME FILE PDF"]);
-      const codicePulito = extractCodiceElaborato(codice);
-      const base = getElaboratoBase(codicePulito);
-
-      const info = {
-        codice: codicePulito,
-        codiceBase: base,
-        revisione:
-          findValue(r, ["REV", "REV.", "Rev.", "Revisione", "REVISIONE"]) ||
-          getRevisioneDaCodice(nomeFilePdf || codicePulito),
-        titolo: findValue(r, TITOLO_ELABORATO_COLUMNS),
-        disciplina:
-          disciplinaFromReportCartella(findValue(r, ["Cartella", "CARTELLA"])) ||
-          findValue(r, ["DISCIPLINA", "Disciplina", "Oggetto", "OGGETTO"]) ||
-          disciplinaFromCodice(codicePulito),
-      };
-
-      [
-        codicePulito,
-        base,
-        findValue(r, ["Codice cartiglio", "Codice Cartiglio", "CODICE CARTIGLIO"]),
-        findValue(r, ["Nome file PDF", "Nome File PDF", "NOME FILE PDF"]),
-      ]
-        .map((v) => normalizeKey(getElaboratoBase(extractCodiceElaborato(v))))
-        .filter(Boolean)
-        .forEach((key) => {
-          reportInfoMap[key] = info;
-        });
-    });
-
-    const parser = new XMLParser({ ignoreAttributes: false });
-    const commentiMap: Record<string, BcfTopicData> = {};
-    const bcfTopics: BcfTopicData[] = [];
-
-    for (const bcfFile of bcfFiles) {
-      const bcfZip = await JSZip.loadAsync(
-        Buffer.from(await bcfFile.arrayBuffer())
-      );
-
-      for (const fileName of Object.keys(bcfZip.files)) {
-        if (!fileName.endsWith("markup.bcf")) continue;
-
-        const xml = await bcfZip.files[fileName].async("text");
-        const parsed: any = parser.parse(xml);
-
-        const topic = parsed?.Markup?.Topic || {};
-        const commentsRaw = parsed?.Markup?.Comment;
-        const comments = commentsRaw
-          ? Array.isArray(commentsRaw)
-            ? commentsRaw
-            : [commentsRaw]
-          : [];
-
-        const topicTitle = topic?.Title || "";
-        const topicDescription = topic?.Description || "";
-        const topicGuid = topic?.["@_Guid"] || topic?.Guid || "";
-        const topicLabels = String(topic?.Labels || "");
-        const topicStatus = String(
-          topic?.["@_TopicStatus"] ||
-            topic?.TopicStatus ||
-            topic?.Status ||
-            ""
-        );
-
-        const commentiPRGList: string[] = [];
-        const commentiISPList: string[] = [];
-        let lastIspAuthor = "";
-
-        comments.forEach((c: any) => {
-          const testo = getCommentText(c);
-          const cleanText = cleanRolePrefix(testo);
-          const datedCleanText = prefixCommentWithDate(cleanText, getCommentDateValue(c));
-          const author = getCommentAuthor(c);
-
-          if (!cleanText) return;
-
-          const isPRGByAccount = isInPeopleList(author, progettisti);
-          const isISPByAccount = isInPeopleList(author, ispettori);
-
-          if (isPRGByAccount) {
-            commentiPRGList.push(datedCleanText);
-            return;
-          }
-
-          if (isISPByAccount) {
-            lastIspAuthor = author || lastIspAuthor;
-            commentiISPList.push(datedCleanText);
-            return;
-          }
-
-          if (/\(\s*PRG\s*\)/i.test(testo)) {
-            commentiPRGList.push(datedCleanText);
-            return;
-          }
-
-          if (/\(\s*ISP\s*\)/i.test(testo)) {
-            lastIspAuthor = author || lastIspAuthor;
-            commentiISPList.push(datedCleanText);
-            return;
-          }
-        });
-
-        const topicAuthor =
-          topic?.CreationAuthor ||
-          topic?.Author ||
-          topic?.["@_CreationAuthor"] ||
-          topic?.["@_Author"] ||
-          "";
-
-        const ispettoreNomeBcf = String(lastIspAuthor || topicAuthor || "").trim();
-
-        const existing =
-          (topicGuid && commentiMap[normalizeKey(topicGuid)]) ||
-          commentiMap[topicKey(topicTitle, topicDescription)];
-
-        const lastComment = comments.length > 0 ? comments[comments.length - 1] : null;
-
-        const dataTopic: BcfTopicData = {
-          topicGuid: topicGuid || existing?.topicGuid || "",
-          titolo: topicTitle || existing?.titolo || "",
-          descrizione: topicDescription || existing?.descrizione || "",
-          descrizioneConData:
-            topicDescription
-              ? prefixCommentWithDate(topicDescription, getTopicDateValue(topic))
-              : existing?.descrizioneConData || existing?.descrizione || "",
-          ispettore:
-            existing?.ispettore ||
-            siglaDaNome(ispettoreNomeBcf || topicAuthor),
-          ispettoreNomeBcf:
-            ispettoreNomeBcf || existing?.ispettoreNomeBcf || "",
-          labels: topicLabels || existing?.labels || "",
-          stato: topicStatus || existing?.stato || "",
-          commentiPRG: mergeText(existing?.commentiPRG || "", commentiPRGList),
-          commentiISP: mergeText(existing?.commentiISP || "", commentiISPList),
-          ultimoCommento: lastComment
-            ? prefixCommentWithDate(
-                cleanRolePrefix(getCommentText(lastComment)),
-                getCommentDateValue(lastComment)
-              )
-            : existing?.ultimoCommento || "",
-        };
-
-        const previousIndex = bcfTopics.findIndex(
-          (t) =>
-            (dataTopic.topicGuid &&
-              normalizeKey(t.topicGuid) === normalizeKey(dataTopic.topicGuid)) ||
-            topicKey(t.titolo, t.descrizione) ===
-              topicKey(dataTopic.titolo, dataTopic.descrizione)
-        );
-
-        if (previousIndex >= 0) {
-          bcfTopics[previousIndex] = dataTopic;
-        } else {
-          bcfTopics.push(dataTopic);
-        }
-
-        const key = topicKey(dataTopic.titolo, dataTopic.descrizione);
-        commentiMap[key] = dataTopic;
-
-        if (dataTopic.topicGuid) {
-          commentiMap[normalizeKey(dataTopic.topicGuid)] = dataTopic;
-        }
-      }
+    if (!(elencoFile instanceof File)) {
+      return NextResponse.json({ ok: false, error: "ELENCO_ELABORATI.xlsx mancante" }, { status: 400 });
     }
 
-    const todoRows = todoRowsRaw.filter((r: any) => {
-      const tags = findValue(r, ["Tags", "Tag", "Tipo", "Esito"]);
-      const descrizione = findValue(r, ["Description", "Descrizione"]);
-      const status = findValue(r, ["Status", "Stato"]);
-      return !(isNessunRilievo(tags, descrizione) && isClosedStatus(status));
-    });
+    const [todoRows, reportRows, elencoRows, bcfTopics] = await Promise.all([
+      readXlsxRows(todoFile),
+      readXlsxRows(reportFile, "Verifica Elaborati"),
+      readXlsxRows(elencoFile),
+      parseBcfFiles(bcfFiles),
+    ]);
 
-    const finalRows = todoRows
-      .filter((todo) => {
-        const tags = findValue(todo, ["Tags", "Tag", "Tipo", "Esito"]);
-        const descrizione = findValue(todo, ["Description", "Descrizione"]);
-        return !isNessunRilievo(tags, descrizione);
-      })
-      .map((todo) => {
-        const bcf = bestBcfMatchForTodo(bcfTopics, todo);
+    const reportCodes = buildReportCodes(reportRows);
+    const disciplineAmmesse = buildDiscipline(elencoRows);
+    const checks = buildChecks(todoRows, reportCodes, disciplineAmmesse, bcfTopics);
 
-        const label = findValue(todo, ["Label", "Etichetta"]);
-        const tags = findValue(todo, ["Tags", "Tag", "Tipo", "Esito"]);
-        const titoloTodo = findValue(todo, ["Title", "Titolo", "TITLE", "Topic", "Nome"]);
-        const descrizioneTodo = findValue(todo, ["Description", "Descrizione"]);
-
-        const disciplina =
-          findValue(todo, ["Assignee(s) ", "Assignee(s)", "Disciplina"]) ||
-          disciplinaFromCodice(titoloTodo || descrizioneTodo);
-
-        const tipoBase = String(tags || "").toUpperCase().includes("OSS")
-          ? "OSS"
-          : "NC";
-
-        const codiceTR =
-          label ? labelToTR(label) : extractTR(titoloTodo) || extractTR(descrizioneTodo) || "";
-
-        const codiceElaborato = extractCodiceElaborato(titoloTodo || descrizioneTodo);
-        const reportInfo = findReportInfo(reportInfoMap, codiceElaborato);
-        const disciplinaInfo = disciplinaInfoMap[normalizeKey(disciplina)] || {};
-        const infoElenco = getElencoInfoByCode(elencoInfoMap, codiceElaborato);
-
-        const ispettoreTodo = getIspettoreFromTodo(todo);
-        const ispettoreElenco =
-          infoElenco.ispettoreElenco || disciplinaInfo.ispettoreElenco || "";
-
-        const ispettoreFinale = ispettoreTodo
-          ? remapIspettoreFinale(siglaDaNome(ispettoreTodo), disciplina)
-          : resolveIspettoreFinale(
-              bcf?.ispettore || "",
-              bcf?.ispettoreNomeBcf || "",
-              disciplina,
-              ispettoreElenco
-            );
-
-        const titoloElaborato =
-          reportInfo.titolo ||
-          getTitoloElaboratoFromTodo(todo) ||
-          infoElenco.titolo ||
-          "";
-
-        return {
-          Disciplina: disciplina,
-          Label: label,
-          TipoBase: tipoBase,
-          CodiceTR: codiceTR,
-          "Codice Rilievo": label || codiceTR,
-          "Codice Elaborato": codiceElaborato || titoloTodo || "",
-          "Titolo Elaborato": titoloElaborato || codiceElaborato || titoloTodo || "",
-          Revisione:
-            reportInfo.revisione ||
-            getRevisioneDaCodice(codiceElaborato || titoloTodo),
-          Tipo: tags || tipoBase,
-          "Descrizione Rilievo":
-            bcf?.descrizioneConData ||
-            bcf?.descrizione ||
-            descrizioneTodo ||
-            "",
-          Ispettore: ispettoreFinale,
-          "Risposta Progettista PRG": bcf?.commentiPRG || "",
-          "Riscontro Ispettore ISP": bcf?.commentiISP || "",
-          "Ultimo Commento": bcf?.ultimoCommento || "",
-          "Azione Richiesta": "",
-          Stato: normalizeStatus(findValue(todo, ["Status", "Stato"]) || bcf?.stato || "", tags),
-          "Nota Ricezione Elaborati": disciplinaInfo.notaRicezione || "",
-          "Data Ricezione": disciplinaInfo.dataRicezione || "",
-          "Nome Redattore": disciplinaInfo.nomeRedattore || "",
-        };
-      });
-
-    const outputZip = new JSZip();
-
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(finalRows);
-    XLSX.utils.book_append_sheet(wb, ws, "Schede_Ispettive");
-    outputZip.file(
-      "SCHEDE_ISPETTIVE_CONSOLIDATE.xlsx",
-      XLSX.write(wb, { type: "buffer", bookType: "xlsx" })
-    );
-
-    const templateBuffer = Buffer.from(await templateFile.arrayBuffer());
-    const elaboratiSource = reportRows.length ? reportRows : elencoRows;
-
-    const elaboratiVerificatiAll = elaboratiSource
-      .map((e: any) => {
-        const codiceCompleto =
-          findValue(e, ["Codice elenco", "Codice Elenco", "CODICE ELENCO"]) ||
-          findValue(e, ["Codice cartiglio", "Codice Cartiglio", "CODICE CARTIGLIO"]) ||
-          findValue(e, ["Nome file PDF", "Nome File PDF", "NOME FILE PDF"]) ||
-          findValue(e, REPORT_CODICE_COLUMNS);
-
-        const codicePulito = extractCodiceElaborato(codiceCompleto);
-        if (!codicePulito) return null;
-
-        const infoElenco = getElencoInfoByCode(elencoInfoMap, codicePulito);
-        const reportInfo = findReportInfo(reportInfoMap, codicePulito);
-
-        const titoloElenco =
-          reportInfo.titolo ||
-          findValue(e, TITOLO_ELABORATO_COLUMNS) ||
-          infoElenco.titolo ||
-          "";
-
-        const revisione =
-          reportInfo.revisione ||
-          findValue(e, ["REV", "REV.", "Rev.", "Revisione", "REVISIONE"]) ||
-          infoElenco.revisione ||
-          getRevisioneDaCodice(codicePulito);
-
-        const codiceSenzaRev = getElaboratoBase(codicePulito);
-
-        const disciplinaElaborato =
-          reportInfo.disciplina ||
-          disciplinaFromReportCartella(findValue(e, ["Cartella", "CARTELLA"])) ||
-          infoElenco.disciplina ||
-          findValue(e, ["Disciplina", "DISCIPLINA", "Oggetto", "OGGETTO"]) ||
-          disciplinaFromCodice(codicePulito);
-
-        return {
-          codice_elaborato: codiceSenzaRev,
-          codice_file: codicePulito,
-          revisione,
-          titolo_elaborato: titoloElenco,
-          disciplina: disciplinaElaborato,
-          presenza_nc: "",
-          presenza_oss: "",
-          assenza_nc_oss: "X",
-        };
-      })
-      .filter(Boolean) as ElaboratoVerificatoRow[];
-
-    const discipline = Array.from(
-      new Set(
-        elencoRows
-          .map((r: any) => findValue(r, ["DISCIPLINA", "Disciplina"]))
-          .filter(Boolean)
-      )
-    );
-
-    for (const disciplina of discipline) {
-      if (!disciplina || normalizeKey(disciplina) === "SENZADISCIPLINA") {
-        continue;
-      }
-
-      const rowsDisciplina = finalRows.filter((r) =>
-        sameDisciplina(r.Disciplina || "", disciplina)
-      );
-
-      let elaboratiVerificati = elaboratiVerificatiAll.filter((e) =>
-        sameDisciplina(e.disciplina || "", disciplina)
-      );
-
-      elaboratiVerificati = applyRilieviFlagsToElaborati(
-        elaboratiVerificati,
-        rowsDisciplina
-      );
-
-      const elencoDisciplina = elencoRows.filter((e: any) =>
-        sameDisciplina(
-          findValue(e, ["DISCIPLINA", "Disciplina"]) ||
-            disciplinaFromCodice(findValue(e, ["Codice_SP"])),
-          disciplina
-        )
-      );
-
-      if (rowsDisciplina.length === 0 && elaboratiVerificati.length === 0) {
-        continue;
-      }
-
-      const primaRigaElenco = elencoDisciplina[0] || elencoRows[0] || {};
-      const disciplinaInfo = disciplinaInfoMap[normalizeKey(disciplina)] || {};
-
-      const codiceScheda =
-        disciplinaInfo.codiceScheda ||
-        findValue(primaRigaElenco, ["Codice_SP"]) ||
-        findValue(primaRigaElenco, ["Codice SP"]) ||
-        "SCHEDA_ISPETTIVA";
-
-      const titoloProgetto =
-        disciplinaInfo.titoloProgetto || getTitoloProgetto(primaRigaElenco) || "";
-
-      const faseProgetto =
-        disciplinaInfo.faseProgetto || getFaseProgetto(primaRigaElenco);
-
-      const notaRicezione =
-        disciplinaInfo.notaRicezione ||
-        findValue(primaRigaElenco, ["Nota_ricezione_elaborati"]) ||
-        "";
-
-      const dataRicezione =
-        disciplinaInfo.dataRicezione ||
-        findValue(primaRigaElenco, ["Data_ricezione"]) ||
-        "";
-
-      const nomeRedattore =
-        disciplinaInfo.nomeRedattore ||
-        findValue(primaRigaElenco, ["Nome_redattore"]) ||
-        "";
-
-      if (elaboratiVerificati.length === 0) {
-        elaboratiVerificati = elencoDisciplina.map((e: any) => {
-          const codiceCompleto = findValue(e, ["Codice_SP", "Codice SP"]);
-          const codicePulito = extractCodiceElaborato(codiceCompleto);
-          const codiceSenzaRev = getElaboratoBase(codicePulito);
-
-          return {
-            codice_elaborato: codiceSenzaRev,
-            codice_file: codicePulito,
-            revisione: findValue(e, ["REV.", "REV", "Rev.", "Revisione"]),
-            titolo_elaborato: getTitoloProgetto(e),
-            disciplina: findValue(e, ["DISCIPLINA", "Disciplina"]),
-            presenza_nc: "",
-            presenza_oss: "",
-            assenza_nc_oss: "X",
-          };
-        });
-
-        elaboratiVerificati = applyRilieviFlagsToElaborati(
-          elaboratiVerificati,
-          rowsDisciplina
-        );
-      }
-
-      const progressivi: Record<string, number> = { NC: 0, OSS: 0 };
-
-      const rilievi = rowsDisciplina.map((r) => {
-        const tipo = String(r.TipoBase || "").includes("OSS") ? "OSS" : "NC";
-        progressivi[tipo] += 1;
-
-        return {
-          tipo_progressivo: `${tipo}${progressivi[tipo]}\n(${r.CodiceTR || "TR-ND"})`,
-          codice_elaborato: r["Codice Elaborato"] || "",
-          titolo_elaborato: r["Titolo Elaborato"] || "",
-          rilievo_its: r["Descrizione Rilievo"] || "",
-          ispettore: r.Ispettore || "",
-          risposta_prg: r["Risposta Progettista PRG"] || "",
-          riscontro_isp: r["Riscontro Ispettore ISP"] || "",
-          stato: r.Stato || "",
-        };
-      });
-
-      const numeroNC = rilievi.filter((r) =>
-        String(r.tipo_progressivo).startsWith("NC")
-      ).length;
-
-      const numeroOSS = rilievi.filter((r) =>
-        String(r.tipo_progressivo).startsWith("OSS")
-      ).length;
-
-      const numeroChiuse = rilievi.filter((r) => isClosedStatus(r.stato)).length;
-
-      const totaleDocumenti = elaboratiVerificati.length;
-
-      let buffer: Buffer;
-
-      try {
-        const zipDocx = new PizZip(templateBuffer);
-
-        const doc = new Docxtemplater(zipDocx, {
-          paragraphLoop: true,
-          linebreaks: true,
-        });
-
-        doc.render({
-          rev_scheda: revisioneScheda,
-          data_rev_scheda: dataRevisioneScheda,
-          descrizione_rev_scheda: descrizioneRevisioneScheda(revisioneScheda),
-          responsabile_pcq: responsabilePcq,
-          responsabile_its: responsabileIts,
-          Codice_SP: codiceScheda,
-          Titolo_progetto: titoloProgetto,
-          Fase_di_progetto: faseProgetto,
-          "Fase_ di_ progetto": faseProgetto,
-          DISCIPLINA: disciplina,
-          Nota_ricezione_elaborati: notaRicezione,
-          Data_ricezione: dataRicezione,
-          Nome_redattore: nomeRedattore,
-          rilievi,
-          elaborati: elencoRows,
-          elaborati_verificati: elaboratiVerificati,
-          numero_nc: numeroNC,
-          numero_oss: numeroOSS,
-          numero_chiuse: numeroChiuse,
-          totale_documenti: totaleDocumenti,
-          riepilogo_finale: `NC=${numeroNC}
-OSS=${numeroOSS}
-Chiuse=${numeroChiuse}
-Totale documenti=${totaleDocumenti}`,
-        });
-
-        buffer = doc.getZip().generate({
-          type: "nodebuffer",
-          compression: "DEFLATE",
-        });
-        buffer = await postProcessSchedaIspettivaDocx(
-          buffer,
-          {
-            totaleElaboratiAnalizzati: totaleDocumenti,
-            totaleNC: numeroNC,
-            totaleOSS: numeroOSS,
-            totaleChiuse: numeroChiuse,
-          }
-        );
-      } catch (e: any) {
-        outputZip.file(
-          `ERRORE_TEMPLATE_${safeName(disciplina)}.txt`,
-          JSON.stringify(e, null, 2)
-        );
-        continue;
-      }
-
-      outputZip.file(
-        `${codiceScheda}_${safeName(disciplina)}_${revisioneScheda}.docx`,
-        buffer
-      );
-    }
-
-    const zipBuffer = await outputZip.generateAsync({
-      type: "nodebuffer",
-      compression: "DEFLATE",
-    });
-
-    return new NextResponse(zipBuffer as any, {
-      status: 200,
-      headers: {
-        "Content-Type": "application/zip",
-        "Content-Disposition": 'attachment; filename="SCHEDE_ISPETTIVE_OUTPUT.zip"',
-        "Content-Length": zipBuffer.length.toString(),
-      },
-    });
-  } catch (err: any) {
-    console.error(err);
+    const totale = checks.length;
+    const ok = checks.filter((row) => row.esito === "OK").length;
+    const errori = checks.filter((row) => row.esito === "ERRORE").length;
+    const warning = checks.filter((row) => row.livello === "WARNING").length;
+    const storieComplete = checks.filter((row) => row.esitoStoria === "COMPLETA").length;
+    const bcfWarning = checks.filter((row) =>
+      row.esitoStoria === "BCF NON TROVATO" ||
+      row.esitoStoria === "MANCA RISPOSTA PROGETTISTA" ||
+      row.esitoStoria === "MANCA RISCONTRO ITS" ||
+      row.esitoStoria === "CHIUSO SENZA RISCONTRO"
+    ).length;
+    const completezza = totale > 0 ? Math.round((ok / totale) * 100) : 0;
 
     return NextResponse.json({
-      ok: false,
-      error: err.message,
+      ok: true,
+      checks,
+      bcfTopicsCount: bcfTopics.length,
+      summary: {
+        totale,
+        ok,
+        errori,
+        warning,
+        storieComplete,
+        bcfWarning,
+        completezza,
+      },
     });
+  } catch (error: any) {
+    console.error("Errore controllo ToDo ispettori:", error);
+
+    return NextResponse.json(
+      {
+        ok: false,
+        error: error?.message || "Errore durante il controllo ToDo ispettori",
+      },
+      { status: 500 }
+    );
   }
 }
