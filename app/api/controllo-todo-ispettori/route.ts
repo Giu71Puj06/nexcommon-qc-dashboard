@@ -487,23 +487,25 @@ function buildChecks(todoRows: any[][], reportCodes: Map<string, string>, discip
     const isClosed = status.toLowerCase() === "closed" || status.toLowerCase() === "chiusa";
 
     let esitoStoria = "NON APPLICABILE";
+    // Per il report utente non mostriamo più "BCF non trovato":
+    // esplicitiamo quale parte della storia manca.
 
     if (isRilievo) {
       if (!tr && !extractComparableCode(title) && !extractComparableCode(codiceReport)) {
-        esitoStoria = "BCF NON TROVATO";
+        esitoStoria = "RISPOSTA PROG. MANCANTE";
         warning.push("Codice TR o codice elaborato non trovato nel ToDo");
       } else if (!bcf) {
-        esitoStoria = "BCF NON TROVATO";
-        warning.push(`BCF non trovato per ${tr || codiceReport || title}`);
+        esitoStoria = "RISPOSTA PROG. MANCANTE";
+        warning.push(`Risposta progettista non trovata per ${tr || codiceReport || title}`);
       } else if (!bcf.commentsPrg && !bcf.allComments) {
-        esitoStoria = "MANCA RISPOSTA PROGETTISTA";
-        warning.push("Manca risposta progettista nei commenti BCF");
+        esitoStoria = "RISPOSTA PROG. MANCANTE";
+        warning.push("Risposta progettista mancante nei commenti BCF");
       } else if (!bcf.commentsIsp && isClosed) {
-        esitoStoria = "CHIUSO SENZA RISCONTRO";
-        warning.push("ToDo chiuso senza riscontro ispettore nei BCF");
+        esitoStoria = "RISCONTRO ISP. MANCANTE";
+        warning.push("Riscontro ispettore mancante nei commenti BCF");
       } else if (!bcf.commentsIsp) {
-        esitoStoria = "MANCA RISCONTRO ITS";
-        warning.push("Manca riscontro ispettore nei commenti BCF");
+        esitoStoria = "RISCONTRO ISP. MANCANTE";
+        warning.push("Riscontro ispettore mancante nei commenti BCF");
       } else {
         esitoStoria = "COMPLETA";
       }
@@ -582,10 +584,8 @@ export async function POST(req: NextRequest) {
     const warning = checks.filter((row) => row.livello === "WARNING").length;
     const storieComplete = checks.filter((row) => row.esitoStoria === "COMPLETA").length;
     const bcfWarning = checks.filter((row) =>
-      row.esitoStoria === "BCF NON TROVATO" ||
-      row.esitoStoria === "MANCA RISPOSTA PROGETTISTA" ||
-      row.esitoStoria === "MANCA RISCONTRO ITS" ||
-      row.esitoStoria === "CHIUSO SENZA RISCONTRO"
+      row.esitoStoria === "RISPOSTA PROG. MANCANTE" ||
+      row.esitoStoria === "RISCONTRO ISP. MANCANTE"
     ).length;
     const completezza = totale > 0 ? Math.round((ok / totale) * 100) : 0;
 
