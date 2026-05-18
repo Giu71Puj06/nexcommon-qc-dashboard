@@ -27,10 +27,8 @@ type CheckRow = {
   storiaOk: boolean;
   esitoStoria:
     | "COMPLETA"
-    | "RISPOSTA PROG. MANCANTE"
-    | "RISPOSTA PROG. MANCANTE"
-    | "RISCONTRO ISP. MANCANTE"
-    | "RISCONTRO ISP. MANCANTE"
+    | "Manca commento del progettista"
+    | "Manca il riscontro dell'ispettore"
     | "NON APPLICABILE";
   esito: "OK" | "ERRORE";
   livello?: "OK" | "WARNING" | "ERRORE";
@@ -125,10 +123,10 @@ function livelloReale(row: CheckRow): "OK" | "WARNING" | "ERRORE" {
       return (
         t.includes("codice elaborato non presente") ||
         t.includes("disciplina non presente") ||
-        
-        t.includes("risposta prog") ||
-        t.includes("riscontro isp") ||
-        
+        t.includes("bcf non trovato") ||
+        t.includes("manca risposta") ||
+        t.includes("manca riscontro") ||
+        t.includes("chiuso senza riscontro") ||
         t.includes("tags mancanti")
       );
     });
@@ -219,7 +217,7 @@ export default function ControlloTodoIspettoriPage() {
       const n = `${row.progressivo}${row.label ? ` (${row.label})` : ""}`;
       const esitoCodice = titleOkReale(row) ? "OK" : "ERRORE";
       const anomalie = [...(row.anomalie || []), ...(row.warning || [])].join(" | ");
-      const esitoEffettivo = esitoReale(row);
+      const esitoEffettivo = livelloReale(row);
 
       return (
         n.toLowerCase().includes(filters.n.toLowerCase()) &&
@@ -247,13 +245,13 @@ export default function ControlloTodoIspettoriPage() {
   const totale = checks.length;
   const errori = checks.filter((r) => livelloReale(r) === "ERRORE").length;
   const warning = checks.filter((r) => livelloReale(r) === "WARNING").length;
-  const ok = checks.filter((r) => livelloReale(r) !== "ERRORE").length;
+  const ok = checks.filter((r) => livelloReale(r) === "OK").length;
   const completezza = totale > 0 ? Math.round((ok / totale) * 100) : 0;
   const storieComplete = summary?.storieComplete || checks.filter((r) => r.esitoStoria === "COMPLETA").length;
   const bcfWarning = summary?.bcfWarning || checks.filter(
     (r) =>
-      r.esitoStoria === "RISPOSTA PROG. MANCANTE" ||
-      r.esitoStoria === "RISCONTRO ISP. MANCANTE"
+      r.esitoStoria === "Manca commento del progettista" ||
+      r.esitoStoria === "Manca il riscontro dell'ispettore"
   ).length;
 
   const completezzaColor =
@@ -417,7 +415,7 @@ export default function ControlloTodoIspettoriPage() {
             }}
           >
             <div style={cardStyle}>
-              <div style={kpiLabel}>Completezza rilievi ispettori</div>
+              <div style={kpiLabel}>Completezza senza warning</div>
               <div
                 style={{
                   fontSize: 36,
@@ -435,7 +433,7 @@ export default function ControlloTodoIspettoriPage() {
             </div>
 
             <div style={cardStyle}>
-              <div style={kpiLabel}>Righe corrette</div>
+              <div style={kpiLabel}>Righe OK</div>
               <div style={{ ...kpiValue, color: "#16a34a" }}>{ok}</div>
             </div>
 
@@ -570,6 +568,7 @@ export default function ControlloTodoIspettoriPage() {
                       >
                         <option value="">Tutti</option>
                         <option value="OK">OK</option>
+                        <option value="WARNING">WARNING</option>
                         <option value="ERRORE">ERRORE</option>
                       </select>
                     </th>
@@ -616,8 +615,12 @@ export default function ControlloTodoIspettoriPage() {
                       >
                         <option value="">Tutte</option>
                         <option value="COMPLETA">COMPLETA</option>
-                        <option value="RISPOSTA PROG. MANCANTE">RISPOSTA PROG. MANCANTE</option>
-                        <option value="RISCONTRO ISP. MANCANTE">RISCONTRO ISP. MANCANTE</option>
+                        <option value="Manca commento del progettista">
+                          Manca commento del progettista
+                        </option>
+                        <option value="Manca il riscontro dell'ispettore">
+                          Manca il riscontro dell'ispettore
+                        </option>
                         <option value="NON APPLICABILE">NON APPLICABILE</option>
                       </select>
                     </th>
