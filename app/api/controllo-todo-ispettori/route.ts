@@ -376,6 +376,7 @@ function buildChecks(
     const tags = String(row[9] || "").trim();
 
     const anomalie: string[] = [];
+    const warning: string[] = [];
 
     const codiceTitleTrimble = title.replace(/\.pdf$/i, "").trim();
     const titleContienePdf = /\.pdf/i.test(title);
@@ -422,31 +423,26 @@ function buildChecks(
     if (isRilievo) {
       if (!tr && !extractComparableCode(title) && !extractComparableCode(codiceReport)) {
         esitoStoria = "BCF NON TROVATO";
-        storiaOk = false;
-        anomalie.push("Codice TR o codice elaborato non trovato nel ToDo");
+        warning.push("Codice TR o codice elaborato non trovato nel ToDo");
       } else if (!bcf) {
         esitoStoria = "BCF NON TROVATO";
-        storiaOk = false;
-        anomalie.push(`BCF non trovato per ${tr || codiceReport || title}`);
+        warning.push(`BCF non trovato per ${tr || codiceReport || title}`);
       } else if (!bcf.commentsPrg && !bcf.allComments) {
         esitoStoria = "MANCA RISPOSTA PROGETTISTA";
-        storiaOk = false;
-        anomalie.push("Manca risposta progettista nei commenti BCF");
+        warning.push("Manca risposta progettista nei commenti BCF");
       } else if (!bcf.commentsIsp && isClosed) {
         esitoStoria = "CHIUSO SENZA RISCONTRO";
-        storiaOk = false;
-        anomalie.push("ToDo chiuso senza riscontro ispettore nei BCF");
+        warning.push("ToDo chiuso senza riscontro ispettore nei BCF");
       } else if (!bcf.commentsIsp) {
         esitoStoria = "MANCA RISCONTRO ITS";
-        storiaOk = false;
-        anomalie.push("Manca riscontro ispettore nei commenti BCF");
+        warning.push("Manca riscontro ispettore nei commenti BCF");
       } else {
         esitoStoria = "COMPLETA";
       }
     }
 
-    const esito =
-      titleOk && tagsOk && disciplinaOk && statusOk && storiaOk ? "OK" : "ERRORE";
+    const esito = titleOk && tagsOk && disciplinaOk && statusOk ? "OK" : "ERRORE";
+    const livello = esito === "ERRORE" ? "ERRORE" : warning.length ? "WARNING" : "OK";
 
     return {
       rowNumber: index + 2,
@@ -471,6 +467,8 @@ function buildChecks(
       storiaOk,
       esitoStoria,
       esito,
+      livello,
+      warning,
       anomalie,
     };
   });
@@ -513,6 +511,7 @@ export async function POST(req: NextRequest) {
     const totale = checks.length;
     const ok = checks.filter((row) => row.esito === "OK").length;
     const errori = checks.filter((row) => row.esito === "ERRORE").length;
+    const warning = checks.filter((row) => row.livello === "WARNING").length;
     const storieComplete = checks.filter((row) => row.esitoStoria === "COMPLETA").length;
     const bcfNonTrovati = checks.filter((row) => row.esitoStoria === "BCF NON TROVATO").length;
     const mancanoRisposte = checks.filter(
@@ -531,9 +530,11 @@ export async function POST(req: NextRequest) {
         totale,
         ok,
         errori,
+        warning,
         storieComplete,
         bcfNonTrovati,
         mancanoRisposte,
+        bcfWarning: bcfNonTrovati + mancanoRisposte,
         completezza,
       },
     });
