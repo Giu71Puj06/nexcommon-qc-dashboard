@@ -332,7 +332,7 @@ function findBcfTopic(
   codiceReport = "",
   label = "",
   disciplina = ""
-) {
+): BcfTopic | null {
   const normalizedTr = normalizeCode(tr);
   const labelIT = extractITLabel(label);
   const comparableCode =
@@ -473,7 +473,15 @@ function buildChecks(todoRows: any[][], reportCodes: Map<string, string>, discip
     else if (!statusOk) warning.push("Status non riconosciuto");
 
     const tr = extractTR(label) || extractTR(title) || extractTR(description);
-    const bcf = findBcfTopic(tr, bcfTopics, title, description, codiceReport, label, disciplina);
+    const bcf: BcfTopic | null = findBcfTopic(
+      tr,
+      bcfTopics,
+      title,
+      description,
+      codiceReport,
+      label,
+      disciplina
+    );
 
     const isRilievo = ["NC", "OSS", "Da NC a OSS"].some((tag) => tag.toLowerCase() === tags.toLowerCase());
     const isClosed = status.toLowerCase() === "closed" || status.toLowerCase() === "chiusa";
