@@ -135,6 +135,14 @@ function isKnownInspectorAuthor(author: string) {
     a.includes("ilaria martarelli") ||
     a.includes("michea sciorra") ||
     a.includes("stefano arcangeli") ||
+    a.includes("clara soliman") ||
+    a.includes("clara") ||
+    a.includes("(isp)") ||
+    a.includes(" isp ") ||
+    a.includes("non conformita superata") ||
+    a.includes("non conformità superata") ||
+    a.includes("osservazione superata") ||
+    a.includes("si prende atto") ||
     a.includes("massimo") ||
     a.includes("edoardo") ||
     a.includes("guido") ||
@@ -165,7 +173,13 @@ function isPrgAuthor(author: string) {
     a.includes("rtp") ||
     a.includes("mandante") ||
     a.includes("consorzio") ||
-    a.includes("committente")
+    a.includes("committente") ||
+    a.includes("(prg)") ||
+    a.includes(" prg ") ||
+    a.includes("giuseppe pizzi") ||
+    a.includes("recepito") ||
+    a.includes("aggiornato") ||
+    a.includes("eliminato")
   );
 }
 
@@ -230,9 +244,16 @@ async function parseBcfFiles(files: File[]) {
       const formatted = formatComment(date, author, text);
       allComments.push(formatted);
 
-      if (isIspAuthor(author)) ispComments.push(formatted);
-      else if (isPrgAuthor(author)) prgComments.push(formatted);
-      else prgComments.push(formatted);
+      const classifier = `${author} ${text}`;
+
+      if (isIspAuthor(classifier)) {
+        ispComments.push(formatted);
+      } else if (isPrgAuthor(classifier)) {
+        prgComments.push(formatted);
+      } else {
+        // In dubbio lo lasciamo al progettista, ma solo se non contiene indicatori ISP.
+        prgComments.push(formatted);
+      }
     }
 
     const tr =
@@ -546,19 +567,19 @@ function buildChecks(todoRows: any[][], reportCodes: Map<string, string>, discip
 
     if (isRilievo) {
       if (!tr && !extractComparableCode(title) && !extractComparableCode(codiceReport)) {
-        esitoStoria = "RISPOSTA PROG. MANCANTE";
+        esitoStoria = "Manca commento del progettista";
         warning.push("Codice TR o codice elaborato non trovato nel ToDo");
       } else if (!bcf) {
-        esitoStoria = "RISPOSTA PROG. MANCANTE";
+        esitoStoria = "Manca commento del progettista";
         warning.push(`Risposta progettista non trovata per ${tr || codiceReport || title}`);
       } else if (!bcf.commentsPrg && !bcf.allComments) {
-        esitoStoria = "RISPOSTA PROG. MANCANTE";
+        esitoStoria = "Manca commento del progettista";
         warning.push("Risposta progettista mancante nei commenti BCF");
       } else if (!bcf.commentsIsp && isClosed) {
-        esitoStoria = "RISCONTRO ISP. MANCANTE";
+        esitoStoria = "Manca il riscontro dell\'ispettore";
         warning.push("Riscontro ispettore mancante nei commenti BCF");
       } else if (!bcf.commentsIsp) {
-        esitoStoria = "RISCONTRO ISP. MANCANTE";
+        esitoStoria = "Manca il riscontro dell\'ispettore";
         warning.push("Riscontro ispettore mancante nei commenti BCF");
       } else {
         esitoStoria = "COMPLETA";
@@ -638,8 +659,8 @@ export async function POST(req: NextRequest) {
     const warning = checks.filter((row) => row.livello === "WARNING").length;
     const storieComplete = checks.filter((row) => row.esitoStoria === "COMPLETA").length;
     const bcfWarning = checks.filter((row) =>
-      row.esitoStoria === "RISPOSTA PROG. MANCANTE" ||
-      row.esitoStoria === "RISCONTRO ISP. MANCANTE"
+      row.esitoStoria === "Manca commento del progettista" ||
+      row.esitoStoria === "Manca il riscontro dell'ispettore"
     ).length;
     const completezza = totale > 0 ? Math.round((ok / totale) * 100) : 0;
 
