@@ -27,10 +27,10 @@ type CheckRow = {
   storiaOk: boolean;
   esitoStoria:
     | "COMPLETA"
-    | "BCF NON TROVATO"
-    | "MANCA RISPOSTA PROGETTISTA"
-    | "MANCA RISCONTRO ITS"
-    | "CHIUSO SENZA RISCONTRO"
+    | "RISPOSTA PROG. MANCANTE"
+    | "RISPOSTA PROG. MANCANTE"
+    | "RISCONTRO ISP. MANCANTE"
+    | "RISCONTRO ISP. MANCANTE"
     | "NON APPLICABILE";
   esito: "OK" | "ERRORE";
   livello?: "OK" | "WARNING" | "ERRORE";
@@ -125,10 +125,10 @@ function livelloReale(row: CheckRow): "OK" | "WARNING" | "ERRORE" {
       return (
         t.includes("codice elaborato non presente") ||
         t.includes("disciplina non presente") ||
-        t.includes("bcf non trovato") ||
-        t.includes("manca risposta") ||
-        t.includes("manca riscontro") ||
-        t.includes("chiuso senza riscontro") ||
+        
+        t.includes("risposta prog") ||
+        t.includes("riscontro isp") ||
+        
         t.includes("tags mancanti")
       );
     });
@@ -252,10 +252,8 @@ export default function ControlloTodoIspettoriPage() {
   const storieComplete = summary?.storieComplete || checks.filter((r) => r.esitoStoria === "COMPLETA").length;
   const bcfWarning = summary?.bcfWarning || checks.filter(
     (r) =>
-      r.esitoStoria === "BCF NON TROVATO" ||
-      r.esitoStoria === "MANCA RISPOSTA PROGETTISTA" ||
-      r.esitoStoria === "MANCA RISCONTRO ITS" ||
-      r.esitoStoria === "CHIUSO SENZA RISCONTRO"
+      r.esitoStoria === "RISPOSTA PROG. MANCANTE" ||
+      r.esitoStoria === "RISCONTRO ISP. MANCANTE"
   ).length;
 
   const completezzaColor =
@@ -618,16 +616,8 @@ export default function ControlloTodoIspettoriPage() {
                       >
                         <option value="">Tutte</option>
                         <option value="COMPLETA">COMPLETA</option>
-                        <option value="BCF NON TROVATO">BCF NON TROVATO</option>
-                        <option value="MANCA RISPOSTA PROGETTISTA">
-                          MANCA RISPOSTA PROGETTISTA
-                        </option>
-                        <option value="MANCA RISCONTRO ITS">
-                          MANCA RISCONTRO ITS
-                        </option>
-                        <option value="CHIUSO SENZA RISCONTRO">
-                          CHIUSO SENZA RISCONTRO
-                        </option>
+                        <option value="RISPOSTA PROG. MANCANTE">RISPOSTA PROG. MANCANTE</option>
+                        <option value="RISCONTRO ISP. MANCANTE">RISCONTRO ISP. MANCANTE</option>
                         <option value="NON APPLICABILE">NON APPLICABILE</option>
                       </select>
                     </th>
