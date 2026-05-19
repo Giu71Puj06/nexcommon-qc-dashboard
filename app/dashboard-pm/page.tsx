@@ -8,6 +8,12 @@ import {
   BCFIssue,
 } from "@/lib/dashboard-pm/extract-history";
 
+type ProjectIssues = {
+  projectName: string;
+  fileName: string;
+  issues: BCFIssue[];
+};
+
 function daysBetween(start: string, end: string): number {
   const startDate = new Date(start);
   const endDate = new Date(end);
@@ -19,24 +25,29 @@ function daysBetween(start: string, end: string): number {
     return 0;
   }
 
-  const diff = endDate.getTime() - startDate.getTime();
-  return Math.ceil(diff / (1000 * 60 * 60 * 24));
+  return Math.ceil(
+    (endDate.getTime() - startDate.getTime()) /
+      (1000 * 60 * 60 * 24)
+  );
 }
 
 function formatDate(value: string): string {
   if (!value) return "-";
-
   const date = new Date(value);
-
   if (Number.isNaN(date.getTime())) return "-";
-
   return date.toLocaleDateString("it-IT");
 }
 
+function cleanProjectName(fileName: string): string {
+  return fileName
+    .replace(".bcfzip", "")
+    .replace(".bcf", "")
+    .replace(".zip", "");
+}
+
 export default function DashboardPMPage() {
-  const [issues, setIssues] = useState<BCFIssue[]>([]);
+  const [projects, setProjects] = useState<ProjectIssues[]>([]);
   const [loading, setLoading] = useState(false);
-  const [fileNames, setFileNames] = useState<string[]>([]);
 
   async function handleFiles(
     event: React.ChangeEvent<HTMLInputElement>
@@ -44,10 +55,9 @@ export default function DashboardPMPage() {
     const files = Array.from(event.target.files || []);
 
     setLoading(true);
-    setIssues([]);
-    setFileNames(files.map((file) => file.name));
+    setProjects([]);
 
-    const parsedIssues: BCFIssue[] = [];
+    const parsedProjects: ProjectIssues[] = [];
 
     for (const file of files) {
       const name = file.name.toLowerCase();
@@ -61,52 +71,50 @@ export default function DashboardPMPage() {
       }
 
       const markups = await readBCF(file);
+      const issues: BCFIssue[] = [];
 
       for (const markup of markups) {
         const issue = extractBCFHistory(markup.rawXml);
-
-        if (issue) {
-          parsedIssues.push(issue);
-        }
+        if (issue) issues.push(issue);
       }
+
+      parsedProjects.push({
+        projectName: cleanProjectName(file.name),
+        fileName: file.name,
+        issues,
+      });
     }
 
-    setIssues(parsedIssues);
+    setProjects(parsedProjects);
     setLoading(false);
   }
 
-  const sortedByStart = [...issues].sort(
-    (a, b) =>
-      new Date(a.creationDate).getTime() -
-      new Date(b.creationDate).getTime()
-  );
-
-  const sortedByEnd = [...issues].sort(
-    (a, b) =>
-      new Date(b.lastActivityDate).getTime() -
-      new Date(a.lastActivityDate).getTime()
-  );
-
-  const firstDate = sortedByStart[0]?.creationDate || "";
-  const lastDate = sortedByEnd[0]?.lastActivityDate || "";
-
-  const totalIssues = issues.length;
-  const closedIssues = issues.filter((issue) => issue.isClosed).length;
-  const openIssues = totalIssues - closedIssues;
-
-  const closurePercentage =
-    totalIssues > 0
-      ? Math.round((closedIssues / totalIssues) * 100)
-      : 0;
-
-  const durationDays = daysBetween(firstDate, lastDate);
+  const allIssues = projects.flatMap((project) => project.issues);
 
   return (
-    <div style={{ padding: "24px", fontFamily: "Arial, sans-serif" }}>
+    <main style={{ padding: 24, fontFamily: "Arial, sans-serif" }}>
+      <button
+        onClick={() => {
+          window.location.href = "/";
+        }}
+        style={{
+          marginBottom: 20,
+          background: "#0f172a",
+          color: "white",
+          border: "none",
+          borderRadius: 10,
+          padding: "10px 14px",
+          fontWeight: 700,
+          cursor: "pointer",
+        }}
+      >
+        ← Torna alla dashboard
+      </button>
+
       <h1>Dashboard PM</h1>
 
       <p>
-        KPI temporali di commessa da file BCF / BCFZIP.
+        Carica più file BCF / BCFZIP, uno per ogni progetto o commessa.
       </p>
 
       <input
@@ -116,105 +124,113 @@ export default function DashboardPMPage() {
         onChange={handleFiles}
       />
 
-      {fileNames.length > 0 && (
-        <p>
-          File caricati: {fileNames.join(", ")}
-        </p>
-      )}
+      {loading && <p>Caricamento file BCF...</p>}
 
-      {loading && <p>Caricamento BCF...</p>}
-
-      {!loading && issues.length > 0 && (
+      {!loading && projects.length > 0 && (
         <>
-          <h2>KPI commessa</h2>
+          <h2>Riepilogo generale</h2>
 
           <div
             style={{
               display: "grid",
               gridTemplateColumns: "repeat(4, 1fr)",
-              gap: "16px",
-              marginBottom: "24px",
+              gap: 16,
+              marginBottom: 28,
             }}
           >
-            <KpiCard title="Issue totali" value={totalIssues} />
-            <KpiCard title="Issue chiuse" value={closedIssues} />
-            <KpiCard title="Issue aperte" value={openIssues} />
+            <KpiCard title="Progetti caricati" value={projects.length} />
+            <KpiCard title="Issue totali" value={allIssues.length} />
             <KpiCard
-              title="% chiusura"
-              value={`${closurePercentage}%`}
+              title="Issue chiuse"
+              value={allIssues.filter((i) => i.isClosed).length}
             />
             <KpiCard
-              title="Arrivo progetto"
-              value={formatDate(firstDate)}
-            />
-            <KpiCard
-              title="Ultima attività"
-              value={formatDate(lastDate)}
-            />
-            <KpiCard
-              title="Durata tracciamento"
-              value={`${durationDays} giorni`}
-            />
-            <KpiCard
-              title="Stato commessa"
+              title="% chiusura globale"
               value={
-                closurePercentage === 100
-                  ? "Conclusa"
-                  : "In corso"
+                allIssues.length
+                  ? `${Math.round(
+                      (allIssues.filter((i) => i.isClosed).length /
+                        allIssues.length) *
+                        100
+                    )}%`
+                  : "0%"
               }
             />
           </div>
 
-          <h2>Dettaglio issue</h2>
+          <h2>KPI per progetto</h2>
 
-          <table
-            style={{
-              width: "100%",
-              borderCollapse: "collapse",
-              marginTop: "16px",
-            }}
-          >
-            <thead>
-              <tr>
-                <th style={cellStyle}>Titolo</th>
-                <th style={cellStyle}>Stato</th>
-                <th style={cellStyle}>Arrivo</th>
-                <th style={cellStyle}>Ultima attività</th>
-                <th style={cellStyle}>Durata</th>
-                <th style={cellStyle}>Commenti</th>
-              </tr>
-            </thead>
+          <div style={{ display: "grid", gap: 20 }}>
+            {projects.map((project) => {
+              const issues = project.issues;
 
-            <tbody>
-              {issues.map((issue, index) => (
-                <tr key={`${issue.guid}-${index}`}>
-                  <td style={cellStyle}>{issue.title}</td>
-                  <td style={cellStyle}>
-                    {issue.isClosed ? "Chiusa" : "Aperta"}
-                  </td>
-                  <td style={cellStyle}>
-                    {formatDate(issue.creationDate)}
-                  </td>
-                  <td style={cellStyle}>
-                    {formatDate(issue.lastActivityDate)}
-                  </td>
-                  <td style={cellStyle}>
-                    {daysBetween(
-                      issue.creationDate,
-                      issue.lastActivityDate
-                    )}{" "}
-                    giorni
-                  </td>
-                  <td style={cellStyle}>
-                    {issue.commentsCount}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+              const firstDate =
+                [...issues].sort(
+                  (a, b) =>
+                    new Date(a.creationDate).getTime() -
+                    new Date(b.creationDate).getTime()
+                )[0]?.creationDate || "";
+
+              const lastDate =
+                [...issues].sort(
+                  (a, b) =>
+                    new Date(b.lastActivityDate).getTime() -
+                    new Date(a.lastActivityDate).getTime()
+                )[0]?.lastActivityDate || "";
+
+              const closed = issues.filter((i) => i.isClosed).length;
+              const open = issues.length - closed;
+
+              const closure =
+                issues.length > 0
+                  ? Math.round((closed / issues.length) * 100)
+                  : 0;
+
+              return (
+                <section
+                  key={project.fileName}
+                  style={{
+                    border: "1px solid #ddd",
+                    borderRadius: 14,
+                    padding: 18,
+                    background: "white",
+                  }}
+                >
+                  <h3 style={{ marginTop: 0 }}>
+                    {project.projectName}
+                  </h3>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(7, 1fr)",
+                      gap: 12,
+                    }}
+                  >
+                    <KpiCard title="Issue" value={issues.length} />
+                    <KpiCard title="Chiuse" value={closed} />
+                    <KpiCard title="Aperte" value={open} />
+                    <KpiCard title="% chiusura" value={`${closure}%`} />
+                    <KpiCard
+                      title="Arrivo progetto"
+                      value={formatDate(firstDate)}
+                    />
+                    <KpiCard
+                      title="Ultima attività"
+                      value={formatDate(lastDate)}
+                    />
+                    <KpiCard
+                      title="Durata"
+                      value={`${daysBetween(firstDate, lastDate)} gg`}
+                    />
+                  </div>
+                </section>
+              );
+            })}
+          </div>
         </>
       )}
-    </div>
+    </main>
   );
 }
 
@@ -228,20 +244,18 @@ function KpiCard({
   return (
     <div
       style={{
-        border: "1px solid #ddd",
-        borderRadius: "12px",
-        padding: "16px",
-        background: "#fff",
+        border: "1px solid #e2e8f0",
+        borderRadius: 12,
+        padding: 14,
+        background: "#f8fafc",
       }}
     >
-      <div style={{ fontSize: "13px", color: "#555" }}>
-        {title}
-      </div>
+      <div style={{ fontSize: 12, color: "#64748b" }}>{title}</div>
       <div
         style={{
-          fontSize: "28px",
-          fontWeight: "bold",
-          marginTop: "8px",
+          fontSize: 24,
+          fontWeight: 800,
+          marginTop: 6,
         }}
       >
         {value}
@@ -249,8 +263,3 @@ function KpiCard({
     </div>
   );
 }
-
-const cellStyle: React.CSSProperties = {
-  border: "1px solid #ccc",
-  padding: "8px",
-};
