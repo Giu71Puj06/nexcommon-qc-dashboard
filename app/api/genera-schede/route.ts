@@ -227,6 +227,35 @@ function prefixCommentWithDate(text: string, dateValue: string) {
   return `${formattedDate} - ${cleanText}`;
 }
 
+function stripLeadingCommentDate(text: string) {
+  return String(text || "")
+    .replace(/^\s*\d{4}-\d{2}-\d{2}\s*[-–]\s*/g, "")
+    .replace(/^\s*\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}\s*[-–]\s*/g, "")
+    .replace(/^\s*\[\s*\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}\s*\]\s*/g, "")
+    .trim();
+}
+
+function prefixCommentWithPmDate(text: string, pmDate: string) {
+  const cleanText = stripLeadingCommentDate(text);
+  const cleanDate = String(pmDate || "").trim();
+
+  if (!cleanText) return "";
+  if (!cleanDate) return cleanText;
+
+  return `${cleanDate} - ${cleanText}`;
+}
+
+function applyPmDateToMultilineComments(text: string, pmDate: string) {
+  const cleanText = String(text || "").trim();
+  if (!cleanText) return "";
+
+  return cleanText
+    .split(/\n+/g)
+    .map((line) => prefixCommentWithPmDate(line, pmDate))
+    .filter(Boolean)
+    .join("\n");
+}
+
 function isInPeopleList(author: string, people: string[]) {
   const a = normalizeAccount(author);
   if (!a) return false;
@@ -730,12 +759,24 @@ function getRilievoItsText(todo: any, _bcf?: BcfTopicData | null) {
   return getTodoRilievoText(todo);
 }
 
-function getRispostaProgettistaText(bcf?: BcfTopicData | null) {
-  return bcf?.commentiPRG || "";
+function getRispostaProgettistaText(
+  bcf: BcfTopicData | null | undefined,
+  dataRispostaProgettista: string
+) {
+  return applyPmDateToMultilineComments(
+    bcf?.commentiPRG || "",
+    dataRispostaProgettista
+  );
 }
 
-function getRiscontroIspettoreText(bcf?: BcfTopicData | null) {
-  return bcf?.commentiISP || "";
+function getRiscontroIspettoreText(
+  bcf: BcfTopicData | null | undefined,
+  dataRiscontroIspettore: string
+) {
+  return applyPmDateToMultilineComments(
+    bcf?.commentiISP || "",
+    dataRiscontroIspettore
+  );
 }
 
 function buildElaboratiFromRowsDisciplina(rows: any[]) {
@@ -1120,6 +1161,12 @@ export async function POST(req: Request) {
     const dataRevisioneScheda = String(
       formData.get("data_revisione_scheda") || "xx/xx/xxxx"
     ).trim();
+    const dataRispostaProgettista = String(
+      formData.get("data_risposta_progettista") || ""
+    ).trim();
+    const dataRiscontroIspettore = String(
+      formData.get("data_riscontro_ispettore") || ""
+    ).trim();
     const responsabilePcq = String(formData.get("responsabile_pcq") || "").trim();
     const responsabileIts = String(formData.get("responsabile_its") || "").trim();
 
@@ -1474,8 +1521,14 @@ export async function POST(req: Request) {
           Tipo: tags || tipoBase,
           "Descrizione Rilievo": getRilievoItsText(todo, bcf),
           Ispettore: ispettoreFinale,
-          "Risposta Progettista PRG": getRispostaProgettistaText(bcf),
-          "Riscontro Ispettore ISP": getRiscontroIspettoreText(bcf),
+          "Risposta Progettista PRG": getRispostaProgettistaText(
+            bcf,
+            dataRispostaProgettista
+          ),
+          "Riscontro Ispettore ISP": getRiscontroIspettoreText(
+            bcf,
+            dataRiscontroIspettore
+          ),
           "Ultimo Commento": bcf?.ultimoCommento || "",
           "Azione Richiesta": "",
           Stato: normalizeStatus(findValue(todo, ["Status", "Stato"]) || bcf?.stato || "", tags),
@@ -1736,6 +1789,8 @@ export async function POST(req: Request) {
           descrizione_rev_scheda: descrizioneRevisioneScheda(revisioneScheda),
           responsabile_pcq: responsabilePcq,
           responsabile_its: responsabileIts,
+          data_risposta_progettista: dataRispostaProgettista,
+          data_riscontro_ispettore: dataRiscontroIspettore,
           Codice_SP: codiceScheda,
           Titolo_progetto: titoloProgetto,
           Fase_di_progetto: faseProgetto,
