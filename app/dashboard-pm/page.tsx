@@ -46,6 +46,8 @@ type ProjectKpi = {
   firstDate: string;
   lastDate: string;
   durationDays: number;
+  projectStatus: "Concluso" | "In corso";
+  effectiveClosureDate: string;
 };
 
 async function readInspectionDocx(file: File) {
@@ -137,6 +139,14 @@ function getProjectKpi(project: ProjectIssues): ProjectKpi {
   const closure =
     issues.length > 0 ? Math.round((closed / issues.length) * 100) : 0;
 
+  const durationDays = daysBetween(firstDate, lastDate);
+
+  const projectStatus =
+    open === 0 && issues.length > 0 ? "Concluso" : "In corso";
+
+  const effectiveClosureDate =
+    projectStatus === "Concluso" ? lastDate : "";
+
   return {
     projectName: project.projectName,
     fileName: project.fileName,
@@ -146,7 +156,9 @@ function getProjectKpi(project: ProjectIssues): ProjectKpi {
     closure,
     firstDate,
     lastDate,
-    durationDays: daysBetween(firstDate, lastDate),
+    durationDays,
+    projectStatus,
+    effectiveClosureDate,
   };
 }
 
@@ -292,6 +304,11 @@ export default function DashboardPMPage() {
       "Arrivo progetto": formatDate(p.firstDate),
       "Ultima attività": formatDate(p.lastDate),
       "Durata giorni": p.durationDays,
+      "Stato progetto": p.projectStatus,
+      "Chiusura effettiva":
+        p.projectStatus === "Concluso"
+          ? formatDate(p.effectiveClosureDate)
+          : "-",
     }));
 
     const issueRows = projects.flatMap((project) =>
@@ -578,7 +595,7 @@ export default function DashboardPMPage() {
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "repeat(7, 1fr)",
+                    gridTemplateColumns: "repeat(9, 1fr)",
                     gap: 12,
                   }}
                 >
@@ -627,6 +644,18 @@ export default function DashboardPMPage() {
                   <KpiCard
                     title="Durata verifica"
                     value={`${project.durationDays} gg`}
+                  />
+                  <KpiCard
+                    title="Stato progetto"
+                    value={project.projectStatus}
+                  />
+                  <KpiCard
+                    title="Chiusura effettiva"
+                    value={
+                      project.projectStatus === "Concluso"
+                        ? formatDate(project.effectiveClosureDate)
+                        : "-"
+                    }
                   />
                 </div>
               </section>
