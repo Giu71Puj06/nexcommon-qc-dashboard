@@ -15,6 +15,11 @@ export default function SchedeIspettivePage() {
   const [ispettori, setIspettori] = useState("");
   const [revisioneScheda, setRevisioneScheda] = useState("0");
   const [dataRevisioneScheda, setDataRevisioneScheda] = useState("");
+  const [dataRev0, setDataRev0] = useState("");
+  const [dataRev1, setDataRev1] = useState("");
+  const [dataRev2, setDataRev2] = useState("");
+  const [dataRev3, setDataRev3] = useState("");
+  const [dataRev4, setDataRev4] = useState("");
   const [dataRispostaProgettista, setDataRispostaProgettista] = useState("");
   const [dataRiscontroIspettore, setDataRiscontroIspettore] = useState("");
   const [responsabileIts, setResponsabileIts] = useState("");
@@ -44,6 +49,11 @@ export default function SchedeIspettivePage() {
 
       fd.append("revisione_scheda", revisioneScheda);
       fd.append("data_revisione_scheda", dataRevisioneScheda);
+      fd.append("data_rev_0", dataRev0);
+      fd.append("data_rev_1", dataRev1);
+      fd.append("data_rev_2", dataRev2);
+      fd.append("data_rev_3", dataRev3);
+      fd.append("data_rev_4", dataRev4);
       fd.append("data_risposta_progettista", dataRispostaProgettista);
       fd.append("data_riscontro_ispettore", dataRiscontroIspettore);
       fd.append("responsabile_its", responsabileIts);
@@ -328,7 +338,87 @@ export default function SchedeIspettivePage() {
                 placeholder="gg/mm/aaaa"
                 style={inputStyle}
               />
+              <div style={helpStyle}>
+                Campo mantenuto per compatibilita: se la data della Rev. corrente
+                non viene compilata nello storico emissioni, verra usata questa.
+              </div>
             </label>
+
+            <div
+              style={{
+                display: "grid",
+                gap: 12,
+                padding: 14,
+                border: "1px solid #cbd5e1",
+                borderRadius: 10,
+                background: "#f8fafc",
+              }}
+            >
+              <h3 style={{ margin: 0, fontSize: 18 }}>
+                Storico emissioni da riportare nella prima pagina
+              </h3>
+              <div style={helpStyle}>
+                Compila le date delle emissioni che devono apparire nella tabella
+                della prima pagina. Se stai generando Rev. 1 verranno stampate
+                Rev. 1 e Rev. 0; se stai generando Rev. 2 verranno stampate
+                Rev. 2, Rev. 1 e Rev. 0, e così via fino alla Rev. 4.
+              </div>
+
+              <label>
+                <b>Data Rev. 0 - Prima Emissione - Rilievi</b>
+                <input
+                  type="text"
+                  value={dataRev0}
+                  onChange={(e) => setDataRev0(e.target.value)}
+                  placeholder="gg/mm/aaaa"
+                  style={inputStyle}
+                />
+              </label>
+
+              <label>
+                <b>Data Rev. 1 - Seconda Emissione - Riscontri</b>
+                <input
+                  type="text"
+                  value={dataRev1}
+                  onChange={(e) => setDataRev1(e.target.value)}
+                  placeholder="gg/mm/aaaa"
+                  style={inputStyle}
+                />
+              </label>
+
+              <label>
+                <b>Data Rev. 2 - Terza Emissione - Riscontri</b>
+                <input
+                  type="text"
+                  value={dataRev2}
+                  onChange={(e) => setDataRev2(e.target.value)}
+                  placeholder="gg/mm/aaaa"
+                  style={inputStyle}
+                />
+              </label>
+
+              <label>
+                <b>Data Rev. 3 - Quarta Emissione - Riscontri</b>
+                <input
+                  type="text"
+                  value={dataRev3}
+                  onChange={(e) => setDataRev3(e.target.value)}
+                  placeholder="gg/mm/aaaa"
+                  style={inputStyle}
+                />
+              </label>
+
+              <label>
+                <b>Data Rev. 4 - Quinta Emissione - Riscontri</b>
+                <input
+                  type="text"
+                  value={dataRev4}
+                  onChange={(e) => setDataRev4(e.target.value)}
+                  placeholder="gg/mm/aaaa"
+                  style={inputStyle}
+                />
+              </label>
+            </div>
 
             <label>
               <b>Data risposta progettista</b>
