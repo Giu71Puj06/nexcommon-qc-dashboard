@@ -52,6 +52,19 @@ type ProjectKpi = {
   durationDays: number;
 };
 
+type EconomicKpi = {
+  projectName: string;
+  revisions: EconomicRevision[];
+  initialAmount: number;
+  finalAmount: number;
+  deltaAmount: number;
+  deltaPercent: number;
+  trendStatus: "In aumento" | "In diminuzione" | "Stabile";
+  linkedIssues: number;
+  linkedInspectionFindings: number;
+  costPerFinding: number;
+};
+
 async function readInspectionDocx(file: File) {
   const buffer = await file.arrayBuffer();
   const zip = new PizZip(buffer);
