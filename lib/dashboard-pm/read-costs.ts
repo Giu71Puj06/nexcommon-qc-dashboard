@@ -58,7 +58,6 @@ async function readPdfText(file: File): Promise<string> {
   const loadingTask = pdfjs.getDocument({
     data: buffer,
     useWorkerFetch: false,
-    isEvalSupported: false,
     disableFontFace: true,
   });
 
