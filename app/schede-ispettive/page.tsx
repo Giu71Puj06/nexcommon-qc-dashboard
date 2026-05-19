@@ -6,8 +6,6 @@ import Link from "next/link";
 export default function SchedeIspettivePage() {
   const [todo, setTodo] = useState<File | null>(null);
   const [bcfFiles, setBcfFiles] = useState<File[]>([]);
-  const [fotoFiles, setFotoFiles] = useState<File[]>([]);
-  const [fotoZip, setFotoZip] = useState<File | null>(null);
   const [elenco, setElenco] = useState<File | null>(null);
   const [filesXlsx, setFilesXlsx] = useState<File | null>(null);
   const [template, setTemplate] = useState<File | null>(null);
@@ -63,24 +61,6 @@ export default function SchedeIspettivePage() {
         fd.append("bcf", file);
         fd.append("bcfzip", file);
       });
-
-      const hasFotoSingole = fotoFiles.length > 0;
-      const hasFotoZip = fotoZip !== null;
-      const hasImmagini = hasFotoSingole || hasFotoZip;
-
-      fd.append("has_immagini", hasImmagini ? "true" : "false");
-
-      if (hasFotoSingole) {
-        fotoFiles.forEach((file) => {
-          fd.append("foto", file);
-          fd.append("immagini", file);
-        });
-      }
-
-      if (hasFotoZip && fotoZip) {
-        fd.append("fotoZip", fotoZip);
-        fd.append("immaginiZip", fotoZip);
-      }
 
       const res = await fetch("/api/genera-schede", {
         method: "POST",
@@ -143,8 +123,7 @@ export default function SchedeIspettivePage() {
 
         <p style={{ fontSize: 20, marginBottom: 24 }}>
           Modulo per generare schede ispettive da ToDo Trimble, uno o più
-          BCFZIP, elenco elaborati, file elaborati progettisti, immagini
-          allegate opzionali e template Word.
+          BCFZIP, elenco elaborati, file elaborati progettisti e template Word.
         </p>
 
         <div style={{ display: "grid", gap: 18, maxWidth: 820 }}>
@@ -186,69 +165,9 @@ export default function SchedeIspettivePage() {
               </ul>
             </div>
           )}
-
-          <label>
-            <b>Cartella immagini allegate opzionale</b>
-            <input
-              type="file"
-              accept=".png,.jpg,.jpeg,.webp"
-              multiple
-              // @ts-expect-error webkitdirectory è supportato dai browser Chromium
-              webkitdirectory="true"
-              onChange={(e) => {
-                if (!e.target.files) {
-                  setFotoFiles([]);
-                  return;
-                }
-
-                setFotoFiles(Array.from(e.target.files));
-              }}
-              style={inputStyle}
-            />
-            <div style={helpStyle}>
-              Campo opzionale. Se non carichi immagini, le schede verranno
-              generate comunque. Carica la cartella sicurezza con immagini tipo
-              IT22-026_foto.png. Il sistema le collegherà a TR-26, ignorando gli
-              zeri iniziali.
-            </div>
-          </label>
-
-          {fotoFiles.length > 0 && (
-            <div style={{ fontSize: 14, color: "#475569" }}>
-              Immagini caricate da cartella: {fotoFiles.length}
-              <ul style={{ marginTop: 6 }}>
-                {fotoFiles.slice(0, 10).map((file, index) => (
-                  <li key={`${file.name}-${index}`}>{file.name}</li>
-                ))}
-              </ul>
-              {fotoFiles.length > 10 && (
-                <div>...altre {fotoFiles.length - 10} immagini</div>
-              )}
-            </div>
+</div>
           )}
-
-          <label>
-            <b>ZIP immagini allegate opzionale</b>
-            <input
-              type="file"
-              accept=".zip"
-              onChange={(e) => setFotoZip(e.target.files?.[0] || null)}
-              style={inputStyle}
-            />
-            <div style={helpStyle}>
-              Campo opzionale. In alternativa alla cartella, puoi caricare uno
-              ZIP con le immagini allegate. Se manca, la generazione prosegue
-              senza immagini.
-            </div>
-          </label>
-
-          {fotoZip && (
-            <div style={{ fontSize: 14, color: "#475569" }}>
-              ZIP immagini caricato: {fotoZip.name}
-            </div>
-          )}
-
-          <label>
+<label>
             <b>Elenco Elaborati XLSX</b>
             <input
               type="file"
