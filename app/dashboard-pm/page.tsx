@@ -133,7 +133,28 @@ export default function DashboardPMPage() {
       });
     }
 
-    setProjects((prev) => [...prev, ...parsedProjects]);
+    setProjects((prev) => {
+  const mergedProjects = [...prev];
+
+  for (const newProject of parsedProjects) {
+    const existingProject = mergedProjects.find(
+      (project) => project.projectName === newProject.projectName
+    );
+
+    if (existingProject) {
+      existingProject.issues = [
+        ...existingProject.issues,
+        ...newProject.issues,
+      ];
+
+      existingProject.fileName = `${existingProject.fileName}, ${newProject.fileName}`;
+    } else {
+      mergedProjects.push(newProject);
+    }
+  }
+
+  return mergedProjects;
+});
     setLoading(false);
 
     event.target.value = "";
