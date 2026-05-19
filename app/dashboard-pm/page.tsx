@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import * as XLSX from "xlsx";
+import PizZip from "pizzip";
 
 import { readBCF } from "@/lib/dashboard-pm/read-bcf";
 import {
@@ -20,6 +21,9 @@ type InspectionDoc = {
   projectName: string;
   fileName: string;
   url: string;
+  nc: number;
+  oss: number;
+  documentsChecked: number;
 };
 
 type Selection = {
@@ -39,6 +43,38 @@ type ProjectKpi = {
   lastDate: string;
   durationDays: number;
 };
+
+async function readInspectionDocx(file: File) {
+  const buffer = await file.arrayBuffer();
+  const zip = new PizZip(buffer);
+  const xml = zip.file("word/document.xml")?.asText() || "";
+
+  const text = xml
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const riepilogo = text.match(
+    /Riepilogo rilievi:\s*NC\s*=\s*(\d+);\s*OSS\s*=\s*(\d+);\s*Documenti verificati\s*=\s*(\d+)/i
+  );
+
+  if (riepilogo) {
+    return {
+      nc: Number(riepilogo[1]),
+      oss: Number(riepilogo[2]),
+      documentsChecked: Number(riepilogo[3]),
+    };
+  }
+
+  const nc = (text.match(/\bNC\d+\b/g) || []).length;
+  const oss = (text.match(/\bOSS\d+\b/g) || []).length;
+
+  return {
+    nc,
+    oss,
+    documentsChecked: 0,
+  };
+}
 
 function daysBetween(start: string, end: string): number {
   const startDate = new Date(start);
@@ -174,19 +210,27 @@ export default function DashboardPMPage() {
     event.target.value = "";
   }
 
-  function handleInspectionDocs(
+  async function handleInspectionDocs(
     event: React.ChangeEvent<HTMLInputElement>
   ) {
     const files = Array.from(event.target.files || []);
+    const docs: InspectionDoc[] = [];
 
-    const docs = files
-      .filter((file) => file.name.toLowerCase().endsWith(".docx"))
-      .map((file) => ({
+    for (const file of files) {
+      if (!file.name.toLowerCase().endsWith(".docx")) continue;
+
+      const counts = await readInspectionDocx(file);
+
+      docs.push({
         id: `${file.name}-${Date.now()}-${Math.random()}`,
         projectName: cleanProjectName(file.name),
         fileName: file.name,
         url: URL.createObjectURL(file),
-      }));
+        nc: counts.nc,
+        oss: counts.oss,
+        documentsChecked: counts.documentsChecked,
+      });
+    }
 
     setInspectionDocs((prev) => [...prev, ...docs]);
     event.target.value = "";
@@ -228,6 +272,9 @@ export default function DashboardPMPage() {
     const inspectionRows = inspectionDocs.map((doc) => ({
       Progetto: doc.projectName,
       "Scheda ispettiva Word": doc.fileName,
+      NC: doc.nc,
+      OSS: doc.oss,
+      "Documenti verificati": doc.documentsChecked,
     }));
 
     const workbook = XLSX.utils.book_new();
@@ -270,12 +317,7 @@ export default function DashboardPMPage() {
 
   return (
     <main style={{ padding: 24, fontFamily: "Arial, sans-serif" }}>
-      <button
-        onClick={() => {
-          window.location.href = "/";
-        }}
-        style={darkButton}
-      >
+      <button onClick={() => (window.location.href = "/")} style={darkButton}>
         ← Torna alla dashboard
       </button>
 
@@ -387,6 +429,16 @@ export default function DashboardPMPage() {
                   <b>{doc.fileName}</b>
                   <div style={{ fontSize: 12, color: "#64748b" }}>
                     Progetto associato: {doc.projectName}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: "#0f172a",
+                      marginTop: 4,
+                    }}
+                  >
+                    NC: <b>{doc.nc}</b> · OSS: <b>{doc.oss}</b> · Documenti
+                    verificati: <b>{doc.documentsChecked}</b>
                   </div>
                 </div>
 
