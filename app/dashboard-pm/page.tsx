@@ -107,9 +107,7 @@ export default function DashboardPMPage() {
   const [loading, setLoading] = useState(false);
   const [selection, setSelection] = useState<Selection>(null);
 
-  async function handleFiles(
-    event: React.ChangeEvent<HTMLInputElement>
-  ) {
+  async function handleFiles(event: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files || []);
     setLoading(true);
 
@@ -154,7 +152,6 @@ export default function DashboardPMPage() {
             ...existingProject.issues,
             ...newProject.issues,
           ];
-
           existingProject.fileName = `${existingProject.fileName}, ${newProject.fileName}`;
         } else {
           mergedProjects.push(newProject);
@@ -202,11 +199,13 @@ export default function DashboardPMPage() {
     );
 
     const workbook = XLSX.utils.book_new();
+
     XLSX.utils.book_append_sheet(
       workbook,
       XLSX.utils.json_to_sheet(summaryRows),
       "KPI Progetti"
     );
+
     XLSX.utils.book_append_sheet(
       workbook,
       XLSX.utils.json_to_sheet(issueRows),
@@ -320,7 +319,10 @@ export default function DashboardPMPage() {
           </div>
 
           <h2>Grafico durata verifica</h2>
+
           <ProjectBarChart data={projectKpis} />
+
+          <AverageDurationChart data={projectKpis} />
 
           <h2>KPI per progetto</h2>
 
@@ -532,6 +534,59 @@ function ProjectBarChart({ data }: { data: ProjectKpi[] }) {
             </div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function AverageDurationChart({ data }: { data: ProjectKpi[] }) {
+  const average =
+    data.length > 0
+      ? Math.round(
+          data.reduce((sum, project) => sum + project.durationDays, 0) /
+            data.length
+        )
+      : 0;
+
+  const maxDuration = Math.max(
+    ...data.map((project) => project.durationDays),
+    average,
+    1
+  );
+
+  return (
+    <div
+      style={{
+        border: "1px solid #e2e8f0",
+        borderRadius: 14,
+        padding: 18,
+        background: "white",
+        marginBottom: 28,
+      }}
+    >
+      <h3 style={{ marginTop: 0 }}>
+        Durata media dei progetti di verifica
+      </h3>
+
+      <div style={{ fontSize: 34, fontWeight: 800, marginBottom: 12 }}>
+        {average} gg
+      </div>
+
+      <div
+        style={{
+          height: 20,
+          background: "#e2e8f0",
+          borderRadius: 999,
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            width: `${Math.max(4, (average / maxDuration) * 100)}%`,
+            height: "100%",
+            background: "#16a34a",
+          }}
+        />
       </div>
     </div>
   );
