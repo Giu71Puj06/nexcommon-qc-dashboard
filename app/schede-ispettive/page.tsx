@@ -44,7 +44,6 @@ export default function SchedeIspettivePage() {
       fd.append("template", template);
       fd.append("progettisti", progettisti);
       fd.append("ispettori", ispettori);
-
       fd.append("revisione_scheda", revisioneScheda);
       fd.append("data_revisione_scheda", dataRevisioneScheda);
       fd.append("data_rev_0", dataRev0);
@@ -148,7 +147,6 @@ export default function SchedeIspettivePage() {
                   setBcfFiles([]);
                   return;
                 }
-
                 setBcfFiles(Array.from(e.target.files));
               }}
               style={inputStyle}
@@ -165,9 +163,8 @@ export default function SchedeIspettivePage() {
               </ul>
             </div>
           )}
-</div>
-          )}
-<label>
+
+          <label>
             <b>Elenco Elaborati XLSX</b>
             <input
               type="file"
@@ -258,8 +255,8 @@ export default function SchedeIspettivePage() {
                 style={inputStyle}
               />
               <div style={helpStyle}>
-                Campo mantenuto per compatibilita: se la data della Rev. corrente
-                non viene compilata nello storico emissioni, verra usata questa.
+                Campo mantenuto per compatibilità: se la data della Rev. corrente
+                non viene compilata nello storico emissioni, verrà usata questa.
               </div>
             </label>
 
@@ -276,66 +273,30 @@ export default function SchedeIspettivePage() {
               <h3 style={{ margin: 0, fontSize: 18 }}>
                 Storico emissioni da riportare nella prima pagina
               </h3>
-              <div style={helpStyle}>
-                Compila le date delle emissioni che devono apparire nella tabella
-                della prima pagina. Se stai generando Rev. 1 verranno stampate
-                Rev. 1 e Rev. 0; se stai generando Rev. 2 verranno stampate
-                Rev. 2, Rev. 1 e Rev. 0, e così via fino alla Rev. 4.
-              </div>
 
               <label>
                 <b>Data Rev. 0 - Prima Emissione - Rilievi</b>
-                <input
-                  type="text"
-                  value={dataRev0}
-                  onChange={(e) => setDataRev0(e.target.value)}
-                  placeholder="gg/mm/aaaa"
-                  style={inputStyle}
-                />
+                <input type="text" value={dataRev0} onChange={(e) => setDataRev0(e.target.value)} placeholder="gg/mm/aaaa" style={inputStyle} />
               </label>
 
               <label>
                 <b>Data Rev. 1 - Seconda Emissione - Riscontri</b>
-                <input
-                  type="text"
-                  value={dataRev1}
-                  onChange={(e) => setDataRev1(e.target.value)}
-                  placeholder="gg/mm/aaaa"
-                  style={inputStyle}
-                />
+                <input type="text" value={dataRev1} onChange={(e) => setDataRev1(e.target.value)} placeholder="gg/mm/aaaa" style={inputStyle} />
               </label>
 
               <label>
                 <b>Data Rev. 2 - Terza Emissione - Riscontri</b>
-                <input
-                  type="text"
-                  value={dataRev2}
-                  onChange={(e) => setDataRev2(e.target.value)}
-                  placeholder="gg/mm/aaaa"
-                  style={inputStyle}
-                />
+                <input type="text" value={dataRev2} onChange={(e) => setDataRev2(e.target.value)} placeholder="gg/mm/aaaa" style={inputStyle} />
               </label>
 
               <label>
                 <b>Data Rev. 3 - Quarta Emissione - Riscontri</b>
-                <input
-                  type="text"
-                  value={dataRev3}
-                  onChange={(e) => setDataRev3(e.target.value)}
-                  placeholder="gg/mm/aaaa"
-                  style={inputStyle}
-                />
+                <input type="text" value={dataRev3} onChange={(e) => setDataRev3(e.target.value)} placeholder="gg/mm/aaaa" style={inputStyle} />
               </label>
 
               <label>
                 <b>Data Rev. 4 - Quinta Emissione - Riscontri</b>
-                <input
-                  type="text"
-                  value={dataRev4}
-                  onChange={(e) => setDataRev4(e.target.value)}
-                  placeholder="gg/mm/aaaa"
-                  style={inputStyle}
-                />
+                <input type="text" value={dataRev4} onChange={(e) => setDataRev4(e.target.value)} placeholder="gg/mm/aaaa" style={inputStyle} />
               </label>
             </div>
 
@@ -348,10 +309,6 @@ export default function SchedeIspettivePage() {
                 placeholder="gg/mm/aaaa"
                 style={inputStyle}
               />
-              <div style={helpStyle}>
-                Data che verra anteposta ai commenti nella colonna RISPOSTA DEL PROGETTISTA.
-                Se vuota, il commento verra stampato senza data.
-              </div>
             </label>
 
             <label>
@@ -363,10 +320,6 @@ export default function SchedeIspettivePage() {
                 placeholder="gg/mm/aaaa"
                 style={inputStyle}
               />
-              <div style={helpStyle}>
-                Data che verra anteposta ai commenti nella colonna RISCONTRO ITS.
-                Se vuota, il commento verra stampato senza data.
-              </div>
             </label>
 
             <label>
@@ -389,10 +342,6 @@ export default function SchedeIspettivePage() {
                 placeholder="Compilare solo se previsto"
                 style={inputStyle}
               />
-              <div style={helpStyle}>
-                Campo opzionale: da usare solo nei casi in cui è previsto un
-                responsabile tecnico PCQ distinto.
-              </div>
             </label>
           </div>
 
