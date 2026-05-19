@@ -378,7 +378,7 @@ export default function DashboardPMPage() {
     for (const file of files) {
       const lowerName = file.name.toLowerCase();
 
-if (!lowerName.endsWith(".xlsx") && !lowerName.endsWith(".pdf")) continue;
+      if (!lowerName.endsWith(".xlsx") && !lowerName.endsWith(".pdf")) continue;
 
       const revision = await readEconomicFile(file);
       if (revision) {
@@ -486,12 +486,12 @@ if (!lowerName.endsWith(".xlsx") && !lowerName.endsWith(".pdf")) continue;
   const allIssues = projects.flatMap((project) => project.issues);
   const projectKpis = projects.map(getProjectKpi);
   const economicKpis: EconomicKpi[] = economicRevisions.length
-  ? getEconomicKpis(
-      economicRevisions,
-      projects,
-      inspectionDocs
-    )
-  : [];
+    ? getEconomicKpis(
+        economicRevisions,
+        projects,
+        inspectionDocs
+      )
+    : [];
 
   const selectedProject = selection
     ? projects.find((p) => p.projectName === selection.projectName)
@@ -757,7 +757,7 @@ if (!lowerName.endsWith(".xlsx") && !lowerName.endsWith(".pdf")) continue;
             <EconomicTrendChart data={economicKpis} />
 
             <div style={{ display: "grid", gap: 14, marginTop: 18 }}>
-              economicKpis?.map(((kpi) => (
+              {economicKpis.map((kpi) => (
                 <section
                   key={kpi.projectName}
                   style={{
