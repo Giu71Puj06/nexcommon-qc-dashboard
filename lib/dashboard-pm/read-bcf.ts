@@ -1,20 +1,26 @@
 import JSZip from "jszip";
 
-export async function readBCF(file: File) {
-  const zip = await JSZip.loadAsync(file);
+export type BCFMarkupRaw = {
+  fileName: string;
+  rawXml: string;
+};
 
-  const issues: any[] = [];
+export async function readBCF(file: File): Promise<BCFMarkupRaw[]> {
+  const zip = await JSZip.loadAsync(file);
+  const markups: BCFMarkupRaw[] = [];
 
   for (const fileName of Object.keys(zip.files)) {
-    if (fileName.endsWith("markup.bcf")) {
-      const content = await zip.files[fileName].async("text");
+    const zipEntry = zip.files[fileName];
 
-      issues.push({
-        file: fileName,
-        raw: content,
+    if (!zipEntry.dir && fileName.toLowerCase().endsWith("markup.bcf")) {
+      const rawXml = await zipEntry.async("text");
+
+      markups.push({
+        fileName,
+        rawXml,
       });
     }
   }
 
-  return issues;
+  return markups;
 }
