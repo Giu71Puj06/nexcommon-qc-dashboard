@@ -55,7 +55,6 @@ export default function DashboardPMPage() {
     const files = Array.from(event.target.files || []);
 
     setLoading(true);
-    setProjects([]);
 
     const parsedProjects: ProjectIssues[] = [];
 
@@ -85,8 +84,10 @@ export default function DashboardPMPage() {
       });
     }
 
-    setProjects(parsedProjects);
+    setProjects((prev) => [...prev, ...parsedProjects]);
     setLoading(false);
+
+    event.target.value = "";
   }
 
   const allIssues = projects.flatMap((project) => project.issues);
@@ -114,15 +115,34 @@ export default function DashboardPMPage() {
       <h1>Dashboard PM</h1>
 
       <p>
-        Carica più file BCF / BCFZIP, uno per ogni progetto o commessa.
+        Carica uno o più file BCF / BCFZIP. Ogni nuovo caricamento si
+        somma ai progetti già presenti.
       </p>
 
-      <input
-        type="file"
-        multiple
-        accept=".bcf,.bcfzip,.zip"
-        onChange={handleFiles}
-      />
+      <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+        <input
+          type="file"
+          multiple
+          accept=".bcf,.bcfzip,.zip"
+          onChange={handleFiles}
+        />
+
+        <button
+          onClick={() => setProjects([])}
+          disabled={projects.length === 0}
+          style={{
+            background: projects.length === 0 ? "#94a3b8" : "#dc2626",
+            color: "white",
+            border: "none",
+            borderRadius: 10,
+            padding: "9px 12px",
+            fontWeight: 700,
+            cursor: projects.length === 0 ? "not-allowed" : "pointer",
+          }}
+        >
+          Svuota progetti
+        </button>
+      </div>
 
       {loading && <p>Caricamento file BCF...</p>}
 
@@ -161,7 +181,7 @@ export default function DashboardPMPage() {
           <h2>KPI per progetto</h2>
 
           <div style={{ display: "grid", gap: 20 }}>
-            {projects.map((project) => {
+            {projects.map((project, projectIndex) => {
               const issues = project.issues;
 
               const firstDate =
@@ -188,7 +208,7 @@ export default function DashboardPMPage() {
 
               return (
                 <section
-                  key={project.fileName}
+                  key={`${project.fileName}-${projectIndex}`}
                   style={{
                     border: "1px solid #ddd",
                     borderRadius: 14,
