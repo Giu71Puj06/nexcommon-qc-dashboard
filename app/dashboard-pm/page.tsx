@@ -485,11 +485,13 @@ if (!lowerName.endsWith(".xlsx") && !lowerName.endsWith(".pdf")) continue;
 
   const allIssues = projects.flatMap((project) => project.issues);
   const projectKpis = projects.map(getProjectKpi);
-  const economicKpis = getEconomicKpis(
-    economicRevisions,
-    projects,
-    inspectionDocs
-  );
+  const economicKpis: EconomicKpi[] = economicRevisions.length
+  ? getEconomicKpis(
+      economicRevisions,
+      projects,
+      inspectionDocs
+    )
+  : [];
 
   const selectedProject = selection
     ? projects.find((p) => p.projectName === selection.projectName)
@@ -755,7 +757,7 @@ if (!lowerName.endsWith(".xlsx") && !lowerName.endsWith(".pdf")) continue;
             <EconomicTrendChart data={economicKpis} />
 
             <div style={{ display: "grid", gap: 14, marginTop: 18 }}>
-              {economicKpis.map((kpi) => (
+              economicKpis?.map(((kpi) => (
                 <section
                   key={kpi.projectName}
                   style={{
