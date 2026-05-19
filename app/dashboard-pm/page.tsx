@@ -540,13 +540,11 @@ function ProjectBarChart({ data }: { data: ProjectKpi[] }) {
 }
 
 function AverageDurationChart({ data }: { data: ProjectKpi[] }) {
+  if (data.length === 0) return null;
+
   const average =
-    data.length > 0
-      ? Math.round(
-          data.reduce((sum, project) => sum + project.durationDays, 0) /
-            data.length
-        )
-      : 0;
+    data.reduce((sum, project) => sum + project.durationDays, 0) /
+    data.length;
 
   const maxDuration = Math.max(
     ...data.map((project) => project.durationDays),
@@ -565,28 +563,144 @@ function AverageDurationChart({ data }: { data: ProjectKpi[] }) {
       }}
     >
       <h3 style={{ marginTop: 0 }}>
-        Durata media dei progetti di verifica
+        Durata progetto vs durata media
       </h3>
-
-      <div style={{ fontSize: 34, fontWeight: 800, marginBottom: 12 }}>
-        {average} gg
-      </div>
 
       <div
         style={{
-          height: 20,
-          background: "#e2e8f0",
-          borderRadius: 999,
-          overflow: "hidden",
+          position: "relative",
+          height: 320,
+          borderLeft: "2px solid #cbd5e1",
+          borderBottom: "2px solid #cbd5e1",
+          marginTop: 40,
+          marginLeft: 40,
+          padding: "0 20px",
         }}
       >
         <div
           style={{
-            width: `${Math.max(4, (average / maxDuration) * 100)}%`,
-            height: "100%",
-            background: "#16a34a",
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: `${(average / maxDuration) * 100}%`,
+            borderTop: "3px solid #ef4444",
+            zIndex: 1,
           }}
         />
+
+        <div
+          style={{
+            position: "absolute",
+            right: 10,
+            bottom: `calc(${(average / maxDuration) * 100}% + 8px)`,
+            color: "#ef4444",
+            fontSize: 12,
+            fontWeight: 700,
+          }}
+        >
+          Media: {Math.round(average)} gg
+        </div>
+
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            alignItems: "flex-end",
+            justifyContent: "space-around",
+            padding: "0 24px",
+          }}
+        >
+          {data.map((project) => {
+            const height = (project.durationDays / maxDuration) * 260;
+
+            return (
+              <div
+                key={project.projectName}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  width: 100,
+                }}
+              >
+                <div
+                  style={{
+                    width: 14,
+                    height: 14,
+                    borderRadius: "50%",
+                    background: "#2563eb",
+                    marginBottom: 6,
+                    position: "relative",
+                    bottom: `${height}px`,
+                    zIndex: 2,
+                  }}
+                />
+
+                <div
+                  style={{
+                    width: 3,
+                    height: `${height}px`,
+                    background: "#2563eb",
+                    marginTop: `-${height}px`,
+                  }}
+                />
+
+                <div
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 700,
+                    marginTop: 6,
+                  }}
+                >
+                  {project.durationDays} gg
+                </div>
+
+                <div
+                  style={{
+                    fontSize: 11,
+                    textAlign: "center",
+                    marginTop: 4,
+                    wordBreak: "break-word",
+                  }}
+                >
+                  {project.projectName}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          gap: 18,
+          marginTop: 18,
+          fontSize: 13,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div
+            style={{
+              width: 18,
+              height: 3,
+              background: "#2563eb",
+            }}
+          />
+          <span>Durata progetto</span>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div
+            style={{
+              width: 18,
+              height: 3,
+              background: "#ef4444",
+            }}
+          />
+          <span>Durata media</span>
+        </div>
       </div>
     </div>
   );
