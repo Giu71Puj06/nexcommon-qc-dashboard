@@ -376,7 +376,9 @@ export default function DashboardPMPage() {
     const revisions: EconomicRevision[] = [];
 
     for (const file of files) {
-      if (!file.name.toLowerCase().endsWith(".xlsx")) continue;
+      const lowerName = file.name.toLowerCase();
+
+if (!lowerName.endsWith(".xlsx") && !lowerName.endsWith(".pdf")) continue;
 
       const revision = await readEconomicFile(file);
       if (revision) {
@@ -684,7 +686,7 @@ export default function DashboardPMPage() {
           <input
             type="file"
             multiple
-            accept=".xlsx"
+            accept=".xlsx,.pdf"
             onChange={handleEconomicFiles}
           />
 
