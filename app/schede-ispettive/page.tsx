@@ -15,6 +15,8 @@ export default function SchedeIspettivePage() {
   const [ispettori, setIspettori] = useState("");
   const [revisioneScheda, setRevisioneScheda] = useState("0");
   const [dataRevisioneScheda, setDataRevisioneScheda] = useState("");
+  const [dataRispostaProgettista, setDataRispostaProgettista] = useState("");
+  const [dataRiscontroIspettore, setDataRiscontroIspettore] = useState("");
   const [responsabileIts, setResponsabileIts] = useState("");
   const [responsabilePcq, setResponsabilePcq] = useState("");
   const [loading, setLoading] = useState(false);
@@ -42,6 +44,8 @@ export default function SchedeIspettivePage() {
 
       fd.append("revisione_scheda", revisioneScheda);
       fd.append("data_revisione_scheda", dataRevisioneScheda);
+      fd.append("data_risposta_progettista", dataRispostaProgettista);
+      fd.append("data_riscontro_ispettore", dataRiscontroIspettore);
       fd.append("responsabile_its", responsabileIts);
       fd.append("responsabile_pcq", responsabilePcq);
 
@@ -310,7 +314,8 @@ export default function SchedeIspettivePage() {
               />
               <div style={helpStyle}>
                 0 = Prima Emissione - Rilievi; 1 = Seconda emissione -
-                Riscontri; 2 = Terza emissione - Riscontri.
+                Riscontri; 2 = Terza emissione - Riscontri; 3 = Quarta
+                emissione - Riscontri; 4 = Quinta emissione - Riscontri.
               </div>
             </label>
 
@@ -323,6 +328,36 @@ export default function SchedeIspettivePage() {
                 placeholder="gg/mm/aaaa"
                 style={inputStyle}
               />
+            </label>
+
+            <label>
+              <b>Data risposta progettista</b>
+              <input
+                type="text"
+                value={dataRispostaProgettista}
+                onChange={(e) => setDataRispostaProgettista(e.target.value)}
+                placeholder="gg/mm/aaaa"
+                style={inputStyle}
+              />
+              <div style={helpStyle}>
+                Data che verra anteposta ai commenti nella colonna RISPOSTA DEL PROGETTISTA.
+                Se vuota, il commento verra stampato senza data.
+              </div>
+            </label>
+
+            <label>
+              <b>Data riscontro ispettore ITS</b>
+              <input
+                type="text"
+                value={dataRiscontroIspettore}
+                onChange={(e) => setDataRiscontroIspettore(e.target.value)}
+                placeholder="gg/mm/aaaa"
+                style={inputStyle}
+              />
+              <div style={helpStyle}>
+                Data che verra anteposta ai commenti nella colonna RISCONTRO ITS.
+                Se vuota, il commento verra stampato senza data.
+              </div>
             </label>
 
             <label>
