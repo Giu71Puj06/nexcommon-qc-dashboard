@@ -96,18 +96,69 @@ type SchedaIspettivaSintesi = {
   totaleChiuse: number;
 };
 
+type RevisioneSchedaRow = {
+  rev: string;
+  data: string;
+  descrizione: string;
+  responsabile_pcq: string;
+  responsabile_its: string;
+};
+
 
 function descrizioneRevisioneScheda(rev: string) {
   const n = Number(String(rev || "0").trim());
 
   if (!Number.isFinite(n) || n <= 0) return "Prima Emissione - Rilievi";
-  if (n === 1) return "Seconda emissione - Riscontri";
-  if (n === 2) return "Terza emissione - Riscontri";
-  if (n === 3) return "Quarta emissione - Riscontri";
-  if (n === 4) return "Quinta emissione - Riscontri";
+  if (n === 1) return "Seconda Emissione - Riscontri";
+  if (n === 2) return "Terza Emissione - Riscontri";
+  if (n === 3) return "Quarta Emissione - Riscontri";
+  if (n === 4) return "Quinta Emissione - Riscontri";
 
-  return `${n + 1}ª emissione - Riscontri`;
+  return `${n + 1}ª Emissione - Riscontri`;
 }
+
+function clampRevisioneScheda(value: string) {
+  const n = Number(String(value || "0").trim());
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.min(Math.floor(n), 4);
+}
+
+function readFormString(formData: FormData, name: string) {
+  return String(formData.get(name) || "").trim();
+}
+
+function buildRevisioniSchedaRows(
+  formData: FormData,
+  revisioneScheda: string,
+  dataRevisioneScheda: string,
+  dataRiscontroIspettore: string,
+  responsabilePcq: string,
+  responsabileIts: string
+): RevisioneSchedaRow[] {
+  const currentRev = clampRevisioneScheda(revisioneScheda);
+  const rows: RevisioneSchedaRow[] = [];
+
+  for (let rev = currentRev; rev >= 0; rev -= 1) {
+    let data =
+      readFormString(formData, `data_rev_${rev}`) ||
+      (rev === currentRev ? dataRevisioneScheda : "");
+
+    // Per le revisioni successive alla prima, se non viene compilata la data specifica,
+    // usa la data del riscontro ispettore inserita dal PM.
+    if (!data && rev > 0) data = dataRiscontroIspettore;
+
+    rows.push({
+      rev: String(rev),
+      data,
+      descrizione: descrizioneRevisioneScheda(String(rev)),
+      responsabile_pcq: responsabilePcq,
+      responsabile_its: responsabileIts,
+    });
+  }
+
+  return rows;
+}
+
 
 function safeName(value: string) {
   return String(value || "SENZA_DISCIPLINA")
@@ -1122,9 +1173,97 @@ function ensureDocumentNamespaces(documentXml: string) {
 }
 
 
+
+function buildWordTextRuns(value: string) {
+  const lines = String(value || "").split(/\n/g);
+
+  return lines
+    .map((line, index) => {
+      const br = index === 0 ? "" : "<w:br/>";
+      return `${br}<w:t xml:space="preserve">${escapeXml(line)}</w:t>`;
+    })
+    .join("");
+}
+
+function buildCellWithText(cellXml: string, value: string) {
+  const tcPr = cellXml.match(/<w:tcPr\b[^>]*>[\s\S]*?<\/w:tcPr>/)?.[0] || "";
+  const pPr = cellXml.match(/<w:pPr\b[^>]*>[\s\S]*?<\/w:pPr>/)?.[0] || "";
+  const rPr = cellXml.match(/<w:rPr\b[^>]*>[\s\S]*?<\/w:rPr>/)?.[0] || "";
+
+  return `<w:tc>${tcPr}<w:p>${pPr}<w:r>${rPr}${buildWordTextRuns(value)}</w:r></w:p></w:tc>`;
+}
+
+function buildRevisionRowFromTemplate(rowXml: string, revisione: RevisioneSchedaRow) {
+  const cells = rowXml.match(/<w:tc\b[^>]*>[\s\S]*?<\/w:tc>/g);
+  if (!cells || cells.length < 5) return rowXml;
+
+  const open = rowXml.match(/^<w:tr\b[^>]*>/)?.[0] || "<w:tr>";
+  const trPr = rowXml.match(/<w:trPr\b[^>]*>[\s\S]*?<\/w:trPr>/)?.[0] || "";
+  const close = "</w:tr>";
+
+  const values = [
+    revisione.rev,
+    revisione.data,
+    revisione.descrizione,
+    revisione.responsabile_pcq,
+    revisione.responsabile_its,
+  ];
+
+  const newCells = cells.map((cell, index) => {
+    if (index >= values.length) return cell;
+    return buildCellWithText(cell, values[index]);
+  });
+
+  return `${open}${trPr}${newCells.join("")}${close}`;
+}
+
+function patchRevisioniSchedaTableRows(
+  documentXml: string,
+  revisioniScheda: RevisioneSchedaRow[]
+) {
+  if (!revisioniScheda.length) return documentXml;
+
+  return documentXml.replace(/<w:tbl\b[^>]*>[\s\S]*?<\/w:tbl>/g, (tableXml) => {
+    const rows = tableXml.match(/<w:tr\b[^>]*>[\s\S]*?<\/w:tr>/g);
+    if (!rows || rows.length < 2) return tableXml;
+
+    const headerIndex = rows.findIndex((row) => {
+      const plain = normalizeText(getPlainTextFromWordXml(row));
+      return (
+        plain.includes("REV") &&
+        plain.includes("DATA") &&
+        plain.includes("DESCRIZIONE") &&
+        plain.includes("APPROVATO")
+      );
+    });
+
+    if (headerIndex <= 0) return tableXml;
+
+    const dataRowIndex = headerIndex - 1;
+    const templateRow = rows[dataRowIndex];
+    const revisionRowsXml = revisioniScheda
+      .map((rev) => buildRevisionRowFromTemplate(templateRow, rev))
+      .join("");
+
+    const newRows = [
+      ...rows.slice(0, dataRowIndex),
+      revisionRowsXml,
+      ...rows.slice(headerIndex),
+    ];
+
+    let rowCounter = 0;
+    return tableXml.replace(/<w:tr\b[^>]*>[\s\S]*?<\/w:tr>/g, () => {
+      const replacement = newRows[rowCounter] || "";
+      rowCounter += 1;
+      return replacement;
+    });
+  });
+}
+
 async function postProcessSchedaIspettivaDocx(
   buffer: Buffer,
-  sintesi: SchedaIspettivaSintesi
+  sintesi: SchedaIspettivaSintesi,
+  revisioniScheda: RevisioneSchedaRow[]
 ) {
   const zip = await JSZip.loadAsync(buffer);
   const documentFile = zip.file("word/document.xml");
@@ -1133,6 +1272,7 @@ async function postProcessSchedaIspettivaDocx(
   let documentXml = await documentFile.async("string");
 
   documentXml = applyClosedRowsGreyText(documentXml);
+  documentXml = patchRevisioniSchedaTableRows(documentXml, revisioniScheda);
   documentXml = appendSintesiAfterLastTable(documentXml, sintesi);
 
   zip.file("word/document.xml", documentXml);
@@ -1169,6 +1309,15 @@ export async function POST(req: Request) {
     ).trim();
     const responsabilePcq = String(formData.get("responsabile_pcq") || "").trim();
     const responsabileIts = String(formData.get("responsabile_its") || "").trim();
+
+    const revisioniScheda = buildRevisioniSchedaRows(
+      formData,
+      revisioneScheda,
+      dataRevisioneScheda,
+      dataRiscontroIspettore,
+      responsabilePcq,
+      responsabileIts
+    );
 
     if (!todoFile || bcfFiles.length === 0 || !elencoFile || !templateFile) {
       return NextResponse.json({
@@ -1791,6 +1940,7 @@ export async function POST(req: Request) {
           responsabile_its: responsabileIts,
           data_risposta_progettista: dataRispostaProgettista,
           data_riscontro_ispettore: dataRiscontroIspettore,
+          revisioni_scheda: revisioniScheda,
           Codice_SP: codiceScheda,
           Titolo_progetto: titoloProgetto,
           Fase_di_progetto: faseProgetto,
@@ -1823,7 +1973,8 @@ Totale documenti=${totaleDocumenti}`,
             totaleNC: numeroNC,
             totaleOSS: numeroOSS,
             totaleChiuse: numeroChiuse,
-          }
+          },
+          revisioniScheda
         );
       } catch (e: any) {
         outputZip.file(
