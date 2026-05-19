@@ -523,15 +523,27 @@ export default function AppProgettiUpload() {
             active: true,
             external: false,
           },
-          { title: "Rapporto intermedio", subtitle: "Coming soon", url: "", active: false, external: false },
-          { title: "Rapporto conclusivo", subtitle: "Coming soon", url: "", active: false, external: false },
-          { title: "Dashboard PM", subtitle: "Coming soon", u{
+         {
+  title: "Rapporto intermedio",
+  subtitle: "Coming soon",
+  url: "",
+  active: false,
+  external: false,
+},
+{
+  title: "Rapporto conclusivo",
+  subtitle: "Coming soon",
+  url: "",
+  active: false,
+  external: false,
+},
+{
   title: "Dashboard PM",
   subtitle: "Modulo operativo attivo",
   url: "/dashboard-pm",
   active: true,
   external: false,
-},rl: "", active: false, external: false },
+  },
         ].map((m) => (
           <Card
             key={m.title}
