@@ -9,6 +9,10 @@ import {
   extractBCFHistory,
   BCFIssue,
 } from "@/lib/dashboard-pm/extract-history";
+import {
+  generateBCFZip,
+  downloadBlob,
+} from "@/lib/dashboard-pm/generate-bcf";
 
 type ProjectIssues = {
   projectName: string;
@@ -236,6 +240,45 @@ export default function DashboardPMPage() {
     event.target.value = "";
   }
 
+  async function exportInspectionDocsToBCF() {
+    const topics = inspectionDocs.flatMap((doc) => {
+      const items: {
+        title: string;
+        description: string;
+        author: string;
+        status: string;
+      }[] = [];
+
+      for (let i = 1; i <= doc.nc; i++) {
+        items.push({
+          title: `${doc.projectName} - NC${i}`,
+          description: `Non conformità estratta dalla scheda ispettiva ${doc.fileName}`,
+          author: "Dashboard PM",
+          status: "Open",
+        });
+      }
+
+      for (let i = 1; i <= doc.oss; i++) {
+        items.push({
+          title: `${doc.projectName} - OSS${i}`,
+          description: `Osservazione estratta dalla scheda ispettiva ${doc.fileName}`,
+          author: "Dashboard PM",
+          status: "Open",
+        });
+      }
+
+      return items;
+    });
+
+    if (topics.length === 0) {
+      alert("Nessuna NC/OSS trovata nelle schede ispettive.");
+      return;
+    }
+
+    const blob = await generateBCFZip(topics);
+    downloadBlob(blob, "schede-ispettive-generate.bcfzip");
+  }
+
   function exportExcel() {
     const projectKpis = projects.map(getProjectKpi);
 
@@ -407,6 +450,20 @@ export default function DashboardPMPage() {
             }}
           >
             Svuota schede
+          </button>
+
+          <button
+            onClick={exportInspectionDocsToBCF}
+            disabled={inspectionDocs.length === 0}
+            style={{
+              ...successButton,
+              background:
+                inspectionDocs.length === 0 ? "#94a3b8" : "#2563eb",
+              cursor:
+                inspectionDocs.length === 0 ? "not-allowed" : "pointer",
+            }}
+          >
+            Genera BCF
           </button>
         </div>
 
