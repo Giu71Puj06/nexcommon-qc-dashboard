@@ -15,6 +15,12 @@ type ProjectIssues = {
   issues: BCFIssue[];
 };
 
+type Selection = {
+  projectName: string;
+  type: "all" | "open" | "closed";
+  label: string;
+} | null;
+
 type ProjectKpi = {
   projectName: string;
   fileName: string;
@@ -53,9 +59,11 @@ function formatDate(value: string): string {
 
 function cleanProjectName(fileName: string): string {
   return fileName
-    .replace(".bcfzip", "")
-    .replace(".bcf", "")
-    .replace(".zip", "");
+    .replace(/\.bcfzip$/i, "")
+    .replace(/\.bcf$/i, "")
+    .replace(/\.zip$/i, "")
+    .replace(/\d{12}\+\d{4}$/i, "")
+    .trim();
 }
 
 function getProjectKpi(project: ProjectIssues): ProjectKpi {
@@ -97,12 +105,12 @@ function getProjectKpi(project: ProjectIssues): ProjectKpi {
 export default function DashboardPMPage() {
   const [projects, setProjects] = useState<ProjectIssues[]>([]);
   const [loading, setLoading] = useState(false);
+  const [selection, setSelection] = useState<Selection>(null);
 
   async function handleFiles(
     event: React.ChangeEvent<HTMLInputElement>
   ) {
     const files = Array.from(event.target.files || []);
-
     setLoading(true);
 
     const parsedProjects: ProjectIssues[] = [];
@@ -134,29 +142,29 @@ export default function DashboardPMPage() {
     }
 
     setProjects((prev) => {
-  const mergedProjects = [...prev];
+      const mergedProjects = [...prev];
 
-  for (const newProject of parsedProjects) {
-    const existingProject = mergedProjects.find(
-      (project) => project.projectName === newProject.projectName
-    );
+      for (const newProject of parsedProjects) {
+        const existingProject = mergedProjects.find(
+          (project) => project.projectName === newProject.projectName
+        );
 
-    if (existingProject) {
-      existingProject.issues = [
-        ...existingProject.issues,
-        ...newProject.issues,
-      ];
+        if (existingProject) {
+          existingProject.issues = [
+            ...existingProject.issues,
+            ...newProject.issues,
+          ];
 
-      existingProject.fileName = `${existingProject.fileName}, ${newProject.fileName}`;
-    } else {
-      mergedProjects.push(newProject);
-    }
-  }
+          existingProject.fileName = `${existingProject.fileName}, ${newProject.fileName}`;
+        } else {
+          mergedProjects.push(newProject);
+        }
+      }
 
-  return mergedProjects;
-});
+      return mergedProjects;
+    });
+
     setLoading(false);
-
     event.target.value = "";
   }
 
@@ -194,12 +202,16 @@ export default function DashboardPMPage() {
     );
 
     const workbook = XLSX.utils.book_new();
-
-    const summarySheet = XLSX.utils.json_to_sheet(summaryRows);
-    const issueSheet = XLSX.utils.json_to_sheet(issueRows);
-
-    XLSX.utils.book_append_sheet(workbook, summarySheet, "KPI Progetti");
-    XLSX.utils.book_append_sheet(workbook, issueSheet, "Dettaglio Issue");
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.json_to_sheet(summaryRows),
+      "KPI Progetti"
+    );
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.json_to_sheet(issueRows),
+      "Dettaglio Issue"
+    );
 
     XLSX.writeFile(workbook, "dashboard-pm-report.xlsx");
   }
@@ -207,22 +219,25 @@ export default function DashboardPMPage() {
   const allIssues = projects.flatMap((project) => project.issues);
   const projectKpis = projects.map(getProjectKpi);
 
+  const selectedProject = selection
+    ? projects.find((p) => p.projectName === selection.projectName)
+    : null;
+
+  const selectedRows = selectedProject
+    ? selectedProject.issues.filter((issue) => {
+        if (selection?.type === "open") return !issue.isClosed;
+        if (selection?.type === "closed") return issue.isClosed;
+        return true;
+      })
+    : [];
+
   return (
     <main style={{ padding: 24, fontFamily: "Arial, sans-serif" }}>
       <button
         onClick={() => {
           window.location.href = "/";
         }}
-        style={{
-          marginBottom: 20,
-          background: "#0f172a",
-          color: "white",
-          border: "none",
-          borderRadius: 10,
-          padding: "10px 14px",
-          fontWeight: 700,
-          cursor: "pointer",
-        }}
+        style={darkButton}
       >
         ← Torna alla dashboard
       </button>
@@ -230,8 +245,8 @@ export default function DashboardPMPage() {
       <h1>Dashboard PM</h1>
 
       <p>
-        Carica uno o più file BCF / BCFZIP. Ogni nuovo caricamento si
-        somma ai progetti già presenti.
+        Carica uno o più file BCF / BCFZIP. I file riferiti allo stesso
+        progetto vengono sommati in un unico KPI progetto.
       </p>
 
       <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
@@ -243,15 +258,14 @@ export default function DashboardPMPage() {
         />
 
         <button
-          onClick={() => setProjects([])}
+          onClick={() => {
+            setProjects([]);
+            setSelection(null);
+          }}
           disabled={projects.length === 0}
           style={{
+            ...dangerButton,
             background: projects.length === 0 ? "#94a3b8" : "#dc2626",
-            color: "white",
-            border: "none",
-            borderRadius: 10,
-            padding: "9px 12px",
-            fontWeight: 700,
             cursor: projects.length === 0 ? "not-allowed" : "pointer",
           }}
         >
@@ -262,12 +276,8 @@ export default function DashboardPMPage() {
           onClick={exportExcel}
           disabled={projects.length === 0}
           style={{
+            ...successButton,
             background: projects.length === 0 ? "#94a3b8" : "#16a34a",
-            color: "white",
-            border: "none",
-            borderRadius: 10,
-            padding: "9px 12px",
-            fontWeight: 700,
             cursor: projects.length === 0 ? "not-allowed" : "pointer",
           }}
         >
@@ -309,16 +319,15 @@ export default function DashboardPMPage() {
             />
           </div>
 
-          <h2>Grafico sintetico</h2>
-
+          <h2>Grafico durata verifica</h2>
           <ProjectBarChart data={projectKpis} />
 
           <h2>KPI per progetto</h2>
 
           <div style={{ display: "grid", gap: 20 }}>
-            {projectKpis.map((project, projectIndex) => (
+            {projectKpis.map((project) => (
               <section
-                key={`${project.fileName}-${projectIndex}`}
+                key={project.projectName}
                 style={{
                   border: "1px solid #ddd",
                   borderRadius: 14,
@@ -335,13 +344,40 @@ export default function DashboardPMPage() {
                     gap: 12,
                   }}
                 >
-                  <KpiCard title="Issue" value={project.total} />
-                  <KpiCard title="Chiuse" value={project.closed} />
-                  <KpiCard title="Aperte" value={project.open} />
                   <KpiCard
-                    title="% chiusura"
-                    value={`${project.closure}%`}
+                    title="Issue"
+                    value={project.total}
+                    onClick={() =>
+                      setSelection({
+                        projectName: project.projectName,
+                        type: "all",
+                        label: "Tutte le issue",
+                      })
+                    }
                   />
+                  <KpiCard
+                    title="Chiuse"
+                    value={project.closed}
+                    onClick={() =>
+                      setSelection({
+                        projectName: project.projectName,
+                        type: "closed",
+                        label: "Issue chiuse",
+                      })
+                    }
+                  />
+                  <KpiCard
+                    title="Aperte"
+                    value={project.open}
+                    onClick={() =>
+                      setSelection({
+                        projectName: project.projectName,
+                        type: "open",
+                        label: "Issue aperte",
+                      })
+                    }
+                  />
+                  <KpiCard title="% chiusura" value={`${project.closure}%`} />
                   <KpiCard
                     title="Arrivo progetto"
                     value={formatDate(project.firstDate)}
@@ -351,13 +387,92 @@ export default function DashboardPMPage() {
                     value={formatDate(project.lastDate)}
                   />
                   <KpiCard
-                    title="Durata"
+                    title="Durata verifica"
                     value={`${project.durationDays} gg`}
                   />
                 </div>
               </section>
             ))}
           </div>
+
+          {selection && selectedProject && (
+            <section
+              style={{
+                marginTop: 28,
+                border: "1px solid #ddd",
+                borderRadius: 14,
+                padding: 18,
+                background: "white",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 12,
+                }}
+              >
+                <h2 style={{ marginTop: 0 }}>
+                  Report: {selection.label} - {selection.projectName}
+                </h2>
+
+                <button
+                  onClick={() => setSelection(null)}
+                  style={darkButton}
+                >
+                  Chiudi report
+                </button>
+              </div>
+
+              <div style={{ overflowX: "auto" }}>
+                <table
+                  style={{
+                    width: "100%",
+                    borderCollapse: "collapse",
+                    fontSize: 13,
+                  }}
+                >
+                  <thead>
+                    <tr style={{ background: "#f1f5f9" }}>
+                      <th style={th}>Titolo</th>
+                      <th style={th}>Stato</th>
+                      <th style={th}>Data creazione</th>
+                      <th style={th}>Ultima attività</th>
+                      <th style={th}>Durata</th>
+                      <th style={th}>Commenti</th>
+                      <th style={th}>Autore</th>
+                      <th style={th}>GUID</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {selectedRows.map((issue, index) => (
+                      <tr key={`${issue.guid}-${index}`}>
+                        <td style={td}>{issue.title}</td>
+                        <td style={td}>
+                          {issue.isClosed ? "Chiusa" : "Aperta"}
+                        </td>
+                        <td style={td}>{formatDate(issue.creationDate)}</td>
+                        <td style={td}>
+                          {formatDate(issue.lastActivityDate)}
+                        </td>
+                        <td style={td}>
+                          {daysBetween(
+                            issue.creationDate,
+                            issue.lastActivityDate
+                          )}{" "}
+                          gg
+                        </td>
+                        <td style={td}>{issue.commentsCount}</td>
+                        <td style={td}>{issue.author}</td>
+                        <td style={td}>{issue.guid}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
         </>
       )}
     </main>
@@ -378,12 +493,12 @@ function ProjectBarChart({ data }: { data: ProjectKpi[] }) {
       }}
     >
       <h3 style={{ marginTop: 0 }}>
-        Durata tracciamento per progetto
+        Durata temporale del progetto di verifica
       </h3>
 
       <div style={{ display: "grid", gap: 14 }}>
         {data.map((project) => (
-          <div key={project.fileName}>
+          <div key={project.projectName}>
             <div
               style={{
                 display: "flex",
@@ -393,9 +508,7 @@ function ProjectBarChart({ data }: { data: ProjectKpi[] }) {
               }}
             >
               <b>{project.projectName}</b>
-              <span>
-                {project.durationDays} gg · {project.closure}% chiuso
-              </span>
+              <span>{project.durationDays} gg</span>
             </div>
 
             <div
@@ -427,17 +540,21 @@ function ProjectBarChart({ data }: { data: ProjectKpi[] }) {
 function KpiCard({
   title,
   value,
+  onClick,
 }: {
   title: string;
   value: string | number;
+  onClick?: () => void;
 }) {
   return (
     <div
+      onClick={onClick}
       style={{
         border: "1px solid #e2e8f0",
         borderRadius: 12,
         padding: 14,
         background: "#f8fafc",
+        cursor: onClick ? "pointer" : "default",
       }}
     >
       <div style={{ fontSize: 12, color: "#64748b" }}>{title}</div>
@@ -453,3 +570,42 @@ function KpiCard({
     </div>
   );
 }
+
+const th = {
+  border: "1px solid #e2e8f0",
+  padding: 8,
+  textAlign: "left" as const,
+};
+
+const td = {
+  border: "1px solid #e2e8f0",
+  padding: 8,
+  verticalAlign: "top" as const,
+};
+
+const darkButton = {
+  marginBottom: 20,
+  background: "#0f172a",
+  color: "white",
+  border: "none",
+  borderRadius: 10,
+  padding: "10px 14px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const dangerButton = {
+  color: "white",
+  border: "none",
+  borderRadius: 10,
+  padding: "9px 12px",
+  fontWeight: 700,
+};
+
+const successButton = {
+  color: "white",
+  border: "none",
+  borderRadius: 10,
+  padding: "9px 12px",
+  fontWeight: 700,
+};
