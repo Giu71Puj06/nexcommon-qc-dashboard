@@ -15,6 +15,13 @@ type ProjectIssues = {
   issues: BCFIssue[];
 };
 
+type InspectionDoc = {
+  id: string;
+  projectName: string;
+  fileName: string;
+  url: string;
+};
+
 type Selection = {
   projectName: string;
   type: "all" | "open" | "closed";
@@ -62,6 +69,7 @@ function cleanProjectName(fileName: string): string {
     .replace(/\.bcfzip$/i, "")
     .replace(/\.bcf$/i, "")
     .replace(/\.zip$/i, "")
+    .replace(/\.docx$/i, "")
     .replace(/\d{12}\+\d{4}$/i, "")
     .trim();
 }
@@ -104,6 +112,7 @@ function getProjectKpi(project: ProjectIssues): ProjectKpi {
 
 export default function DashboardPMPage() {
   const [projects, setProjects] = useState<ProjectIssues[]>([]);
+  const [inspectionDocs, setInspectionDocs] = useState<InspectionDoc[]>([]);
   const [loading, setLoading] = useState(false);
   const [selection, setSelection] = useState<Selection>(null);
 
@@ -165,6 +174,24 @@ export default function DashboardPMPage() {
     event.target.value = "";
   }
 
+  function handleInspectionDocs(
+    event: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const files = Array.from(event.target.files || []);
+
+    const docs = files
+      .filter((file) => file.name.toLowerCase().endsWith(".docx"))
+      .map((file) => ({
+        id: `${file.name}-${Date.now()}-${Math.random()}`,
+        projectName: cleanProjectName(file.name),
+        fileName: file.name,
+        url: URL.createObjectURL(file),
+      }));
+
+    setInspectionDocs((prev) => [...prev, ...docs]);
+    event.target.value = "";
+  }
+
   function exportExcel() {
     const projectKpis = projects.map(getProjectKpi);
 
@@ -198,6 +225,11 @@ export default function DashboardPMPage() {
       }))
     );
 
+    const inspectionRows = inspectionDocs.map((doc) => ({
+      Progetto: doc.projectName,
+      "Scheda ispettiva Word": doc.fileName,
+    }));
+
     const workbook = XLSX.utils.book_new();
 
     XLSX.utils.book_append_sheet(
@@ -210,6 +242,12 @@ export default function DashboardPMPage() {
       workbook,
       XLSX.utils.json_to_sheet(issueRows),
       "Dettaglio Issue"
+    );
+
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.json_to_sheet(inspectionRows),
+      "Schede Ispettive"
     );
 
     XLSX.writeFile(workbook, "dashboard-pm-report.xlsx");
@@ -273,16 +311,105 @@ export default function DashboardPMPage() {
 
         <button
           onClick={exportExcel}
-          disabled={projects.length === 0}
+          disabled={projects.length === 0 && inspectionDocs.length === 0}
           style={{
             ...successButton,
-            background: projects.length === 0 ? "#94a3b8" : "#16a34a",
-            cursor: projects.length === 0 ? "not-allowed" : "pointer",
+            background:
+              projects.length === 0 && inspectionDocs.length === 0
+                ? "#94a3b8"
+                : "#16a34a",
+            cursor:
+              projects.length === 0 && inspectionDocs.length === 0
+                ? "not-allowed"
+                : "pointer",
           }}
         >
           Esporta Excel
         </button>
       </div>
+
+      <section
+        style={{
+          marginTop: 18,
+          border: "1px solid #e2e8f0",
+          borderRadius: 14,
+          padding: 16,
+          background: "white",
+        }}
+      >
+        <h2 style={{ marginTop: 0 }}>Schede ispettive Word</h2>
+
+        <p style={{ color: "#64748b", fontSize: 14 }}>
+          Carica le schede ispettive storiche in formato Word. Le schede
+          vengono associate al progetto e rese disponibili come archivio
+          documentale della commessa.
+        </p>
+
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <input
+            type="file"
+            multiple
+            accept=".docx"
+            onChange={handleInspectionDocs}
+          />
+
+          <button
+            onClick={() => setInspectionDocs([])}
+            disabled={inspectionDocs.length === 0}
+            style={{
+              ...dangerButton,
+              background:
+                inspectionDocs.length === 0 ? "#94a3b8" : "#dc2626",
+              cursor:
+                inspectionDocs.length === 0 ? "not-allowed" : "pointer",
+            }}
+          >
+            Svuota schede
+          </button>
+        </div>
+
+        {inspectionDocs.length > 0 && (
+          <div style={{ marginTop: 16, display: "grid", gap: 10 }}>
+            {inspectionDocs.map((doc) => (
+              <div
+                key={doc.id}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  border: "1px solid #e2e8f0",
+                  borderRadius: 10,
+                  padding: 10,
+                  background: "#f8fafc",
+                }}
+              >
+                <div>
+                  <b>{doc.fileName}</b>
+                  <div style={{ fontSize: 12, color: "#64748b" }}>
+                    Progetto associato: {doc.projectName}
+                  </div>
+                </div>
+
+                <a
+                  href={doc.url}
+                  download={doc.fileName}
+                  style={{
+                    background: "#0f172a",
+                    color: "white",
+                    textDecoration: "none",
+                    borderRadius: 10,
+                    padding: "8px 12px",
+                    fontWeight: 700,
+                    fontSize: 13,
+                  }}
+                >
+                  Scarica Word
+                </a>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       {loading && <p>Caricamento file BCF...</p>}
 
