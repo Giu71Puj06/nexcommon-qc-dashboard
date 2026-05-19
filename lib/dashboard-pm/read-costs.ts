@@ -17,9 +17,69 @@ function normalize(value: unknown): number {
   );
 }
 
-export async function readEconomicFile(
-  file: File
-): Promise<EconomicRevision | null> {
+function cleanProjectName(fileName: string): string {
+  return fileName
+    .replace(/\.xlsx$/i, "")
+    .replace(/\.pdf$/i, "")
+    .replace(/\d{12}\+\d{4}$/i, "")
+    .trim();
+}
+
+function extractAmountFromText(text: string): number {
+  const normalizedText = text.replace(/\s+/g, " ");
+
+  const patterns = [
+    /(?:importo|totale|costo|quadro economico)[^\d€]{0,80}(?:€\s*)?([\d.]+,\d{2})/gi,
+    /(?:importo|totale|costo|quadro economico)[^\d€]{0,80}(?:€\s*)?([\d.]+)/gi,
+  ];
+
+  let max = 0;
+
+  for (const pattern of patterns) {
+    let match;
+
+    while ((match = pattern.exec(normalizedText)) !== null) {
+      const value = normalize(match[1]);
+
+      if (value > max) {
+        max = value;
+      }
+    }
+  }
+
+  return max;
+}
+
+async function readPdfText(file: File): Promise<string> {
+  const pdfjs = await import("pdfjs-dist");
+
+  const buffer = await file.arrayBuffer();
+
+  const loadingTask = pdfjs.getDocument({
+    data: buffer,
+    useWorkerFetch: false,
+    isEvalSupported: false,
+    disableFontFace: true,
+  });
+
+  const pdf = await loadingTask.promise;
+
+  let text = "";
+
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+    const page = await pdf.getPage(pageNumber);
+    const content = await page.getTextContent();
+
+    text +=
+      content.items
+        .map((item: any) => ("str" in item ? item.str : ""))
+        .join(" ") + " ";
+  }
+
+  return text;
+}
+
+async function readXlsxAmount(file: File): Promise<number> {
   const buffer = await file.arrayBuffer();
 
   const workbook = XLSX.read(buffer, {
@@ -27,7 +87,6 @@ export async function readEconomicFile(
   });
 
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
-
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet);
 
   let amount = 0;
@@ -51,14 +110,29 @@ export async function readEconomicFile(
     }
   }
 
+  return amount;
+}
+
+export async function readEconomicFile(
+  file: File
+): Promise<EconomicRevision | null> {
+  const lowerName = file.name.toLowerCase();
+
+  let amount = 0;
+
+  if (lowerName.endsWith(".xlsx")) {
+    amount = await readXlsxAmount(file);
+  }
+
+  if (lowerName.endsWith(".pdf")) {
+    const text = await readPdfText(file);
+    amount = extractAmountFromText(text);
+  }
+
   if (amount === 0) return null;
 
   return {
-    projectName: file.name
-      .replace(".xlsx", "")
-      .replace(/\d{12}\+\d{4}$/i, "")
-      .trim(),
-
+    projectName: cleanProjectName(file.name),
     revisionName: file.name,
     amount,
   };
