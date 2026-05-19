@@ -13,6 +13,10 @@ import {
   generateBCFZip,
   downloadBlob,
 } from "@/lib/dashboard-pm/generate-bcf";
+import {
+  readEconomicFile,
+  EconomicRevision,
+} from "@/lib/dashboard-pm/read-costs";
 
 type ProjectIssues = {
   projectName: string;
@@ -46,8 +50,6 @@ type ProjectKpi = {
   firstDate: string;
   lastDate: string;
   durationDays: number;
-  projectStatus: "Concluso" | "In corso";
-  effectiveClosureDate: string;
 };
 
 async function readInspectionDocx(file: File) {
@@ -106,6 +108,19 @@ function formatDate(value: string): string {
   return date.toLocaleDateString("it-IT");
 }
 
+function formatCurrency(value: number): string {
+  return new Intl.NumberFormat("it-IT", {
+    style: "currency",
+    currency: "EUR",
+    maximumFractionDigits: 0,
+  }).format(value || 0);
+}
+
+function formatPercent(value: number): string {
+  if (!Number.isFinite(value)) return "0%";
+  return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
+}
+
 function cleanProjectName(fileName: string): string {
   return fileName
     .replace(/\.bcfzip$/i, "")
@@ -139,14 +154,6 @@ function getProjectKpi(project: ProjectIssues): ProjectKpi {
   const closure =
     issues.length > 0 ? Math.round((closed / issues.length) * 100) : 0;
 
-  const durationDays = daysBetween(firstDate, lastDate);
-
-  const projectStatus =
-    open === 0 && issues.length > 0 ? "Concluso" : "In corso";
-
-  const effectiveClosureDate =
-    projectStatus === "Concluso" ? lastDate : "";
-
   return {
     projectName: project.projectName,
     fileName: project.fileName,
@@ -156,15 +163,73 @@ function getProjectKpi(project: ProjectIssues): ProjectKpi {
     closure,
     firstDate,
     lastDate,
-    durationDays,
-    projectStatus,
-    effectiveClosureDate,
+    durationDays: daysBetween(firstDate, lastDate),
   };
+}
+
+
+function getEconomicKpis(
+  economicRevisions: EconomicRevision[],
+  projects: ProjectIssues[],
+  inspectionDocs: InspectionDoc[]
+): EconomicKpi[] {
+  const grouped = new Map<string, EconomicRevision[]>();
+
+  for (const revision of economicRevisions) {
+    const key = revision.projectName || "Progetto non identificato";
+    grouped.set(key, [...(grouped.get(key) || []), revision]);
+  }
+
+  return Array.from(grouped.entries()).map(([projectName, revisions]) => {
+    const ordered = [...revisions];
+
+    const initialAmount = ordered[0]?.amount || 0;
+    const finalAmount = ordered[ordered.length - 1]?.amount || 0;
+    const deltaAmount = finalAmount - initialAmount;
+    const deltaPercent =
+      initialAmount > 0 ? (deltaAmount / initialAmount) * 100 : 0;
+
+    const linkedProject = projects.find(
+      (project) => project.projectName === projectName
+    );
+
+    const linkedIssues = linkedProject?.issues.length || 0;
+
+    const linkedInspectionFindings = inspectionDocs
+      .filter((doc) => doc.projectName === projectName)
+      .reduce((sum, doc) => sum + doc.nc + doc.oss, 0);
+
+    const totalFindings = linkedIssues + linkedInspectionFindings;
+
+    const trendStatus =
+      deltaAmount > 0
+        ? "In aumento"
+        : deltaAmount < 0
+          ? "In diminuzione"
+          : "Stabile";
+
+    return {
+      projectName,
+      revisions: ordered,
+      initialAmount,
+      finalAmount,
+      deltaAmount,
+      deltaPercent,
+      trendStatus,
+      linkedIssues,
+      linkedInspectionFindings,
+      costPerFinding:
+        totalFindings > 0 ? Math.abs(deltaAmount) / totalFindings : 0,
+    };
+  });
 }
 
 export default function DashboardPMPage() {
   const [projects, setProjects] = useState<ProjectIssues[]>([]);
   const [inspectionDocs, setInspectionDocs] = useState<InspectionDoc[]>([]);
+  const [economicRevisions, setEconomicRevisions] = useState<EconomicRevision[]>(
+    []
+  );
   const [loading, setLoading] = useState(false);
   const [selection, setSelection] = useState<Selection>(null);
 
@@ -291,6 +356,31 @@ export default function DashboardPMPage() {
     downloadBlob(blob, "schede-ispettive-generate.bcfzip");
   }
 
+  async function handleEconomicFiles(
+    event: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const files = Array.from(event.target.files || []);
+    const revisions: EconomicRevision[] = [];
+
+    for (const file of files) {
+      if (!file.name.toLowerCase().endsWith(".xlsx")) continue;
+
+      const revision = await readEconomicFile(file);
+      if (revision) {
+        revisions.push(revision);
+      }
+    }
+
+    if (revisions.length === 0 && files.length > 0) {
+      alert(
+        "Nessun importo economico riconosciuto. Verifica che il file contenga colonne come Importo, Totale, Costo o Quadro economico."
+      );
+    }
+
+    setEconomicRevisions((prev) => [...prev, ...revisions]);
+    event.target.value = "";
+  }
+
   function exportExcel() {
     const projectKpis = projects.map(getProjectKpi);
 
@@ -304,11 +394,6 @@ export default function DashboardPMPage() {
       "Arrivo progetto": formatDate(p.firstDate),
       "Ultima attività": formatDate(p.lastDate),
       "Durata giorni": p.durationDays,
-      "Stato progetto": p.projectStatus,
-      "Chiusura effettiva":
-        p.projectStatus === "Concluso"
-          ? formatDate(p.effectiveClosureDate)
-          : "-",
     }));
 
     const issueRows = projects.flatMap((project) =>
@@ -337,6 +422,23 @@ export default function DashboardPMPage() {
       "Documenti verificati": doc.documentsChecked,
     }));
 
+    const economicRows = getEconomicKpis(
+      economicRevisions,
+      projects,
+      inspectionDocs
+    ).map((kpi) => ({
+      Progetto: kpi.projectName,
+      "Revisioni economiche": kpi.revisions.length,
+      "Importo iniziale": kpi.initialAmount,
+      "Importo finale": kpi.finalAmount,
+      "Delta economico": kpi.deltaAmount,
+      "Delta %": kpi.deltaPercent,
+      "Stato economico": kpi.trendStatus,
+      "Issue BCF collegate": kpi.linkedIssues,
+      "NC/OSS Word collegate": kpi.linkedInspectionFindings,
+      "Costo medio per rilievo": kpi.costPerFinding,
+    }));
+
     const workbook = XLSX.utils.book_new();
 
     XLSX.utils.book_append_sheet(
@@ -357,11 +459,22 @@ export default function DashboardPMPage() {
       "Schede Ispettive"
     );
 
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.json_to_sheet(economicRows),
+      "KPI Economici"
+    );
+
     XLSX.writeFile(workbook, "dashboard-pm-report.xlsx");
   }
 
   const allIssues = projects.flatMap((project) => project.issues);
   const projectKpis = projects.map(getProjectKpi);
+  const economicKpis = getEconomicKpis(
+    economicRevisions,
+    projects,
+    inspectionDocs
+  );
 
   const selectedProject = selection
     ? projects.find((p) => p.projectName === selection.projectName)
@@ -413,15 +526,15 @@ export default function DashboardPMPage() {
 
         <button
           onClick={exportExcel}
-          disabled={projects.length === 0 && inspectionDocs.length === 0}
+          disabled={projects.length === 0 && inspectionDocs.length === 0 && economicRevisions.length === 0}
           style={{
             ...successButton,
             background:
-              projects.length === 0 && inspectionDocs.length === 0
+              projects.length === 0 && inspectionDocs.length === 0 && economicRevisions.length === 0
                 ? "#94a3b8"
                 : "#16a34a",
             cursor:
-              projects.length === 0 && inspectionDocs.length === 0
+              projects.length === 0 && inspectionDocs.length === 0 && economicRevisions.length === 0
                 ? "not-allowed"
                 : "pointer",
           }}
@@ -537,6 +650,151 @@ export default function DashboardPMPage() {
         )}
       </section>
 
+      <section
+        style={{
+          marginTop: 18,
+          border: "1px solid #e2e8f0",
+          borderRadius: 14,
+          padding: 16,
+          background: "white",
+        }}
+      >
+        <h2 style={{ marginTop: 0 }}>Elaborati economici</h2>
+
+        <p style={{ color: "#64748b", fontSize: 14 }}>
+          Carica gli elaborati economici in formato Excel delle diverse
+          consegne. Il sistema legge gli importi, costruisce il trend economico
+          e confronta la variazione con le issue BCF e i rilievi ispettivi.
+        </p>
+
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <input
+            type="file"
+            multiple
+            accept=".xlsx"
+            onChange={handleEconomicFiles}
+          />
+
+          <button
+            onClick={() => setEconomicRevisions([])}
+            disabled={economicRevisions.length === 0}
+            style={{
+              ...dangerButton,
+              background:
+                economicRevisions.length === 0 ? "#94a3b8" : "#dc2626",
+              cursor:
+                economicRevisions.length === 0 ? "not-allowed" : "pointer",
+            }}
+          >
+            Svuota costi
+          </button>
+        </div>
+
+        {economicKpis.length > 0 && (
+          <>
+            <h3>KPI economici</h3>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(5, 1fr)",
+                gap: 12,
+                marginBottom: 18,
+              }}
+            >
+              <KpiCard
+                title="Progetti economici"
+                value={economicKpis.length}
+              />
+              <KpiCard
+                title="Revisioni caricate"
+                value={economicRevisions.length}
+              />
+              <KpiCard
+                title="Delta economico totale"
+                value={formatCurrency(
+                  economicKpis.reduce(
+                    (sum, kpi) => sum + kpi.deltaAmount,
+                    0
+                  )
+                )}
+              />
+              <KpiCard
+                title="Incrementi"
+                value={
+                  economicKpis.filter(
+                    (kpi) => kpi.trendStatus === "In aumento"
+                  ).length
+                }
+              />
+              <KpiCard
+                title="Riduzioni"
+                value={
+                  economicKpis.filter(
+                    (kpi) => kpi.trendStatus === "In diminuzione"
+                  ).length
+                }
+              />
+            </div>
+
+            <EconomicTrendChart data={economicKpis} />
+
+            <div style={{ display: "grid", gap: 14, marginTop: 18 }}>
+              {economicKpis.map((kpi) => (
+                <section
+                  key={kpi.projectName}
+                  style={{
+                    border: "1px solid #e2e8f0",
+                    borderRadius: 12,
+                    padding: 14,
+                    background: "#f8fafc",
+                  }}
+                >
+                  <h4 style={{ marginTop: 0 }}>{kpi.projectName}</h4>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(7, 1fr)",
+                      gap: 12,
+                    }}
+                  >
+                    <KpiCard
+                      title="Importo iniziale"
+                      value={formatCurrency(kpi.initialAmount)}
+                    />
+                    <KpiCard
+                      title="Importo finale"
+                      value={formatCurrency(kpi.finalAmount)}
+                    />
+                    <KpiCard
+                      title="Delta €"
+                      value={formatCurrency(kpi.deltaAmount)}
+                    />
+                    <KpiCard
+                      title="Delta %"
+                      value={formatPercent(kpi.deltaPercent)}
+                    />
+                    <KpiCard
+                      title="Stato economico"
+                      value={kpi.trendStatus}
+                    />
+                    <KpiCard
+                      title="Rilievi collegati"
+                      value={kpi.linkedIssues + kpi.linkedInspectionFindings}
+                    />
+                    <KpiCard
+                      title="Costo medio/rilievo"
+                      value={formatCurrency(kpi.costPerFinding)}
+                    />
+                  </div>
+                </section>
+              ))}
+            </div>
+          </>
+        )}
+      </section>
+
       {loading && <p>Caricamento file BCF...</p>}
 
       {!loading && projects.length > 0 && (
@@ -595,7 +853,7 @@ export default function DashboardPMPage() {
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "repeat(9, 1fr)",
+                    gridTemplateColumns: "repeat(7, 1fr)",
                     gap: 12,
                   }}
                 >
@@ -644,18 +902,6 @@ export default function DashboardPMPage() {
                   <KpiCard
                     title="Durata verifica"
                     value={`${project.durationDays} gg`}
-                  />
-                  <KpiCard
-                    title="Stato progetto"
-                    value={project.projectStatus}
-                  />
-                  <KpiCard
-                    title="Chiusura effettiva"
-                    value={
-                      project.projectStatus === "Concluso"
-                        ? formatDate(project.effectiveClosureDate)
-                        : "-"
-                    }
                   />
                 </div>
               </section>
@@ -966,6 +1212,73 @@ function AverageDurationChart({ data }: { data: ProjectKpi[] }) {
           />
           <span>Durata media</span>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function EconomicTrendChart({ data }: { data: EconomicKpi[] }) {
+  const maxDelta = Math.max(
+    ...data.map((item) => Math.abs(item.deltaAmount)),
+    1
+  );
+
+  return (
+    <div
+      style={{
+        border: "1px solid #e2e8f0",
+        borderRadius: 14,
+        padding: 18,
+        background: "white",
+        marginBottom: 18,
+      }}
+    >
+      <h3 style={{ marginTop: 0 }}>Andamento economico per progetto</h3>
+
+      <div style={{ display: "grid", gap: 14 }}>
+        {data.map((item) => (
+          <div key={item.projectName}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                fontSize: 13,
+                marginBottom: 4,
+              }}
+            >
+              <b>{item.projectName}</b>
+              <span>
+                {formatCurrency(item.deltaAmount)} ·{" "}
+                {formatPercent(item.deltaPercent)}
+              </span>
+            </div>
+
+            <div
+              style={{
+                height: 18,
+                background: "#e2e8f0",
+                borderRadius: 999,
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  width: `${Math.max(
+                    4,
+                    (Math.abs(item.deltaAmount) / maxDelta) * 100
+                  )}%`,
+                  height: "100%",
+                  background:
+                    item.deltaAmount > 0
+                      ? "#dc2626"
+                      : item.deltaAmount < 0
+                        ? "#16a34a"
+                        : "#64748b",
+                }}
+              />
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
