@@ -9,7 +9,6 @@ export default function SchedeIspettivePage() {
   const [elenco, setElenco] = useState<File | null>(null);
   const [filesXlsx, setFilesXlsx] = useState<File | null>(null);
   const [template, setTemplate] = useState<File | null>(null);
-  const [emissionePrecedente, setEmissionePrecedente] = useState<File | null>(null);
   const [progettisti, setProgettisti] = useState("");
   const [ispettori, setIspettori] = useState("");
   const [revisioneScheda, setRevisioneScheda] = useState("0");
@@ -43,7 +42,6 @@ export default function SchedeIspettivePage() {
       fd.append("files", filesXlsx);
       fd.append("report", filesXlsx);
       fd.append("template", template);
-      if (emissionePrecedente) fd.append("emissione_precedente", emissionePrecedente);
       fd.append("progettisti", progettisti);
       fd.append("ispettori", ispettori);
       fd.append("revisione_scheda", revisioneScheda);
@@ -195,19 +193,6 @@ export default function SchedeIspettivePage() {
               style={inputStyle}
             />
           </label>
-          <label>
-            <b>ZIP emissione precedente - opzionale, obbligatorio per Rev. &gt; 0</b>
-            <input
-              type="file"
-              accept=".zip"
-              onChange={(e) => setEmissionePrecedente(e.target.files?.[0] || null)}
-              style={inputStyle}
-            />
-            <div style={helpStyle}>
-              Da usare per seconda/terza/quarta emissione: la numerazione NC/OSS della nuova scheda viene copiata dall'emissione precedente, usando il testo Rilievi ODI come chiave.
-            </div>
-          </label>
-
 
           <label>
             <b>Progettisti</b>
