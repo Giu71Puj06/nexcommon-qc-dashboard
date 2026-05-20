@@ -184,6 +184,102 @@ function normalizeText(value: string) {
     .trim();
 }
 
+
+
+function cleanDocxCellText(value: string) {
+  return String(value || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function xmlTextFromNode(node: any): string {
+  if (node == null) return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(xmlTextFromNode).join("");
+  if (typeof node !== "object") return "";
+
+  let out = "";
+  for (const [key, value] of Object.entries(node)) {
+    if (key === "w:t" || key.endsWith(":t")) out += xmlTextFromNode(value);
+    else if (key === "w:br" || key.endsWith(":br")) out += "\n";
+    else if (!key.startsWith("@_")) out += xmlTextFromNode(value);
+  }
+  return out;
+}
+
+function arrayify<T>(value: T | T[] | undefined): T[] {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+function extractPreviousNumberingFromDocx(buffer: Buffer) {
+  const map: Record<string, string> = {};
+
+  try {
+    const zip = new PizZip(buffer);
+    const xml = zip.file("word/document.xml")?.asText();
+    if (!xml) return map;
+
+    const parser = new XMLParser({ ignoreAttributes: false, preserveOrder: false });
+    const doc = parser.parse(xml);
+    const body = doc?.["w:document"]?.["w:body"] || doc?.document?.body;
+    const tables = arrayify<any>(body?.["w:tbl"] || body?.tbl);
+
+    for (const table of tables) {
+      const rows = arrayify<any>(table?.["w:tr"] || table?.tr);
+      for (const row of rows) {
+        const cells = arrayify<any>(row?.["w:tc"] || row?.tc).map((cell) =>
+          cleanDocxCellText(xmlTextFromNode(cell))
+        );
+
+        const codeIndex = cells.findIndex((cell) => /^(NC|OSS)\s*\d+/i.test(cell));
+        if (codeIndex < 0) continue;
+
+        const code = cells[codeIndex]
+          .replace(/\s*\n\s*/g, "\n")
+          .replace(/\s+/g, " ")
+          .replace(/\s*\((TR-[^)]+)\)/i, "\n($1)")
+          .trim();
+
+        // Nel template attuale la colonna Rilievi ODI e' la quarta colonna
+        // della tabella rilievi. Se il layout cambia, usa comunque il testo
+        // piu' lungo della riga come fallback.
+        const rilievo =
+          cells[3] && cells[3].length > 20
+            ? cells[3]
+            : cells
+                .filter((_, index) => index !== codeIndex)
+                .sort((a, b) => b.length - a.length)[0] || "";
+
+        const key = normalizeText(rilievo);
+        if (key && code) map[key] = code;
+      }
+    }
+  } catch {
+    return map;
+  }
+
+  return map;
+}
+
+async function buildPreviousNumberingMap(file: File | null) {
+  const map: Record<string, string> = {};
+  if (!file) return map;
+
+  const zip = await JSZip.loadAsync(Buffer.from(await file.arrayBuffer()));
+  const entries = Object.values(zip.files).filter(
+    (entry) => !entry.dir && entry.name.toLowerCase().endsWith(".docx")
+  );
+
+  for (const entry of entries) {
+    const buffer = await entry.async("nodebuffer");
+    Object.assign(map, extractPreviousNumberingFromDocx(buffer));
+  }
+
+  return map;
+}
+
 function normalizeAccount(value: string) {
   return String(value || "")
     .toUpperCase()
@@ -1290,6 +1386,7 @@ export async function POST(req: Request) {
     const bcfFiles = formData.getAll("bcf") as File[];
     const elencoFile = formData.get("elenco") as File;
     const templateFile = formData.get("template") as File;
+    const emissionePrecedenteFile = formData.get("emissione_precedente") as File | null;
     const reportFile = (formData.get("report") || formData.get("files")) as File | null;
 
     const progettisti = parsePeopleList(formData.get("progettisti"));
@@ -1689,6 +1786,8 @@ export async function POST(req: Request) {
 
     const outputZip = new JSZip();
 
+    const previousNumberingByRilievo = await buildPreviousNumberingMap(emissionePrecedenteFile);
+
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(finalRows);
     XLSX.utils.book_append_sheet(wb, ws, "Schede_Ispettive");
@@ -1898,8 +1997,12 @@ export async function POST(req: Request) {
         const tipo = String(r.TipoBase || "").includes("OSS") ? "OSS" : "NC";
         progressivi[tipo] += 1;
 
+        const rilievoKey = normalizeText(r["Descrizione Rilievo"] || "");
+        const numeroEmissionePrecedente = previousNumberingByRilievo[rilievoKey];
+        const numeroGenerato = `${tipo}${progressivi[tipo]}\n(${r.CodiceTR || "TR-ND"})`;
+
         return {
-          tipo_progressivo: `${tipo}${progressivi[tipo]}\n(${r.CodiceTR || "TR-ND"})`,
+          tipo_progressivo: numeroEmissionePrecedente || numeroGenerato,
           codice_elaborato: r["Codice Elaborato"] || "",
           titolo_elaborato: r["Titolo Elaborato"] || "",
           rilievo_its: r["Descrizione Rilievo"] || "",
