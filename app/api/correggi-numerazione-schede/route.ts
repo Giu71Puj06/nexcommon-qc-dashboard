@@ -369,6 +369,58 @@ function estraiRecordsDaDocumentXml(
 }
 
 function trovaColonneTabella(rows: string[]) {
+  for (let rowIndex = 0; rowIndex < Math.min(rows.length, 8); rowIndex += 1) {
+    const cells = estraiCelle(rows[rowIndex]);
+    const texts = cells.map((cell) => normalizeHeader(estraiTesto(cell)));
+
+    let codiceCol = texts.findIndex(
+      (text) =>
+        text.includes("CRONOLOGICO") ||
+        text.includes("N CRONOLOGICO") ||
+        text.includes("NUMERO CRONOLOGICO") ||
+        text === "NCOSS" ||
+        text.includes("NCOSS") ||
+        text.includes("NC OSS") ||
+        text.includes("CLASSIFICAZIONE") ||
+        text.includes("TIPO RILIEVO") ||
+        text === "CODICE"
+    );
+
+    let rilievoCol = texts.findIndex(
+      (text) =>
+        text.includes("RILIEVI ODI") ||
+        text.includes("RILIEVO ODI") ||
+        text.includes("RILIEVIODI") ||
+        text.includes("RILIEVOODI") ||
+        text.includes("RILIEVI ITS") ||
+        text.includes("RILIEVO ITS") ||
+        text.includes("ITS CONTROLLI TECNICI") ||
+        text.includes("CONTROLLI TECNICI")
+    );
+
+    if (codiceCol < 0 && cells.length > 0) {
+      const righeDati = rows.slice(rowIndex + 1, rowIndex + 5);
+      const primaColonnaContieneCodici = righeDati.some((r) => {
+        const first = estraiCelle(r)[0];
+        return first && sembraCodiceNcOss(estraiTesto(first));
+      });
+
+      if (primaColonnaContieneCodici) {
+        codiceCol = 0;
+      }
+    }
+
+    if (rilievoCol < 0 && cells.length >= 4) {
+      rilievoCol = 3;
+    }
+
+    if (codiceCol >= 0 && rilievoCol >= 0 && codiceCol !== rilievoCol) {
+      return { headerRowIndex: rowIndex, codiceCol, rilievoCol };
+    }
+  }
+
+  return null;
+}
   for (let rowIndex = 0; rowIndex < Math.min(rows.length, 5); rowIndex += 1) {
     const cells = estraiCelle(rows[rowIndex]);
     const texts = cells.map((cell) => normalizeHeader(estraiTesto(cell)));
