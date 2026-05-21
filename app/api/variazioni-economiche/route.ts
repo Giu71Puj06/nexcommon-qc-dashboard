@@ -118,23 +118,30 @@ function extractImporto(text: string): number {
   }
 
   const totalPatterns = [
-    /TOTALE\s+euro\s+([0-9.'´\s]+,[0-9]{2})/i,
-    /IMPORTO\s+TOTALE\s+euro\s+([0-9.'´\s]+,[0-9]{2})/i,
-    /TOTALE\s+GENERALE\s+euro\s+([0-9.'´\s]+,[0-9]{2})/i,
-    /TOTALE\s+COMPLESSIVO\s+euro\s+([0-9.'´\s]+,[0-9]{2})/i,
-    /Parziale\s+LAVORI\s+A\s+MISURA\s+euro\s+([0-9.'´\s]+,[0-9]{2})/i,
+    /T\s*O\s*T\s*A\s*L\s*E\s+euro\s+([0-9.'´\s]+,[0-9]{2})/gi,
+    /Totale\s+SUPER\s+CATEGORIE\s+euro\s+([0-9.'´\s]+,[0-9]{2})/gi,
+    /Totale\s+CATEGORIE\s+euro\s+([0-9.'´\s]+,[0-9]{2})/gi,
+    /Totale\s+SUB\s+CATEGORIE\s+euro\s+([0-9.'´\s]+,[0-9]{2})/gi,
+    /Parziale\s+LAVORI\s+A\s+MISURA\s+euro\s+([0-9.'´\s]+,[0-9]{2})/gi,
+    /Parziale\s+LAVORI\s+A\s+CORPO\s+euro\s+([0-9.'´\s]+,[0-9]{2})/gi,
   ];
 
-  for (const pattern of totalPatterns) {
-    const matches = Array.from(cleanText.matchAll(new RegExp(pattern, "gi")));
+  const foundAmounts: number[] = [];
 
-    if (matches.length > 0) {
-      const lastMatch = matches[matches.length - 1];
-      return parseEuro(lastMatch[1]);
+  for (const pattern of totalPatterns) {
+    const matches = Array.from(cleanText.matchAll(pattern));
+
+    for (const match of matches) {
+      if (match?.[1]) {
+        const value = parseEuro(match[1]);
+        if (value > 0) foundAmounts.push(value);
+      }
     }
   }
 
-  return 0;
+  if (!foundAmounts.length) return 0;
+
+  return Math.max(...foundAmounts);
 }
 
 function isComputoEstimativo(text: string): boolean {
@@ -143,8 +150,12 @@ function isComputoEstimativo(text: string): boolean {
   return (
     cleanText.includes("COMPUTO METRICO ESTIMATIVO") ||
     cleanText.includes("TOTALE EURO") ||
+    cleanText.includes("T O T A L E EURO") ||
     cleanText.includes("IMPORTO TOTALE") ||
-    cleanText.includes("TOTALE GENERALE")
+    cleanText.includes("TOTALE GENERALE") ||
+    cleanText.includes("TOTALE CATEGORIE") ||
+    cleanText.includes("TOTALE SUB CATEGORIE") ||
+    cleanText.includes("TOTALE SUPER CATEGORIE")
   );
 }
 
