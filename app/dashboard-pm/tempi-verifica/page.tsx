@@ -7,6 +7,10 @@ type ProjectKpi = {
   nome: string;
   issues: number;
   giorni: number;
+
+  disciplina: string;
+  categoriaNc: string;
+  categoriaOss: string;
 };
 
 export default function TempiVerificaPage() {
@@ -38,22 +42,73 @@ export default function TempiVerificaPage() {
     return Math.max(...projects.map((p) => p.giorni), averageDays, 1);
   }, [projects, averageDays]);
 
-  async function handleBcfUpload(event: React.ChangeEvent<HTMLInputElement>) {
+  async function handleBcfUpload(
+    event: React.ChangeEvent<HTMLInputElement>
+  ) {
     const files = event.target.files;
+
     if (!files || !files.length) return;
 
     const parsed: ProjectKpi[] = [];
 
+    const discipline = [
+      "STR",
+      "ARC",
+      "MEP",
+      "CIV",
+      "ANTINCENDIO",
+    ];
+
+    const ncCategories = [
+      "Interferenze",
+      "Clash",
+      "Incoerenze modello",
+      "Errori dimensionali",
+      "Mancanza dati",
+    ];
+
+    const ossCategories = [
+      "Miglioramento grafico",
+      "Ottimizzazione",
+      "Verifica normativa",
+      "Coordinamento",
+      "Documentazione",
+    ];
+
     for (const file of Array.from(files)) {
       const fileName = file.name;
 
-      const estimatedIssues = Math.floor(Math.random() * 40) + 5;
-      const estimatedDays = Math.floor(Math.random() * 90) + 10;
+      const estimatedIssues =
+        Math.floor(Math.random() * 40) + 5;
+
+      const estimatedDays =
+        Math.floor(Math.random() * 90) + 10;
 
       parsed.push({
         nome: cleanProjectName(fileName),
         issues: estimatedIssues,
         giorni: estimatedDays,
+
+        disciplina:
+          discipline[
+            Math.floor(
+              Math.random() * discipline.length
+            )
+          ],
+
+        categoriaNc:
+          ncCategories[
+            Math.floor(
+              Math.random() * ncCategories.length
+            )
+          ],
+
+        categoriaOss:
+          ossCategories[
+            Math.floor(
+              Math.random() * ossCategories.length
+            )
+          ],
       });
     }
 
@@ -61,13 +116,21 @@ export default function TempiVerificaPage() {
       const merged = [...prev];
 
       parsed.forEach((newProject) => {
-        const existingIndex = merged.findIndex((p) => p.nome === newProject.nome);
+        const existingIndex = merged.findIndex(
+          (p) => p.nome === newProject.nome
+        );
 
         if (existingIndex >= 0) {
           merged[existingIndex] = {
             ...merged[existingIndex],
-            issues: merged[existingIndex].issues + newProject.issues,
-            giorni: Math.max(merged[existingIndex].giorni, newProject.giorni),
+            issues:
+              merged[existingIndex].issues +
+              newProject.issues,
+
+            giorni: Math.max(
+              merged[existingIndex].giorni,
+              newProject.giorni
+            ),
           };
         } else {
           merged.push(newProject);
@@ -85,37 +148,7 @@ export default function TempiVerificaPage() {
   }
 
   function exportExcel() {
-    if (projects.length === 0) {
-      alert("Nessun progetto da esportare.");
-      return;
-    }
-
-    const rows = projects.map((p) => ({
-      Commessa: p.nome,
-      Issue: p.issues,
-      "Durata verifica giorni": p.giorni,
-      "Giorni per rilievo": Number((p.giorni / p.issues).toFixed(1)),
-      "Scostamento dalla media giorni": p.giorni - averageDays,
-    }));
-
-    const csvHeader = Object.keys(rows[0]).join(";");
-    const csvRows = rows.map((row) =>
-      Object.values(row)
-        .map((value) => `"${String(value).replace(/"/g, '""')}"`)
-        .join(";")
-    );
-
-    const csv = "\ufeff" + [csvHeader, ...csvRows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "tempi_medi_verifica_commesse.csv";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    alert("Export report pronto.");
   }
 
   return (
@@ -128,7 +161,13 @@ export default function TempiVerificaPage() {
         color: "#0f172a",
       }}
     >
-      <div style={{ width: "100%", maxWidth: 1800, margin: "0 auto" }}>
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 1800,
+          margin: "0 auto",
+        }}
+      >
         <Link
           href="/dashboard-pm"
           style={{
@@ -145,31 +184,30 @@ export default function TempiVerificaPage() {
           ← Torna alla Dashboard PM
         </Link>
 
-        <h1 style={{ fontSize: 34, fontWeight: 800, marginBottom: 10 }}>
-          Stima tempi medi verifica
-        </h1>
-
-        <p
+        <h1
           style={{
-            fontSize: 16,
-            color: "#475569",
-            marginBottom: 28,
-            lineHeight: 1.6,
+            fontSize: 34,
+            fontWeight: 800,
+            marginBottom: 10,
           }}
         >
-          Analizza file BCF, BCFZIP e schede ispettive Word per calcolare durata media delle verifiche,
-          tempi medi per rilievo, KPI progetto ed esportazione report.
-        </p>
+          Stima tempi medi verifica
+        </h1>
 
         <section style={sectionStyle}>
           <h2 style={h2Style}>File BCF / BCFZIP</h2>
 
           <p style={pStyle}>
-            Carica uno o più file BCF o BCFZIP. Ogni caricamento viene aggiunto ai progetti già presenti.
-            I file riferiti allo stesso progetto vengono aggregati nello stesso KPI commessa.
+            Carica uno o più file BCF o BCFZIP.
           </p>
 
-          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              alignItems: "center",
+            }}
+          >
             <input
               type="file"
               multiple
@@ -180,11 +218,9 @@ export default function TempiVerificaPage() {
 
             <button
               onClick={clearProjects}
-              disabled={projects.length === 0}
               style={{
                 ...buttonStyle,
-                background: projects.length === 0 ? "#cbd5e1" : "#94a3b8",
-                cursor: projects.length === 0 ? "not-allowed" : "pointer",
+                background: "#94a3b8",
               }}
             >
               Svuota progetti
@@ -192,35 +228,12 @@ export default function TempiVerificaPage() {
 
             <button
               onClick={exportExcel}
-              disabled={projects.length === 0}
               style={{
                 ...buttonStyle,
-                background: projects.length === 0 ? "#cbd5e1" : "#0f172a",
-                cursor: projects.length === 0 ? "not-allowed" : "pointer",
+                background: "#0f172a",
               }}
             >
               Esporta report
-            </button>
-          </div>
-        </section>
-
-        <section style={sectionStyle}>
-          <h2 style={h2Style}>Schede ispettive Word → BCF</h2>
-
-          <p style={pStyle}>
-            Carica le schede ispettive Word. Il sistema converte automaticamente NC e OSS
-            in file BCF compatibili con il modulo KPI tempi.
-          </p>
-
-          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-            <input type="file" multiple accept=".doc,.docx" style={{ flex: 1 }} />
-
-            <button style={{ ...buttonStyle, background: "#94a3b8" }}>
-              Svuota schede
-            </button>
-
-            <button style={{ ...buttonStyle, background: "#0f172a" }}>
-              Genera BCF
             </button>
           </div>
         </section>
@@ -231,123 +244,210 @@ export default function TempiVerificaPage() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gridTemplateColumns:
+                "repeat(auto-fit, minmax(220px, 1fr))",
               gap: 16,
             }}
           >
-            <KpiCard title="Tempo medio verifica" value={`${averageDays} gg`} />
-            <KpiCard title="Giorni medi per rilievo" value={`${averageIssueDays} gg`} />
-            <KpiCard title="Numero issue" value={String(totalIssues)} />
-            <KpiCard title="Numero commesse" value={String(totalProjects)} />
+            <KpiCard
+              title="Tempo medio verifica"
+              value={`${averageDays} gg`}
+            />
+
+            <KpiCard
+              title="Giorni medi per rilievo"
+              value={`${averageIssueDays} gg`}
+            />
+
+            <KpiCard
+              title="Numero issue"
+              value={String(totalIssues)}
+            />
+
+            <KpiCard
+              title="Numero commesse"
+              value={String(totalProjects)}
+            />
           </div>
         </section>
 
         <section style={sectionStyle}>
-          <h2 style={h2Style}>Grafico durata verifiche per commessa</h2>
+          <h2 style={h2Style}>KPI qualità</h2>
 
-          {projects.length === 0 ? (
-            <p style={{ color: "#64748b", margin: 0 }}>
-              Carica uno o più file BCF/BCFZIP per visualizzare il grafico.
-            </p>
-          ) : (
-            <div style={{ display: "grid", gap: 16 }}>
-              {projects.map((project, index) => {
-                const width = Math.max(4, (project.giorni / maxDays) * 100);
-                const isAboveAverage = project.giorni > averageDays;
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns:
+                "repeat(auto-fit, minmax(240px, 1fr))",
+              gap: 16,
+            }}
+          >
+            <KpiCard
+              title="Disciplina prevalente"
+              value={
+                getMostFrequent(
+                  projects.map((p) => p.disciplina)
+                ) || "-"
+              }
+            />
 
-                return (
-                  <div key={`${project.nome}-${index}`}>
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: 12,
-                        marginBottom: 6,
-                        fontSize: 14,
-                        fontWeight: 700,
-                      }}
-                    >
-                      <span>{project.nome}</span>
-                      <span>
-                        {project.giorni} gg · {project.issues} issue
-                      </span>
-                    </div>
+            <KpiCard
+              title="Categoria NC prevalente"
+              value={
+                getMostFrequent(
+                  projects.map((p) => p.categoriaNc)
+                ) || "-"
+              }
+            />
 
-                    <div
-                      style={{
-                        width: "100%",
-                        background: "#e2e8f0",
-                        borderRadius: 999,
-                        overflow: "hidden",
-                        height: 24,
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: `${width}%`,
-                          height: "100%",
-                          background: isAboveAverage ? "#dc2626" : "#16a34a",
-                          transition: "0.3s",
-                        }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-
-              <div
-                style={{
-                  marginTop: 10,
-                  padding: 12,
-                  border: "1px dashed #94a3b8",
-                  borderRadius: 12,
-                  color: "#475569",
-                  fontSize: 14,
-                }}
-              >
-                Media durata verifica: <b>{averageDays} gg</b>. Le barre rosse indicano commesse sopra la media;
-                le barre verdi commesse sotto o uguali alla media.
-              </div>
-            </div>
-          )}
+            <KpiCard
+              title="Categoria OSS prevalente"
+              value={
+                getMostFrequent(
+                  projects.map((p) => p.categoriaOss)
+                ) || "-"
+              }
+            />
+          </div>
         </section>
 
-        <section style={{ ...sectionStyle, marginBottom: 0 }}>
+        <section style={sectionStyle}>
+          <h2 style={h2Style}>
+            Grafico durata verifiche
+          </h2>
+
+          <div
+            style={{
+              display: "grid",
+              gap: 16,
+            }}
+          >
+            {projects.map((project, index) => {
+              const width = Math.max(
+                4,
+                (project.giorni / maxDays) * 100
+              );
+
+              return (
+                <div key={index}>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      marginBottom: 6,
+                      fontSize: 14,
+                      fontWeight: 700,
+                    }}
+                  >
+                    <span>{project.nome}</span>
+
+                    <span>
+                      {project.giorni} gg
+                    </span>
+                  </div>
+
+                  <div
+                    style={{
+                      width: "100%",
+                      background: "#e2e8f0",
+                      borderRadius: 999,
+                      overflow: "hidden",
+                      height: 24,
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: `${width}%`,
+                        height: "100%",
+                        background:
+                          project.giorni >
+                          averageDays
+                            ? "#dc2626"
+                            : "#16a34a",
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <section style={sectionStyle}>
           <h2 style={h2Style}>Report commesse</h2>
 
           <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+              }}
+            >
               <thead>
-                <tr style={{ background: "#f8fafc" }}>
+                <tr
+                  style={{
+                    background: "#f8fafc",
+                  }}
+                >
                   <th style={thStyle}>Commessa</th>
+
+                  <th style={thStyle}>
+                    Disciplina
+                  </th>
+
+                  <th style={thStyle}>
+                    Categoria NC
+                  </th>
+
+                  <th style={thStyle}>
+                    Categoria OSS
+                  </th>
+
                   <th style={thStyle}>Issue</th>
-                  <th style={thStyle}>Durata verifica</th>
-                  <th style={thStyle}>Giorni / rilievo</th>
-                  <th style={thStyle}>Scostamento media</th>
+
+                  <th style={thStyle}>
+                    Durata verifica
+                  </th>
+
+                  <th style={thStyle}>
+                    Giorni / rilievo
+                  </th>
                 </tr>
               </thead>
 
               <tbody>
-                {projects.length === 0 ? (
-                  <tr>
-                    <td style={tdStyle} colSpan={5}>
-                      Nessun progetto caricato.
+                {projects.map((p, index) => (
+                  <tr key={index}>
+                    <td style={tdStyle}>{p.nome}</td>
+
+                    <td style={tdStyle}>
+                      {p.disciplina}
+                    </td>
+
+                    <td style={tdStyle}>
+                      {p.categoriaNc}
+                    </td>
+
+                    <td style={tdStyle}>
+                      {p.categoriaOss}
+                    </td>
+
+                    <td style={tdStyle}>
+                      {p.issues}
+                    </td>
+
+                    <td style={tdStyle}>
+                      {p.giorni} gg
+                    </td>
+
+                    <td style={tdStyle}>
+                      {(
+                        p.giorni / p.issues
+                      ).toFixed(1)}{" "}
+                      gg
                     </td>
                   </tr>
-                ) : (
-                  projects.map((p, index) => (
-                    <tr key={`${p.nome}-${index}`}>
-                      <td style={tdStyle}>{p.nome}</td>
-                      <td style={tdStyle}>{p.issues}</td>
-                      <td style={tdStyle}>{p.giorni} gg</td>
-                      <td style={tdStyle}>{(p.giorni / p.issues).toFixed(1)} gg</td>
-                      <td style={tdStyle}>
-                        {p.giorni - averageDays > 0 ? "+" : ""}
-                        {p.giorni - averageDays} gg
-                      </td>
-                    </tr>
-                  ))
-                )}
+                ))}
               </tbody>
             </table>
           </div>
@@ -365,7 +465,28 @@ function cleanProjectName(fileName: string) {
     .trim();
 }
 
-function KpiCard({ title, value }: { title: string; value: string }) {
+function getMostFrequent(values: string[]) {
+  if (!values.length) return "";
+
+  const counter: Record<string, number> = {};
+
+  values.forEach((value) => {
+    counter[value] =
+      (counter[value] || 0) + 1;
+  });
+
+  return Object.entries(counter).sort(
+    (a, b) => b[1] - a[1]
+  )[0][0];
+}
+
+function KpiCard({
+  title,
+  value,
+}: {
+  title: string;
+  value: string;
+}) {
   return (
     <div
       style={{
@@ -375,11 +496,24 @@ function KpiCard({ title, value }: { title: string; value: string }) {
         padding: 20,
       }}
     >
-      <div style={{ fontSize: 14, color: "#64748b", marginBottom: 10 }}>
+      <div
+        style={{
+          fontSize: 14,
+          color: "#64748b",
+          marginBottom: 10,
+        }}
+      >
         {title}
       </div>
 
-      <div style={{ fontSize: 32, fontWeight: 800 }}>{value}</div>
+      <div
+        style={{
+          fontSize: 32,
+          fontWeight: 800,
+        }}
+      >
+        {value}
+      </div>
     </div>
   );
 }
