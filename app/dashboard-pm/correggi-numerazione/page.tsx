@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
+import JSZip from "jszip";
 
 type StatoRisultato = {
   totaleRighe?: number;
@@ -9,6 +10,17 @@ type StatoRisultato = {
   giaAllineati?: number;
   mancanti?: number;
   nonTrovati?: number;
+  duplicati?: number;
+};
+
+type ReportRow = {
+  file: string;
+  riga: string;
+  codice_precedente: string;
+  codice_originale: string;
+  codice_finale: string;
+  stato: string;
+  rilievo_odi: string;
 };
 
 export default function CorreggiNumerazioneSchedePage() {
@@ -16,6 +28,7 @@ export default function CorreggiNumerazioneSchedePage() {
   const [zipDaCorreggere, setZipDaCorreggere] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [risultato, setRisultato] = useState<StatoRisultato | null>(null);
+  const [reportRows, setReportRows] = useState<ReportRow[]>([]);
 
   async function correggiNumerazione() {
     if (!zipPrecedente || !zipDaCorreggere) {
@@ -25,6 +38,7 @@ export default function CorreggiNumerazioneSchedePage() {
 
     setLoading(true);
     setRisultato(null);
+    setReportRows([]);
 
     try {
       const fd = new FormData();
@@ -49,10 +63,19 @@ export default function CorreggiNumerazioneSchedePage() {
           setRisultato(JSON.parse(headerStats));
         } catch {
           setRisultato(null);
+    setReportRows([]);
         }
       }
 
       const blob = await res.blob();
+
+      try {
+        const report = await estraiReportDaZip(blob);
+        setReportRows(report.filter((row) => row.stato !== "OK"));
+      } catch (err) {
+        console.warn("Report non leggibile dal file ZIP", err);
+      }
+
       const url = window.URL.createObjectURL(blob);
 
       const a = document.createElement("a");
@@ -132,12 +155,105 @@ export default function CorreggiNumerazioneSchedePage() {
               <Stat label="Corrette" value={risultato.corretti} />
               <Stat label="Già allineate" value={risultato.giaAllineati} />
               <Stat label="Senza riferimento" value={(risultato.mancanti || 0) + (risultato.nonTrovati || 0)} />
+              <Stat label="Duplicati riferimento" value={risultato.duplicati} />
             </div>
+          </section>
+        )}
+
+        {reportRows.length > 0 && (
+          <section style={cardStyle}>
+            <h2 style={sectionTitleStyle}>Report a video - righe non allineate</h2>
+            <div style={tableWrapStyle}>
+              <table style={tableStyle}>
+                <thead>
+                  <tr>
+                    <th style={thStyle}>Scheda</th>
+                    <th style={thStyle}>Riga</th>
+                    <th style={thStyle}>Cronologico precedente</th>
+                    <th style={thStyle}>Cronologico originale</th>
+                    <th style={thStyle}>Cronologico finale</th>
+                    <th style={thStyle}>Stato</th>
+                    <th style={thStyle}>Rilievi ODI</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reportRows.slice(0, 300).map((row, index) => (
+                    <tr key={`${row.file}-${row.riga}-${index}`}>
+                      <td style={tdStyle}>{row.file}</td>
+                      <td style={tdStyle}>{row.riga}</td>
+                      <td style={tdStyle}>{row.codice_precedente}</td>
+                      <td style={tdStyle}>{row.codice_originale}</td>
+                      <td style={tdStyle}>{row.codice_finale}</td>
+                      <td style={tdStyle}><b>{row.stato}</b></td>
+                      <td style={tdStyle}>{row.rilievo_odi}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {reportRows.length > 300 && (
+              <p style={helpStyle}>Sono mostrate le prime 300 righe. Il report completo è dentro lo ZIP scaricato.</p>
+            )}
           </section>
         )}
       </div>
     </main>
   );
+}
+
+async function estraiReportDaZip(blob: Blob): Promise<ReportRow[]> {
+  const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+  const file = zip.file("report_correzione_numerazione.csv");
+  if (!file) return [];
+  const csv = await file.async("string");
+  return parseCsvReport(csv);
+}
+
+function parseCsvReport(csv: string): ReportRow[] {
+  const lines = csv.replace(/^\ufeff/, "").split(/\r?\n/).filter(Boolean);
+  const rows: ReportRow[] = [];
+
+  for (const line of lines.slice(1)) {
+    const values = parseCsvLine(line);
+    if (values.length < 7) continue;
+    rows.push({
+      file: values[0] || "",
+      riga: values[1] || "",
+      codice_precedente: values[2] || "",
+      codice_originale: values[3] || "",
+      codice_finale: values[4] || "",
+      stato: values[5] || "",
+      rilievo_odi: values[6] || "",
+    });
+  }
+
+  return rows;
+}
+
+function parseCsvLine(line: string): string[] {
+  const values: string[] = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    const next = line[i + 1];
+
+    if (char === '"' && inQuotes && next === '"') {
+      current += '"';
+      i += 1;
+    } else if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === ";" && !inQuotes) {
+      values.push(current);
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+
+  values.push(current);
+  return values;
 }
 
 function Stat({ label, value }: { label: string; value?: number }) {
@@ -241,4 +357,31 @@ const statStyle: React.CSSProperties = {
   borderRadius: 12,
   padding: 16,
   background: "#f8fafc",
+};
+
+
+const tableWrapStyle: React.CSSProperties = {
+  overflowX: "auto",
+  border: "1px solid #e2e8f0",
+  borderRadius: 12,
+};
+
+const tableStyle: React.CSSProperties = {
+  width: "100%",
+  borderCollapse: "collapse",
+  fontSize: 13,
+};
+
+const thStyle: React.CSSProperties = {
+  textAlign: "left",
+  padding: 10,
+  borderBottom: "1px solid #e2e8f0",
+  background: "#f8fafc",
+  whiteSpace: "nowrap",
+};
+
+const tdStyle: React.CSSProperties = {
+  padding: 10,
+  borderBottom: "1px solid #e2e8f0",
+  verticalAlign: "top",
 };
