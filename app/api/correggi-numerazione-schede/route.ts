@@ -660,8 +660,15 @@ function normalizeRilievoKey(value: string) {
     .trim();
 }
 
-function normalizeHeader(value: string) {
+ffunction normalizeHeader(value: string) {
   return normalizeRilievoKey(value);
+}
+
+function normalizzaCodiceElaborato(value: string) {
+  return String(value || "")
+    .toUpperCase()
+    .replace(/\s+/g, "")
+    .trim();
 }
 
 function buildCsv(rows: ReportRow[]) {
