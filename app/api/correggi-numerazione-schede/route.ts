@@ -107,7 +107,10 @@ export async function POST(req: Request) {
     });
   } catch (err) {
     console.error("Errore correzione numerazione schede:", err);
-    return new NextResponse("Errore durante la correzione della numerazione NC/OSS.", { status: 500 });
+    return new NextResponse(
+  err instanceof Error ? err.message : "Errore durante la correzione della numerazione NC/OSS.",
+  { status: 500 }
+);
   }
 }
 
