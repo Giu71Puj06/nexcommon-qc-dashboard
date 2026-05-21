@@ -9,6 +9,13 @@ type RilievoRecord = {
   key: string;
 };
 
+type Riferimenti = {
+  byKey: Map<string, RilievoRecord>;
+  byProgressivo: Map<string, RilievoRecord>;
+  duplicateKeys: Set<string>;
+  records: RilievoRecord[];
+};
+
 type ReportRow = {
   file: string;
   riga: number;
@@ -94,8 +101,7 @@ export async function POST(req: Request) {
       const parsed = correggiDocumentXml(
         xml,
         entry.name,
-        riferimenti.byKey,
-        riferimenti.duplicateKeys,
+        riferimenti,
         report
       );
 
@@ -146,8 +152,9 @@ export async function POST(req: Request) {
   }
 }
 
-async function estraiRiferimenti(zip: JSZip) {
+async function estraiRiferimenti(zip: JSZip): Promise<Riferimenti> {
   const byKey = new Map<string, RilievoRecord>();
+  const byProgressivo = new Map<string, RilievoRecord>();
   const duplicateKeys = new Set<string>();
   const records: RilievoRecord[] = [];
 
@@ -171,17 +178,22 @@ async function estraiRiferimenti(zip: JSZip) {
       } else {
         byKey.set(record.key, record);
       }
+
+      const progressivo = estraiProgressivo(record.codice);
+
+      if (progressivo && !byProgressivo.has(progressivo)) {
+        byProgressivo.set(progressivo, record);
+      }
     }
   }
 
-  return { byKey, duplicateKeys, records };
+  return { byKey, byProgressivo, duplicateKeys, records };
 }
 
 function correggiDocumentXml(
   xml: string,
   fileName: string,
-  riferimenti: Map<string, RilievoRecord>,
-  duplicateKeys: Set<string>,
+  riferimenti: Riferimenti,
   report: ReportRow[]
 ) {
   let output = xml;
@@ -228,21 +240,14 @@ function correggiDocumentXml(
 
       stats.totaleRighe += 1;
 
-      if (duplicateKeys.has(key)) {
-        stats.duplicati += 1;
-        report.push({
-          file: fileName,
-          riga: i + 1,
-          codice_precedente: "",
-          codice_originale: codiceOriginale,
-          codice_finale: codiceOriginale,
-          stato: "DUPLICATO_RIFERIMENTO",
-          rilievo_odi: rilievo,
-        });
-        continue;
-      }
+      let ref = riferimenti.byKey.get(key);
 
-      const ref = riferimenti.get(key);
+      if (!ref) {
+        const progressivo = estraiProgressivo(codiceOriginale);
+        if (progressivo) {
+          ref = riferimenti.byProgressivo.get(progressivo);
+        }
+      }
 
       if (!ref) {
         stats.mancanti += 1;
@@ -253,6 +258,20 @@ function correggiDocumentXml(
           codice_originale: codiceOriginale,
           codice_finale: codiceOriginale,
           stato: "NON_TROVATO",
+          rilievo_odi: rilievo,
+        });
+        continue;
+      }
+
+      if (riferimenti.duplicateKeys.has(key) && riferimenti.byKey.has(key)) {
+        stats.duplicati += 1;
+        report.push({
+          file: fileName,
+          riga: i + 1,
+          codice_precedente: ref.codice,
+          codice_originale: codiceOriginale,
+          codice_finale: codiceOriginale,
+          stato: "DUPLICATO_RIFERIMENTO",
           rilievo_odi: rilievo,
         });
         continue;
@@ -473,6 +492,16 @@ function normalizzaCodice(value: string) {
     .trim();
 }
 
+function estraiProgressivo(codice: string) {
+  const match = String(codice || "")
+    .toUpperCase()
+    .match(/^(NC|OSS)\s*(\d+)/);
+
+  if (!match) return "";
+
+  return `${match[1]}${match[2]}`;
+}
+
 function sembraCodiceNcOss(value: string) {
   return /^(NC|OSS)\s*\d+/i.test(String(value || "").trim());
 }
@@ -541,6 +570,7 @@ function buildLog(stats: {
     "Correzione numerazione NC/OSS tra emissioni",
     "Regola: l'emissione da correggere viene adeguata all'emissione precedente.",
     "Chiave di confronto: testo della colonna Rilievi ODI / Rilievi ITS Controlli Tecnici.",
+    "Fallback: se il rilievo non coincide, usa il progressivo NC/OSS.",
     "",
     `Righe analizzate: ${stats.totaleRighe}`,
     `Numerazioni corrette: ${stats.corretti}`,
