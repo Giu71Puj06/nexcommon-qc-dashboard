@@ -30,16 +30,33 @@ export async function POST(req: Request) {
     const precedente = formData.get("emissione_precedente");
     const daCorreggere = formData.get("emissione_da_correggere");
 
-    if (!(precedente instanceof File) || !(daCorreggere instanceof File)) {
-      return new NextResponse("Caricare entrambi gli ZIP: emissione precedente ed emissione da correggere.", { status: 400 });
+    if (
+      !precedente ||
+      !daCorreggere ||
+      typeof (precedente as Blob).arrayBuffer !== "function" ||
+      typeof (daCorreggere as Blob).arrayBuffer !== "function"
+    ) {
+      return new NextResponse(
+        "Caricare entrambi gli ZIP: emissione precedente ed emissione da correggere.",
+        { status: 400 }
+      );
     }
 
-    const zipPrecedente = await JSZip.loadAsync(await precedente.arrayBuffer());
-    const zipDaCorreggere = await JSZip.loadAsync(await daCorreggere.arrayBuffer());
+    const zipPrecedente = await JSZip.loadAsync(
+      await (precedente as Blob).arrayBuffer()
+    );
+
+    const zipDaCorreggere = await JSZip.loadAsync(
+      await (daCorreggere as Blob).arrayBuffer()
+    );
 
     const riferimenti = await estraiRiferimenti(zipPrecedente);
+
     if (riferimenti.records.length === 0) {
-      return new NextResponse("Nessun rilievo NC/OSS trovato nello ZIP dell'emissione precedente.", { status: 400 });
+      return new NextResponse(
+        "Nessun rilievo NC/OSS trovato nello ZIP dell'emissione precedente.",
+        { status: 400 }
+      );
     }
 
     const outputZip = new JSZip();
@@ -51,13 +68,13 @@ export async function POST(req: Request) {
     let mancanti = 0;
     let duplicati = 0;
 
-    const entries = Object.values(zipDaCorreggere.files);
-
-    for (const entry of entries) {
+    for (const entry of Object.values(zipDaCorreggere.files)) {
       if (entry.dir) continue;
 
       const data = await entry.async("uint8array");
-      const isDocx = entry.name.toLowerCase().endsWith(".docx") && !entry.name.includes("__MACOSX/");
+      const isDocx =
+        entry.name.toLowerCase().endsWith(".docx") &&
+        !entry.name.includes("__MACOSX/");
 
       if (!isDocx) {
         outputZip.file(entry.name, data);
@@ -66,13 +83,22 @@ export async function POST(req: Request) {
 
       const docx = await JSZip.loadAsync(data);
       const documentFile = docx.file(WORD_DOCUMENT_XML);
+
       if (!documentFile) {
         outputZip.file(entry.name, data);
         continue;
       }
 
       const xml = await documentFile.async("string");
-      const parsed = correggiDocumentXml(xml, entry.name, riferimenti.byKey, riferimenti.duplicateKeys, report);
+
+      const parsed = correggiDocumentXml(
+        xml,
+        entry.name,
+        riferimenti.byKey,
+        riferimenti.duplicateKeys,
+        report
+      );
+
       docx.file(WORD_DOCUMENT_XML, parsed.xml);
 
       totaleRighe += parsed.stats.totaleRighe;
@@ -86,7 +112,10 @@ export async function POST(req: Request) {
     }
 
     outputZip.file("report_correzione_numerazione.csv", buildCsv(report));
-    outputZip.file("log_correzione.txt", buildLog({ totaleRighe, corretti, giaAllineati, mancanti, duplicati }));
+    outputZip.file(
+      "log_correzione.txt",
+      buildLog({ totaleRighe, corretti, giaAllineati, mancanti, duplicati })
+    );
 
     const out = await outputZip.generateAsync({ type: "uint8array" });
 
@@ -107,10 +136,13 @@ export async function POST(req: Request) {
     });
   } catch (err) {
     console.error("Errore correzione numerazione schede:", err);
+
     return new NextResponse(
-  err instanceof Error ? err.message : "Errore durante la correzione della numerazione NC/OSS.",
-  { status: 500 }
-);
+      err instanceof Error
+        ? err.message
+        : "Errore durante la correzione della numerazione NC/OSS.",
+      { status: 500 }
+    );
   }
 }
 
@@ -133,8 +165,12 @@ async function estraiRiferimenti(zip: JSZip) {
 
     for (const record of estratti) {
       records.push(record);
-      if (byKey.has(record.key)) duplicateKeys.add(record.key);
-      else byKey.set(record.key, record);
+
+      if (byKey.has(record.key)) {
+        duplicateKeys.add(record.key);
+      } else {
+        byKey.set(record.key, record);
+      }
     }
   }
 
@@ -150,7 +186,14 @@ function correggiDocumentXml(
 ) {
   let output = xml;
   const replacements: Array<{ from: string; to: string }> = [];
-  const stats = { totaleRighe: 0, corretti: 0, giaAllineati: 0, mancanti: 0, duplicati: 0 };
+
+  const stats = {
+    totaleRighe: 0,
+    corretti: 0,
+    giaAllineati: 0,
+    mancanti: 0,
+    duplicati: 0,
+  };
 
   const tables = matchAll(xml, /<w:tbl[\s\S]*?<\/w:tbl>/g);
 
@@ -164,13 +207,24 @@ function correggiDocumentXml(
     for (let i = headerInfo.headerRowIndex + 1; i < rows.length; i += 1) {
       const row = rows[i];
       const cells = estraiCelle(row);
-      if (cells.length <= Math.max(headerInfo.codiceCol, headerInfo.rilievoCol)) continue;
 
-      const codiceOriginale = normalizzaCodice(estraiTesto(cells[headerInfo.codiceCol]));
-      const rilievo = pulisciTestoRilievo(estraiTesto(cells[headerInfo.rilievoCol]));
+      if (cells.length <= Math.max(headerInfo.codiceCol, headerInfo.rilievoCol)) {
+        continue;
+      }
+
+      const codiceOriginale = normalizzaCodice(
+        estraiTesto(cells[headerInfo.codiceCol])
+      );
+
+      const rilievo = pulisciTestoRilievo(
+        estraiTesto(cells[headerInfo.rilievoCol])
+      );
+
       const key = normalizeRilievoKey(rilievo);
 
-      if (!key || !rilievo || !sembraCodiceNcOss(codiceOriginale)) continue;
+      if (!key || !rilievo || !sembraCodiceNcOss(codiceOriginale)) {
+        continue;
+      }
 
       stats.totaleRighe += 1;
 
@@ -189,6 +243,7 @@ function correggiDocumentXml(
       }
 
       const ref = riferimenti.get(key);
+
       if (!ref) {
         stats.mancanti += 1;
         report.push({
@@ -204,6 +259,7 @@ function correggiDocumentXml(
       }
 
       const codicePrecedente = normalizzaCodice(ref.codice);
+
       if (!codicePrecedente) {
         stats.mancanti += 1;
         report.push({
@@ -232,11 +288,17 @@ function correggiDocumentXml(
         continue;
       }
 
-      const newCell = sostituisciTestoCella(cells[headerInfo.codiceCol], codicePrecedente);
+      const newCell = sostituisciTestoCella(
+        cells[headerInfo.codiceCol],
+        codicePrecedente
+      );
+
       const newCells = [...cells];
       newCells[headerInfo.codiceCol] = newCell;
+
       const newRow = ricostruisciRiga(row, newCells);
       replacements.push({ from: row, to: newRow });
+
       stats.corretti += 1;
 
       report.push({
@@ -258,7 +320,10 @@ function correggiDocumentXml(
   return { xml: output, stats };
 }
 
-function estraiRecordsDaDocumentXml(xml: string, fileName: string): RilievoRecord[] {
+function estraiRecordsDaDocumentXml(
+  xml: string,
+  fileName: string
+): RilievoRecord[] {
   const records: RilievoRecord[] = [];
   const tables = matchAll(xml, /<w:tbl[\s\S]*?<\/w:tbl>/g);
 
@@ -271,15 +336,32 @@ function estraiRecordsDaDocumentXml(xml: string, fileName: string): RilievoRecor
 
     for (let i = headerInfo.headerRowIndex + 1; i < rows.length; i += 1) {
       const cells = estraiCelle(rows[i]);
-      if (cells.length <= Math.max(headerInfo.codiceCol, headerInfo.rilievoCol)) continue;
 
-      const codice = normalizzaCodice(estraiTesto(cells[headerInfo.codiceCol]));
-      const rilievo = pulisciTestoRilievo(estraiTesto(cells[headerInfo.rilievoCol]));
+      if (cells.length <= Math.max(headerInfo.codiceCol, headerInfo.rilievoCol)) {
+        continue;
+      }
+
+      const codice = normalizzaCodice(
+        estraiTesto(cells[headerInfo.codiceCol])
+      );
+
+      const rilievo = pulisciTestoRilievo(
+        estraiTesto(cells[headerInfo.rilievoCol])
+      );
+
       const key = normalizeRilievoKey(rilievo);
 
-      if (!key || !rilievo || !sembraCodiceNcOss(codice)) continue;
+      if (!key || !rilievo || !sembraCodiceNcOss(codice)) {
+        continue;
+      }
 
-      records.push({ file: fileName, rowIndex: i + 1, codice, rilievo, key });
+      records.push({
+        file: fileName,
+        rowIndex: i + 1,
+        codice,
+        rilievo,
+        key,
+      });
     }
   }
 
@@ -291,31 +373,37 @@ function trovaColonneTabella(rows: string[]) {
     const cells = estraiCelle(rows[rowIndex]);
     const texts = cells.map((cell) => normalizeHeader(estraiTesto(cell)));
 
-    let codiceCol = texts.findIndex((text) =>
-      text.includes("CRONOLOGICO") ||
-      text.includes("N CRONOLOGICO") ||
-      text.includes("NUMERO CRONOLOGICO") ||
-      text.includes("N. CRONOLOGICO") ||
-      text === "NCOSS" ||
-      text.includes("NCOSS") ||
-      text.includes("NC OSS") ||
-      text.includes("CLASSIFICAZIONE") ||
-      text.includes("TIPO RILIEVO") ||
-      text === "CODICE"
+    let codiceCol = texts.findIndex(
+      (text) =>
+        text.includes("CRONOLOGICO") ||
+        text.includes("N CRONOLOGICO") ||
+        text.includes("NUMERO CRONOLOGICO") ||
+        text.includes("N CRONOLOGICO") ||
+        text === "NCOSS" ||
+        text.includes("NCOSS") ||
+        text.includes("NC OSS") ||
+        text.includes("CLASSIFICAZIONE") ||
+        text.includes("TIPO RILIEVO") ||
+        text === "CODICE"
     );
 
-    let rilievoCol = texts.findIndex((text) =>
-      text.includes("RILIEVI ODI") ||
-      text.includes("RILIEVO ODI") ||
-      text.includes("RILIEVIODI") ||
-      text.includes("RILIEVOODI") ||
-      text.includes("DESCRIZIONE")
+    let rilievoCol = texts.findIndex(
+      (text) =>
+        text.includes("RILIEVI ODI") ||
+        text.includes("RILIEVO ODI") ||
+        text.includes("RILIEVIODI") ||
+        text.includes("RILIEVOODI") ||
+        text.includes("DESCRIZIONE")
     );
 
-    if (codiceCol < 0 && cells.length > 0 && rows.slice(rowIndex + 1, rowIndex + 4).some((r) => {
-      const first = estraiCelle(r)[0];
-      return first && sembraCodiceNcOss(estraiTesto(first));
-    })) {
+    if (
+      codiceCol < 0 &&
+      cells.length > 0 &&
+      rows.slice(rowIndex + 1, rowIndex + 4).some((r) => {
+        const first = estraiCelle(r)[0];
+        return first && sembraCodiceNcOss(estraiTesto(first));
+      })
+    ) {
       codiceCol = 0;
     }
 
@@ -337,12 +425,18 @@ function estraiCelle(rowXml: string) {
 
 function ricostruisciRiga(rowXml: string, newCells: string[]) {
   let index = 0;
-  return rowXml.replace(/<w:tc[\s\S]*?<\/w:tc>/g, () => newCells[index++] || "");
+  return rowXml.replace(/<w:tc[\s\S]*?<\/w:tc>/g, () => {
+    const cell = newCells[index];
+    index += 1;
+    return cell || "";
+  });
 }
 
 function estraiTesto(xml: string) {
   return matchAll(xml, /<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g)
-    .map((part) => decodeXml(part.replace(/^<w:t(?:\s[^>]*)?>/, "").replace(/<\/w:t>$/, "")))
+    .map((part) =>
+      decodeXml(part.replace(/^<w:t(?:\s[^>]*)?>/, "").replace(/<\/w:t>$/, ""))
+    )
     .join("")
     .replace(/\u00a0/g, " ")
     .replace(/\s+/g, " ")
@@ -351,20 +445,27 @@ function estraiTesto(xml: string) {
 
 function sostituisciTestoCella(cellXml: string, nuovoTesto: string) {
   let replaced = false;
-  return cellXml.replace(/<w:t(\s[^>]*)?>([\s\S]*?)<\/w:t>/g, (match, attrs) => {
-    if (!replaced) {
-      replaced = true;
-      return `<w:t${attrs || ""}>${escapeXml(nuovoTesto)}</w:t>`;
+
+  return cellXml.replace(
+    /<w:t(\s[^>]*)?>([\s\S]*?)<\/w:t>/g,
+    (match, attrs) => {
+      if (!replaced) {
+        replaced = true;
+        return `<w:t${attrs || ""}>${escapeXml(nuovoTesto)}</w:t>`;
+      }
+
+      return match.replace(/>([\s\S]*?)<\/w:t>$/, `></w:t>`);
     }
-    return match.replace(/>([\s\S]*?)<\/w:t>$/, `></w:t>`);
-  });
+  );
 }
 
 function normalizzaCodice(value: string) {
   return String(value || "")
     .replace(/\u00a0/g, " ")
     .replace(/\s+/g, "")
-    .replace(/^(NC|OSS)(\d+)/i, (_, tipo, numero) => `${String(tipo).toUpperCase()}${numero}`)
+    .replace(/^(NC|OSS)(\d+)/i, (_, tipo, numero) => {
+      return `${String(tipo).toUpperCase()}${numero}`;
+    })
     .trim();
 }
 
@@ -394,7 +495,16 @@ function normalizeHeader(value: string) {
 }
 
 function buildCsv(rows: ReportRow[]) {
-  const header = ["file", "riga", "codice_precedente", "codice_originale", "codice_finale", "stato", "rilievo_odi"];
+  const header = [
+    "file",
+    "riga",
+    "codice_precedente",
+    "codice_originale",
+    "codice_finale",
+    "stato",
+    "rilievo_odi",
+  ];
+
   const lines = [header.join(";")];
 
   for (const row of rows) {
@@ -416,7 +526,13 @@ function buildCsv(rows: ReportRow[]) {
   return "\ufeff" + lines.join("\n");
 }
 
-function buildLog(stats: { totaleRighe: number; corretti: number; giaAllineati: number; mancanti: number; duplicati: number }) {
+function buildLog(stats: {
+  totaleRighe: number;
+  corretti: number;
+  giaAllineati: number;
+  mancanti: number;
+  duplicati: number;
+}) {
   return [
     "Correzione numerazione NC/OSS tra emissioni",
     "Regola: l'emissione da correggere viene adeguata all'emissione precedente.",
