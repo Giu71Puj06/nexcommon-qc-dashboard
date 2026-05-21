@@ -348,7 +348,7 @@ function buildKpis(files: EconomicFile[]): EconomicKpi[] {
     grouped.set(file.commessa, [...(grouped.get(file.commessa) || []), file]);
   });
 
-  return Array.from(grouped.entries())
+  return (Array.from(grouped.entries()) as [string, EconomicFile[]][])
     .map(([commessa, rows]) => {
       const iniziali = rows.filter((row) => row.fase === "iniziale");
       const finali = rows.filter((row) => row.fase === "finale");
