@@ -22,9 +22,7 @@ export default function DashboardPMPage() {
           <div style={toolsGridStyle}>
             <a href="/dashboard-pm/correggi-numerazione" style={toolCardStyle}>
               <div style={{ ...badgeStyle, color: "#0284c7" }}>MODULO PM</div>
-
               <div style={toolTitleStyle}>Correzione numerazione schede</div>
-
               <div style={toolDescriptionStyle}>
                 Allinea automaticamente NC e OSS tra due emissioni di schede ispettive Word,
                 corregge i cronologici, elimina duplicati, riordina le tabelle ed esporta il report Excel.
@@ -33,12 +31,20 @@ export default function DashboardPMPage() {
 
             <a href="/dashboard-pm/tempi-verifica" style={toolCardStyle}>
               <div style={{ ...badgeStyle, color: "#16a34a" }}>MODULO KPI</div>
-
-              <div style={toolTitleStyle}>Stima costi e tempi verifica</div>
-
+              <div style={toolTitleStyle}>Stima tempi medi verifica</div>
               <div style={toolDescriptionStyle}>
-                Analizza file BCF, schede ispettive Word ed elaborati economici per stimare
-                tempi medi di verifica, impatti economici, produttività ispettiva e KPI QA/QC.
+                Analizza file BCF e schede ispettive Word per stimare tempi medi di verifica,
+                produttività ispettiva, discipline prevalenti e KPI QA/QC.
+              </div>
+            </a>
+
+            <a href="/dashboard-pm/variazioni-economiche" style={toolCardStyle}>
+              <div style={{ ...badgeStyle, color: "#dc2626" }}>MODULO ECONOMICO</div>
+              <div style={toolTitleStyle}>Analisi variazioni economiche</div>
+              <div style={toolDescriptionStyle}>
+                Confronta i PDF economici della fase iniziale e finale della verifica,
+                calcola incremento/decremento per commessa, delta percentuali,
+                KPI economici e report esportabili.
               </div>
             </a>
           </div>
