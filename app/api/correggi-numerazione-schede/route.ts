@@ -30,12 +30,17 @@ export async function POST(req: Request) {
     const precedente = formData.get("emissione_precedente");
     const daCorreggere = formData.get("emissione_da_correggere");
 
-    if (!(precedente instanceof File) || !(daCorreggere instanceof File)) {
-      return new NextResponse("Caricare entrambi gli ZIP: emissione precedente ed emissione da correggere.", { status: 400 });
-    }
+   if (
+  !precedente ||
+  !daCorreggere ||
+  typeof (precedente as Blob).arrayBuffer !== "function" ||
+  typeof (daCorreggere as Blob).arrayBuffer !== "function"
+) {
+  return new NextResponse("Caricare entrambi gli ZIP: emissione precedente ed emissione da correggere.", { status: 400 });
+}
 
-    const zipPrecedente = await JSZip.loadAsync(await precedente.arrayBuffer());
-    const zipDaCorreggere = await JSZip.loadAsync(await daCorreggere.arrayBuffer());
+const zipPrecedente = await JSZip.loadAsync(await (precedente as Blob).arrayBuffer());
+const zipDaCorreggere = await JSZip.loadAsync(await (daCorreggere as Blob).arrayBuffer());
 
     const riferimenti = await estraiRiferimenti(zipPrecedente);
     if (riferimenti.records.length === 0) {
