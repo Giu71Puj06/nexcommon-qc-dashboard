@@ -1,9 +1,79 @@
 "use client";
 
-import React from "react";
+import React, { useMemo, useState } from "react";
 import Link from "next/link";
 
+type ProjectKpi = {
+  nome: string;
+  issues: number;
+  giorni: number;
+};
+
 export default function TempiVerificaPage() {
+  const [projects, setProjects] = useState<ProjectKpi[]>([]);
+
+  const totalIssues = useMemo(() => {
+    return projects.reduce((acc, p) => acc + p.issues, 0);
+  }, [projects]);
+
+  const totalProjects = useMemo(() => {
+    return projects.length;
+  }, [projects]);
+
+  const averageDays = useMemo(() => {
+    if (!projects.length) return 0;
+
+    const total = projects.reduce((acc, p) => acc + p.giorni, 0);
+
+    return Math.round(total / projects.length);
+  }, [projects]);
+
+  const averageIssueDays = useMemo(() => {
+    if (!totalIssues) return 0;
+
+    const total = projects.reduce((acc, p) => acc + p.giorni, 0);
+
+    return (total / totalIssues).toFixed(1);
+  }, [projects, totalIssues]);
+
+  async function handleBcfUpload(
+    event: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const files = event.target.files;
+
+    if (!files || !files.length) return;
+
+    const parsed: ProjectKpi[] = [];
+
+    for (const file of Array.from(files)) {
+      const fileName = file.name;
+
+      const fakeIssues =
+        Math.floor(Math.random() * 40) + 5;
+
+      const fakeDays =
+        Math.floor(Math.random() * 90) + 10;
+
+      parsed.push({
+        nome: fileName.replace(".bcfzip", "").replace(".bcf", ""),
+        issues: fakeIssues,
+        giorni: fakeDays,
+      });
+    }
+
+    setProjects(parsed);
+  }
+
+  function clearProjects() {
+    setProjects([]);
+  }
+
+  function exportExcel() {
+    alert(
+      "Export XLSX pronto. Collegare successivamente SheetJS/XLSX."
+    );
+  }
+
   return (
     <main
       style={{
@@ -55,9 +125,10 @@ export default function TempiVerificaPage() {
             lineHeight: 1.6,
           }}
         >
-          Analizza file BCF, BCFZIP e schede ispettive Word per calcolare
-          durata media delle verifiche, tempi medi per rilievo,
-          KPI progetto ed esportazione report XLSX.
+          Analizza file BCF, BCFZIP e schede ispettive Word
+          per calcolare durata media delle verifiche,
+          tempi medi per rilievo, KPI progetto
+          ed esportazione report XLSX.
         </p>
 
         {/* ===================== BCF ===================== */}
@@ -102,9 +173,16 @@ export default function TempiVerificaPage() {
               alignItems: "center",
             }}
           >
-            <input type="file" multiple style={{ flex: 1 }} />
+            <input
+              type="file"
+              multiple
+              accept=".bcf,.bcfzip"
+              style={{ flex: 1 }}
+              onChange={handleBcfUpload}
+            />
 
             <button
+              onClick={clearProjects}
               style={{
                 padding: "12px 18px",
                 border: 0,
@@ -112,12 +190,14 @@ export default function TempiVerificaPage() {
                 background: "#94a3b8",
                 color: "#fff",
                 fontWeight: 700,
+                cursor: "pointer",
               }}
             >
               Svuota progetti
             </button>
 
             <button
+              onClick={exportExcel}
               style={{
                 padding: "12px 18px",
                 border: 0,
@@ -125,6 +205,7 @@ export default function TempiVerificaPage() {
                 background: "#0f172a",
                 color: "#fff",
                 fontWeight: 700,
+                cursor: "pointer",
               }}
             >
               Esporta XLSX
@@ -174,7 +255,12 @@ export default function TempiVerificaPage() {
               alignItems: "center",
             }}
           >
-            <input type="file" multiple style={{ flex: 1 }} />
+            <input
+              type="file"
+              multiple
+              accept=".doc,.docx"
+              style={{ flex: 1 }}
+            />
 
             <button
               style={{
@@ -212,6 +298,7 @@ export default function TempiVerificaPage() {
             border: "1px solid #cbd5e1",
             borderRadius: 16,
             padding: 20,
+            marginBottom: 24,
           }}
         >
           <h2
@@ -228,48 +315,146 @@ export default function TempiVerificaPage() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gridTemplateColumns:
+                "repeat(auto-fit, minmax(220px, 1fr))",
               gap: 16,
             }}
           >
-            {[
-              "Tempo medio verifica",
-              "Giorni medi per rilievo",
-              "Numero issue",
-              "Numero commesse",
-            ].map((item) => (
-              <div
-                key={item}
-                style={{
-                  background: "#f8fafc",
-                  border: "1px solid #cbd5e1",
-                  borderRadius: 14,
-                  padding: 20,
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 14,
-                    color: "#64748b",
-                    marginBottom: 10,
-                  }}
-                >
-                  {item}
-                </div>
+            <KpiCard
+              title="Tempo medio verifica"
+              value={`${averageDays} gg`}
+            />
 
-                <div
+            <KpiCard
+              title="Giorni medi per rilievo"
+              value={`${averageIssueDays} gg`}
+            />
+
+            <KpiCard
+              title="Numero issue"
+              value={String(totalIssues)}
+            />
+
+            <KpiCard
+              title="Numero commesse"
+              value={String(totalProjects)}
+            />
+          </div>
+        </section>
+
+        {/* ===================== TABELLA ===================== */}
+
+        <section
+          style={{
+            background: "#ffffff",
+            border: "1px solid #cbd5e1",
+            borderRadius: 16,
+            padding: 20,
+          }}
+        >
+          <h2
+            style={{
+              marginTop: 0,
+              marginBottom: 20,
+              fontSize: 22,
+              fontWeight: 800,
+            }}
+          >
+            Report commesse
+          </h2>
+
+          <div style={{ overflowX: "auto" }}>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+              }}
+            >
+              <thead>
+                <tr
                   style={{
-                    fontSize: 32,
-                    fontWeight: 800,
+                    background: "#f8fafc",
                   }}
                 >
-                  -
-                </div>
-              </div>
-            ))}
+                  <th style={thStyle}>Commessa</th>
+                  <th style={thStyle}>Issue</th>
+                  <th style={thStyle}>Durata verifica</th>
+                  <th style={thStyle}>Giorni / rilievo</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {projects.map((p, index) => (
+                  <tr key={index}>
+                    <td style={tdStyle}>{p.nome}</td>
+
+                    <td style={tdStyle}>{p.issues}</td>
+
+                    <td style={tdStyle}>
+                      {p.giorni} gg
+                    </td>
+
+                    <td style={tdStyle}>
+                      {(p.giorni / p.issues).toFixed(1)} gg
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </section>
       </div>
     </main>
   );
 }
+
+function KpiCard({
+  title,
+  value,
+}: {
+  title: string;
+  value: string;
+}) {
+  return (
+    <div
+      style={{
+        background: "#f8fafc",
+        border: "1px solid #cbd5e1",
+        borderRadius: 14,
+        padding: 20,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 14,
+          color: "#64748b",
+          marginBottom: 10,
+        }}
+      >
+        {title}
+      </div>
+
+      <div
+        style={{
+          fontSize: 32,
+          fontWeight: 800,
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+const thStyle: React.CSSProperties = {
+  textAlign: "left",
+  padding: 12,
+  borderBottom: "1px solid #cbd5e1",
+  fontSize: 14,
+};
+
+const tdStyle: React.CSSProperties = {
+  padding: 12,
+  borderBottom: "1px solid #e2e8f0",
+  fontSize: 14,
+};
