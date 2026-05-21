@@ -9,6 +9,7 @@ type EconomicFile = {
   fase: "iniziale" | "finale";
   fileName: string;
   importo: number;
+  warning?: string;
 };
 
 type EconomicKpi = {
@@ -22,11 +23,19 @@ type EconomicKpi = {
   fileFinali: string[];
 };
 
+type ApiExtractedFile = {
+  fileName: string;
+  commessa: string;
+  importo: number;
+  fase: "iniziale" | "finale";
+  warning?: string;
+};
+
 export default function VariazioniEconomichePage() {
-  const [commessa, setCommessa] = useState("");
   const [fase, setFase] = useState<"iniziale" | "finale">("iniziale");
-  const [importo, setImporto] = useState("");
   const [files, setFiles] = useState<EconomicFile[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [lastMessage, setLastMessage] = useState("");
 
   const kpis = useMemo(() => buildKpis(files), [files]);
 
@@ -49,43 +58,98 @@ export default function VariazioniEconomichePage() {
 
   async function handlePdfUpload(event: React.ChangeEvent<HTMLInputElement>) {
     const selected = Array.from(event.target.files || []);
+    if (!selected.length) return;
 
-    if (!commessa.trim()) {
-      alert("Inserisci il nome della commessa prima di caricare i PDF.");
-      event.target.value = "";
-      return;
-    }
+    const pdfFiles = selected.filter((file) => file.name.toLowerCase().endsWith(".pdf"));
 
-    const amount = parseImporto(importo);
-
-    if (!amount || amount <= 0) {
-      alert("Inserisci l'importo economico totale del documento caricato.");
-      event.target.value = "";
-      return;
-    }
-
-    const newRows = selected
-      .filter((file) => file.name.toLowerCase().endsWith(".pdf"))
-      .map((file) => ({
-        id: `${file.name}-${Date.now()}-${Math.random()}`,
-        commessa: commessa.trim(),
-        fase,
-        fileName: file.name,
-        importo: amount,
-      }));
-
-    if (newRows.length === 0) {
+    if (!pdfFiles.length) {
       alert("Carica almeno un file PDF.");
       event.target.value = "";
       return;
     }
 
-    setFiles((prev) => [...prev, ...newRows]);
-    event.target.value = "";
+    setIsLoading(true);
+    setLastMessage("Analisi PDF in corso...");
+
+    try {
+      const formData = new FormData();
+      formData.append("fase", fase);
+
+      pdfFiles.forEach((file) => {
+        formData.append("files", file);
+      });
+
+      const response = await fetch("/api/variazioni-economiche", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data?.error || "Errore durante l'analisi dei PDF.");
+      }
+
+      const extractedFiles: ApiExtractedFile[] = data.files || [];
+
+      const newRows: EconomicFile[] = extractedFiles.map((file) => ({
+        id: `${file.fileName}-${Date.now()}-${Math.random()}`,
+        commessa: file.commessa || cleanProjectName(file.fileName),
+        fase: file.fase || fase,
+        fileName: file.fileName,
+        importo: Number(file.importo || 0),
+        warning: file.warning,
+      }));
+
+      setFiles((prev) => [...prev, ...newRows]);
+
+      const warnings = newRows.filter((row) => row.warning || row.importo <= 0);
+
+      if (warnings.length > 0) {
+        setLastMessage(
+          `${newRows.length} PDF analizzati. ${warnings.length} documento/i richiedono verifica perché l'importo non è stato rilevato.`
+        );
+      } else {
+        setLastMessage(`${newRows.length} PDF analizzati correttamente.`);
+      }
+    } catch (error) {
+      alert(
+        error instanceof Error
+          ? error.message
+          : "Errore durante l'analisi dei PDF economici."
+      );
+      setLastMessage("");
+    } finally {
+      setIsLoading(false);
+      event.target.value = "";
+    }
   }
 
   function clearData() {
     setFiles([]);
+    setLastMessage("");
+  }
+
+  function updateFileField(
+    id: string,
+    field: "commessa" | "importo" | "fase",
+    value: string
+  ) {
+    setFiles((prev) =>
+      prev.map((file) => {
+        if (file.id !== id) return file;
+
+        if (field === "importo") {
+          return { ...file, importo: parseImporto(value), warning: undefined };
+        }
+
+        if (field === "fase") {
+          return { ...file, fase: value as "iniziale" | "finale" };
+        }
+
+        return { ...file, commessa: value };
+      })
+    );
   }
 
   function exportReport() {
@@ -112,19 +176,13 @@ export default function VariazioniEconomichePage() {
         "Importo finale": totals.finale,
         "Delta economico": totals.delta,
         "Delta %": Number(totals.deltaPercent.toFixed(2)),
-        Stato:
-          totals.delta > 0
-            ? "In aumento"
-            : totals.delta < 0
-            ? "In diminuzione"
-            : "Stabile",
+        Stato: totals.delta > 0 ? "In aumento" : totals.delta < 0 ? "In diminuzione" : "Stabile",
         "File fase iniziale": "",
         "File fase finale": "",
       },
     ];
 
     const allRows = [...summaryRows, ...rows];
-
     const csvHeader = Object.keys(allRows[0]).join(";");
     const csvRows = allRows.map((row) =>
       Object.values(row)
@@ -134,9 +192,9 @@ export default function VariazioniEconomichePage() {
 
     const csv = "\ufeff" + [csvHeader, ...csvRows].join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
+
     a.href = url;
     a.download = "analisi_variazioni_economiche.csv";
     document.body.appendChild(a);
@@ -157,24 +215,15 @@ export default function VariazioniEconomichePage() {
         <h1 style={titleStyle}>Analisi variazioni economiche</h1>
 
         <p style={leadStyle}>
-          Carica i PDF economici della fase iniziale e finale della verifica per confrontare
-          gli importi delle singole commesse e calcolare incremento/decremento economico.
+          Carica i PDF economici della fase iniziale e finale della verifica. Il sistema prova a leggere
+          automaticamente nome commessa e importo dal documento; se un dato non viene rilevato, puoi correggerlo
+          nella tabella di verifica.
         </p>
 
         <section style={sectionStyle}>
           <h2 style={h2Style}>Caricamento elaborati economici PDF</h2>
 
           <div style={formGridStyle}>
-            <label>
-              <b>Commessa</b>
-              <input
-                value={commessa}
-                onChange={(e) => setCommessa(e.target.value)}
-                placeholder="Esempio: Ponte XYZ - Lotto 1"
-                style={inputStyle}
-              />
-            </label>
-
             <label>
               <b>Fase documento</b>
               <select
@@ -186,26 +235,32 @@ export default function VariazioniEconomichePage() {
                 <option value="finale">Fase finale / conclusione verifica</option>
               </select>
             </label>
-
-            <label>
-              <b>Importo totale documento</b>
-              <input
-                value={importo}
-                onChange={(e) => setImporto(e.target.value)}
-                placeholder="Esempio: 1250000 oppure 1.250.000,00"
-                style={inputStyle}
-              />
-            </label>
           </div>
 
           <div style={{ marginTop: 18 }}>
-            <input type="file" multiple accept=".pdf" onChange={handlePdfUpload} />
+            <input type="file" multiple accept=".pdf" onChange={handlePdfUpload} disabled={isLoading} />
           </div>
 
           <p style={helpStyle}>
-            In questa prima versione il PM inserisce l'importo totale letto dal quadro economico/computo.
-            Il file PDF viene registrato come fonte documentale della fase selezionata.
+            Non devi inserire manualmente commessa e importo prima del caricamento. Il sistema li estrae dal PDF e
+            mostra sotto i dati rilevati.
           </p>
+
+          {lastMessage && (
+            <div
+              style={{
+                marginTop: 12,
+                padding: 12,
+                borderRadius: 10,
+                background: "#eff6ff",
+                border: "1px solid #bfdbfe",
+                color: "#1e40af",
+                fontWeight: 700,
+              }}
+            >
+              {lastMessage}
+            </div>
+          )}
 
           <div style={actionsStyle}>
             <button
@@ -233,6 +288,73 @@ export default function VariazioniEconomichePage() {
             >
               Svuota dati
             </button>
+          </div>
+        </section>
+
+        <section style={sectionStyle}>
+          <h2 style={h2Style}>Dati rilevati dai PDF</h2>
+
+          <div style={{ overflowX: "auto" }}>
+            <table style={tableStyle}>
+              <thead>
+                <tr style={{ background: "#f8fafc" }}>
+                  <th style={thStyle}>File</th>
+                  <th style={thStyle}>Commessa rilevata</th>
+                  <th style={thStyle}>Fase</th>
+                  <th style={thStyle}>Importo rilevato</th>
+                  <th style={thStyle}>Esito</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {files.length === 0 ? (
+                  <tr>
+                    <td style={tdStyle} colSpan={5}>
+                      Nessun PDF caricato.
+                    </td>
+                  </tr>
+                ) : (
+                  files.map((file) => (
+                    <tr key={file.id}>
+                      <td style={tdStyle}>{file.fileName}</td>
+
+                      <td style={tdStyle}>
+                        <input
+                          value={file.commessa}
+                          onChange={(e) => updateFileField(file.id, "commessa", e.target.value)}
+                          style={smallInputStyle}
+                        />
+                      </td>
+
+                      <td style={tdStyle}>
+                        <select
+                          value={file.fase}
+                          onChange={(e) => updateFileField(file.id, "fase", e.target.value)}
+                          style={smallInputStyle}
+                        >
+                          <option value="iniziale">Iniziale</option>
+                          <option value="finale">Finale</option>
+                        </select>
+                      </td>
+
+                      <td style={tdStyle}>
+                        <input
+                          value={file.importo > 0 ? String(file.importo) : ""}
+                          onChange={(e) => updateFileField(file.id, "importo", e.target.value)}
+                          placeholder="Da verificare"
+                          style={smallInputStyle}
+                        />
+                      </td>
+
+                      <td style={tdStyle}>
+                        {file.importo > 0 ? "Letto automaticamente" : "Da verificare"}
+                        {file.warning ? ` - ${file.warning}` : ""}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         </section>
 
@@ -277,12 +399,7 @@ export default function VariazioniEconomichePage() {
                         style={{
                           width: `${width}%`,
                           height: "100%",
-                          background:
-                            kpi.delta > 0
-                              ? "#dc2626"
-                              : kpi.delta < 0
-                              ? "#16a34a"
-                              : "#64748b",
+                          background: kpi.delta > 0 ? "#dc2626" : kpi.delta < 0 ? "#16a34a" : "#64748b",
                         }}
                       />
                     </div>
@@ -344,9 +461,11 @@ export default function VariazioniEconomichePage() {
 function buildKpis(files: EconomicFile[]): EconomicKpi[] {
   const grouped = new Map<string, EconomicFile[]>();
 
-  files.forEach((file) => {
-    grouped.set(file.commessa, [...(grouped.get(file.commessa) || []), file]);
-  });
+  files
+    .filter((file) => file.importo > 0 && file.commessa.trim())
+    .forEach((file) => {
+      grouped.set(file.commessa, [...(grouped.get(file.commessa) || []), file]);
+    });
 
   return (Array.from(grouped.entries()) as [string, EconomicFile[]][])
     .map(([commessa, rows]) => {
@@ -359,11 +478,7 @@ function buildKpis(files: EconomicFile[]): EconomicKpi[] {
       const deltaPercent = importoIniziale > 0 ? (delta / importoIniziale) * 100 : 0;
 
       const stato: EconomicKpi["stato"] =
-        delta > 0
-          ? "In aumento"
-          : delta < 0
-          ? "In diminuzione"
-          : "Stabile";
+        delta > 0 ? "In aumento" : delta < 0 ? "In diminuzione" : "Stabile";
 
       return {
         commessa,
@@ -379,14 +494,13 @@ function buildKpis(files: EconomicFile[]): EconomicKpi[] {
     .filter((kpi) => kpi.importoIniziale > 0 || kpi.importoFinale > 0);
 }
 
+function cleanProjectName(fileName: string): string {
+  return fileName.replace(/\.pdf$/i, "").replace(/[_-]+/g, " ").trim();
+}
+
 function parseImporto(value: string): number {
-  const normalized = value
-    .replace(/\s/g, "")
-    .replace(/\./g, "")
-    .replace(",", ".");
-
+  const normalized = value.replace(/\s/g, "").replace(/\./g, "").replace(",", ".");
   const parsed = Number(normalized);
-
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
@@ -406,10 +520,7 @@ function formatPercent(value: number): string {
 function KpiCard({ title, value }: { title: string; value: string }) {
   return (
     <div style={kpiCardStyle}>
-      <div style={{ fontSize: 14, color: "#64748b", marginBottom: 10 }}>
-        {title}
-      </div>
-
+      <div style={{ fontSize: 14, color: "#64748b", marginBottom: 10 }}>{title}</div>
       <div style={{ fontSize: 28, fontWeight: 800 }}>{value}</div>
     </div>
   );
@@ -468,13 +579,6 @@ const h2Style: React.CSSProperties = {
   fontWeight: 800,
 };
 
-const pStyle: React.CSSProperties = {
-  marginTop: 0,
-  marginBottom: 14,
-  color: "#64748b",
-  lineHeight: 1.5,
-};
-
 const helpStyle: React.CSSProperties = {
   marginTop: 10,
   color: "#64748b",
@@ -494,6 +598,15 @@ const inputStyle: React.CSSProperties = {
   padding: 12,
   border: "1px solid #cbd5e1",
   borderRadius: 10,
+  background: "#fff",
+};
+
+const smallInputStyle: React.CSSProperties = {
+  width: "100%",
+  minWidth: 160,
+  padding: 8,
+  border: "1px solid #cbd5e1",
+  borderRadius: 8,
   background: "#fff",
 };
 
