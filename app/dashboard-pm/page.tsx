@@ -525,59 +525,111 @@ export default function DashboardPMPage() {
   <h2 style={{ marginTop: 0 }}>Strumenti PM</h2>
 
   <div
+  style={{
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+    gap: 18,
+    marginTop: 14,
+  }}
+>
+  <a
+    href="/dashboard-pm/correggi-numerazione"
     style={{
-      display: "grid",
-      gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-      gap: 16,
-      marginTop: 14,
+      textDecoration: "none",
+      color: "#0f172a",
+      border: "1px solid #cbd5e1",
+      borderRadius: 14,
+      padding: 20,
+      background: "#f8fafc",
+      transition: "0.2s",
+      display: "block",
+      boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
     }}
   >
-    <a
-      href="/dashboard-pm/correggi-numerazione"
+    <div
       style={{
-        textDecoration: "none",
-        color: "#0f172a",
-        border: "1px solid #cbd5e1",
-        borderRadius: 14,
-        padding: 18,
-        background: "#f8fafc",
-        transition: "0.2s",
+        fontSize: 13,
+        fontWeight: 800,
+        color: "#0284c7",
+        marginBottom: 10,
+        letterSpacing: 0.4,
       }}
     >
-      <div
-        style={{
-          fontSize: 14,
-          fontWeight: 700,
-          color: "#0284c7",
-          marginBottom: 10,
-        }}
-      >
-        MODULO PM
-      </div>
+      MODULO PM
+    </div>
 
-      <div
-        style={{
-          fontSize: 22,
-          fontWeight: 800,
-          marginBottom: 10,
-        }}
-      >
-        Correzione numerazione schede
-      </div>
+    <div
+      style={{
+        fontSize: 24,
+        fontWeight: 800,
+        marginBottom: 12,
+      }}
+    >
+      Correzione numerazione schede
+    </div>
 
-      <div
-        style={{
-          fontSize: 14,
-          lineHeight: 1.5,
-          color: "#475569",
-        }}
-      >
-        Allinea automaticamente NC e OSS tra due emissioni di schede
-        ispettive Word, corregge i cronologici, elimina duplicati,
-        riordina le tabelle ed esporta il report Excel.
-      </div>
-    </a>
-  </div>
+    <div
+      style={{
+        fontSize: 14,
+        lineHeight: 1.6,
+        color: "#475569",
+      }}
+    >
+      Allinea automaticamente NC e OSS tra due emissioni di schede
+      ispettive Word, corregge cronologici, elimina duplicati,
+      riordina le tabelle ed esporta il report Excel.
+    </div>
+  </a>
+
+  <a
+    href="/dashboard-pm/tempi-verifica"
+    style={{
+      textDecoration: "none",
+      color: "#0f172a",
+      border: "1px solid #cbd5e1",
+      borderRadius: 14,
+      padding: 20,
+      background: "#f8fafc",
+      transition: "0.2s",
+      display: "block",
+      boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+    }}
+  >
+    <div
+      style={{
+        fontSize: 13,
+        fontWeight: 800,
+        color: "#16a34a",
+        marginBottom: 10,
+        letterSpacing: 0.4,
+      }}
+    >
+      MODULO KPI
+    </div>
+
+    <div
+      style={{
+        fontSize: 24,
+        fontWeight: 800,
+        marginBottom: 12,
+      }}
+    >
+      Analisi tempi di verifica
+    </div>
+
+    <div
+      style={{
+        fontSize: 14,
+        lineHeight: 1.6,
+        color: "#475569",
+      }}
+    >
+      Analizza file BCF, schede ispettive Word ed elaborati economici
+      per stimare tempi medi di verifica, andamento delle commesse,
+      produttività ispettiva e KPI QA/QC.
+    </div>
+  </a>
+</div>
 </section>
       <p>
         Carica uno o più file BCF / BCFZIP. I file riferiti allo stesso
