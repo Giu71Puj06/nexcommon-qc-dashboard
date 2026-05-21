@@ -22,7 +22,8 @@ type ReportRow = {
   codice_precedente: string;
   codice_originale: string;
   codice_finale: string;
-  stato: "OK" | "CORRETTO" | "NON_TROVATO" | "SENZA_CODICE" | "DUPLICATO_RIFERIMENTO";
+  tr_variato: "SI" | "NO";
+  stato: "GIÀ_ALLINEATO" | "CORRETTO" | "NON_TROVATO";
   rilievo_odi: string;
 };
 
@@ -70,7 +71,6 @@ export async function POST(req: Request) {
     let mancanti = 0;
     let duplicati = 0;
     let riordinate = 0;
-    let rinumerate = 0;
 
     for (const entry of Object.values(zipDaCorreggere.files)) {
       if (entry.dir) continue;
@@ -105,7 +105,6 @@ export async function POST(req: Request) {
       mancanti += parsed.stats.mancanti;
       duplicati += parsed.stats.duplicati;
       riordinate += parsed.stats.riordinate;
-      rinumerate += parsed.stats.rinumerate;
 
       const correctedBuffer = await docx.generateAsync({ type: "uint8array" });
       outputZip.file(entry.name, correctedBuffer);
@@ -114,7 +113,7 @@ export async function POST(req: Request) {
     outputZip.file("report_correzione_numerazione.csv", buildCsv(report));
     outputZip.file(
       "log_correzione.txt",
-      buildLog({ totaleRighe, corretti, giaAllineati, mancanti, duplicati, riordinate, rinumerate })
+      buildLog({ totaleRighe, corretti, giaAllineati, mancanti, duplicati, riordinate })
     );
 
     const out = await outputZip.generateAsync({ type: "uint8array" });
@@ -130,9 +129,7 @@ export async function POST(req: Request) {
           giaAllineati,
           mancanti,
           nonTrovati: mancanti,
-          duplicati,
           riordinate,
-          rinumerate,
         }),
       },
     });
@@ -201,7 +198,6 @@ function correggiDocumentXml(
     mancanti: 0,
     duplicati: 0,
     riordinate: 0,
-    rinumerate: 0,
   };
 
   const tables = matchAll(xml, /<w:tbl[\s\S]*?<\/w:tbl>/g);
@@ -248,21 +244,8 @@ function correggiDocumentXml(
           codice_precedente: "",
           codice_originale: codiceOriginale,
           codice_finale: codiceOriginale,
+          tr_variato: estraiTR(codiceOriginale) ? "SI" : "NO",
           stato: "NON_TROVATO",
-          rilievo_odi: rilievo,
-        });
-        continue;
-      }
-
-      if (riferimenti.duplicateKeys.has(key) && riferimenti.byKey.has(key)) {
-        stats.duplicati += 1;
-        report.push({
-          file: fileName,
-          riga: i + 1,
-          codice_precedente: ref.codice,
-          codice_originale: codiceOriginale,
-          codice_finale: codiceOriginale,
-          stato: "DUPLICATO_RIFERIMENTO",
           rilievo_odi: rilievo,
         });
         continue;
@@ -278,7 +261,8 @@ function correggiDocumentXml(
           codice_precedente: "",
           codice_originale: codiceOriginale,
           codice_finale: codiceOriginale,
-          stato: "SENZA_CODICE",
+          tr_variato: estraiTR(codiceOriginale) ? "SI" : "NO",
+          stato: "NON_TROVATO",
           rilievo_odi: rilievo,
         });
         continue;
@@ -292,7 +276,8 @@ function correggiDocumentXml(
           codice_precedente: codicePrecedente,
           codice_originale: codiceOriginale,
           codice_finale: codiceOriginale,
-          stato: "OK",
+          tr_variato: estraiTR(codiceOriginale) !== estraiTR(codicePrecedente) ? "SI" : "NO",
+          stato: "GIÀ_ALLINEATO",
           rilievo_odi: rilievo,
         });
         continue;
@@ -313,6 +298,7 @@ function correggiDocumentXml(
         codice_precedente: codicePrecedente,
         codice_originale: codiceOriginale,
         codice_finale: codicePrecedente,
+        tr_variato: estraiTR(codiceOriginale) !== estraiTR(codicePrecedente) ? "SI" : "NO",
         stato: "CORRETTO",
         rilievo_odi: rilievo,
       });
@@ -326,10 +312,6 @@ function correggiDocumentXml(
   const riordino = riordinaTabelleCronologiche(output);
   output = riordino.xml;
   stats.riordinate += riordino.riordinate;
-
-  const rinumerazione = rinumeraProgressiviFinali(output);
-  output = rinumerazione.xml;
-  stats.rinumerate += rinumerazione.rinumerate;
 
   return { xml: output, stats };
 }
@@ -356,46 +338,34 @@ function riordinaTabelleCronologiche(xml: string) {
 
       const parsed = parseCodiceOrdinamento(codice);
 
-      const elaborato =
-        cells.length > 1
-          ? normalizzaCodiceElaborato(estraiTesto(cells[1]))
-          : "";
-
       return {
         row,
         originalIndex,
         tipo: parsed.tipo,
         numero: parsed.numero,
         ordinabile: parsed.ordinabile,
-        elaborato,
       };
     });
 
     const ordinabili = sortable.filter((x) => x.ordinabile);
     if (ordinabili.length < 2) return tableXml;
 
-    const prima = ordinabili.map((x) => `${x.elaborato}|${x.tipo}${x.numero}`).join("|");
+    const prima = ordinabili.map((x) => `${x.tipo}${x.numero}`).join("|");
 
     sortable.sort((a, b) => {
-      if (!a.ordinabile && !b.ordinabile) {
-        return a.originalIndex - b.originalIndex;
-      }
-
+      if (!a.ordinabile && !b.ordinabile) return a.originalIndex - b.originalIndex;
       if (!a.ordinabile) return 1;
       if (!b.ordinabile) return -1;
 
-      const elaboratoCompare = a.elaborato.localeCompare(b.elaborato);
-
-      if (elaboratoCompare !== 0) {
-        return elaboratoCompare;
-      }
+      const tipoOrder = tipoSortOrder(a.tipo) - tipoSortOrder(b.tipo);
+      if (tipoOrder !== 0) return tipoOrder;
 
       return a.numero - b.numero;
     });
 
     const dopo = sortable
       .filter((x) => x.ordinabile)
-      .map((x) => `${x.elaborato}|${x.tipo}${x.numero}`)
+      .map((x) => `${x.tipo}${x.numero}`)
       .join("|");
 
     if (prima !== dopo) {
@@ -413,52 +383,6 @@ function riordinaTabelleCronologiche(xml: string) {
   });
 
   return { xml: newXml, riordinate };
-}
-
-function rinumeraProgressiviFinali(xml: string) {
-  let rinumerate = 0;
-
-  const newXml = xml.replace(/<w:tbl[\s\S]*?<\/w:tbl>/g, (tableXml) => {
-    const rows = matchAll(tableXml, /<w:tr[\s\S]*?<\/w:tr>/g);
-    if (rows.length < 3) return tableXml;
-
-    const headerInfo = trovaColonneTabella(rows);
-    if (!headerInfo) return tableXml;
-
-    let nextNC = 1;
-    let nextOSS = 1;
-
-    const newRows = rows.map((row, index) => {
-      if (index <= headerInfo.headerRowIndex) return row;
-
-      const cells = estraiCelle(row);
-      if (cells.length <= headerInfo.codiceCol) return row;
-
-      const codice = normalizzaCodice(estraiTesto(cells[headerInfo.codiceCol]));
-      const match = codice.match(/^(NC|OSS)(\d+)(.*)$/i);
-
-      if (!match) return row;
-
-      const tipo = match[1].toUpperCase();
-      const resto = match[3] || "";
-      const nuovoNumero = tipo === "NC" ? nextNC++ : nextOSS++;
-      const nuovoCodice = `${tipo}${nuovoNumero}${resto}`;
-
-      if (nuovoCodice === codice) return row;
-
-      const newCell = sostituisciTestoCella(cells[headerInfo.codiceCol], nuovoCodice);
-      const newCells = [...cells];
-      newCells[headerInfo.codiceCol] = newCell;
-
-      rinumerate += 1;
-      return ricostruisciRiga(row, newCells);
-    });
-
-    let idx = 0;
-    return tableXml.replace(/<w:tr[\s\S]*?<\/w:tr>/g, () => newRows[idx++] || "");
-  });
-
-  return { xml: newXml, rinumerate };
 }
 
 function parseCodiceOrdinamento(codice: string) {
@@ -637,6 +561,11 @@ function estraiProgressivo(codice: string) {
   return `${match[1]}${match[2]}`;
 }
 
+function estraiTR(codice: string) {
+  const match = String(codice || "").match(/\((TR-[^)]+)\)/i);
+  return match ? match[1].toUpperCase() : "";
+}
+
 function sembraCodiceNcOss(value: string) {
   return /^(NC|OSS)\s*\d+/i.test(String(value || "").trim());
 }
@@ -662,13 +591,6 @@ function normalizeHeader(value: string) {
   return normalizeRilievoKey(value);
 }
 
-function normalizzaCodiceElaborato(value: string) {
-  return String(value || "")
-    .toUpperCase()
-    .replace(/\s+/g, "")
-    .trim();
-}
-
 function buildCsv(rows: ReportRow[]) {
   const header = [
     "file",
@@ -676,6 +598,7 @@ function buildCsv(rows: ReportRow[]) {
     "codice_precedente",
     "codice_originale",
     "codice_finale",
+    "tr_variato",
     "stato",
     "rilievo_odi",
   ];
@@ -690,6 +613,7 @@ function buildCsv(rows: ReportRow[]) {
         row.codice_precedente,
         row.codice_originale,
         row.codice_finale,
+        row.tr_variato,
         row.stato,
         row.rilievo_odi,
       ]
@@ -708,23 +632,19 @@ function buildLog(stats: {
   mancanti: number;
   duplicati: number;
   riordinate: number;
-  rinumerate: number;
 }) {
   return [
     "Correzione numerazione NC/OSS tra emissioni",
     "Regola: l'emissione da correggere viene adeguata all'emissione precedente.",
     "Chiave di confronto: testo della colonna Rilievi ODI / Rilievi ITS Controlli Tecnici.",
     "Fallback: se il rilievo non coincide, usa il progressivo NC/OSS.",
-    "Riordino: le righe Word vengono ordinate per codice elaborato e progressivo.",
-    "Rinumerazione finale: elimina duplicati e buchi nella progressione NC/OSS.",
+    "Riordino: le righe Word vengono ordinate per progressivo NC e OSS.",
     "",
     `Righe analizzate: ${stats.totaleRighe}`,
-    `Numerazioni corrette da riferimento: ${stats.corretti}`,
+    `Numerazioni corrette: ${stats.corretti}`,
     `Numerazioni gia allineate: ${stats.giaAllineati}`,
     `Rilievi non trovati o senza codice: ${stats.mancanti}`,
-    `Rilievi duplicati nel riferimento: ${stats.duplicati}`,
     `Tabelle riordinate: ${stats.riordinate}`,
-    `Progressivi rinumerati: ${stats.rinumerate}`,
     "",
   ].join("\n");
 }
