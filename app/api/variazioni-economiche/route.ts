@@ -34,7 +34,9 @@ export async function POST(request: NextRequest) {
       try {
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         const pdfParse = require("pdf-parse");
+
         const parsed = await pdfParse(buffer);
+
         text = parsed.text || "";
       } catch {
         text = "";
@@ -85,6 +87,7 @@ function extractCommessa(text: string, fileName: string): string {
 
   for (const pattern of titlePatterns) {
     const match = cleanText.match(pattern);
+
     if (match?.[0]) {
       titleParts.push(cleanupLabel(match[0]));
     }
@@ -94,7 +97,10 @@ function extractCommessa(text: string, fileName: string): string {
     return titleParts.join(" - ");
   }
 
-  const operaMatch = cleanText.match(/OPERA[:\s]+([A-Z0-9À-ÿ\s._/-]{3,80})/i);
+  const operaMatch = cleanText.match(
+    /OPERA[:\s]+([A-Z0-9À-ÿ\s._/-]{3,120})/i
+  );
+
   if (operaMatch?.[1]) {
     return cleanupLabel(operaMatch[1]);
   }
@@ -107,7 +113,10 @@ function extractCommessa(text: string, fileName: string): string {
     return codiceMatch[1].trim();
   }
 
-  return fileName.replace(/\.pdf$/i, "").replace(/[_-]+/g, " ").trim();
+  return fileName
+    .replace(/\.pdf$/i, "")
+    .replace(/[_-]+/g, " ")
+    .trim();
 }
 
 function extractImporto(text: string): number {
@@ -120,15 +129,25 @@ function extractImporto(text: string): number {
   const foundAmounts: number[] = [];
 
   const patterns = [
-    /T\s*O\s*T\s*A\s*L\s*E[\s\S]{0,80}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
-    /Totale\s+Super\s+Categorie[\s\S]{0,80}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
-    /Totale\s+Categorie[\s\S]{0,80}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
-    /Totale\s+Sub\s+Categorie[\s\S]{0,80}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
-    /IMPORTO\s+TOTALE[\s\S]{0,80}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
-    /TOTALE\s+GENERALE[\s\S]{0,80}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
-    /TOTALE\s+COMPLESSIVO[\s\S]{0,80}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
-    /Parziale\s+LAVORI\s+A\s+MISURA[\s\S]{0,80}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
-    /Parziale\s+LAVORI\s+A\s+CORPO[\s\S]{0,80}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
+    /T\s*O\s*T\s*A\s*L\s*E[\s\S]{0,300}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
+
+    /Totale\s+Super\s+Categorie[\s\S]{0,300}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
+
+    /Totale\s+Categorie[\s\S]{0,300}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
+
+    /Totale\s+Sub\s+Categorie[\s\S]{0,300}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
+
+    /IMPORTO\s+TOTALE[\s\S]{0,300}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
+
+    /TOTALE\s+GENERALE[\s\S]{0,300}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
+
+    /TOTALE\s+COMPLESSIVO[\s\S]{0,300}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
+
+    /Parziale\s+LAVORI\s+A\s+MISURA[\s\S]{0,300}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
+
+    /Parziale\s+LAVORI\s+A\s+CORPO[\s\S]{0,300}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
+
+    /euro[\s\S]{0,80}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
   ];
 
   for (const pattern of patterns) {
@@ -138,7 +157,11 @@ function extractImporto(text: string): number {
       if (match?.[1]) {
         const value = parseEuro(match[1]);
 
-        if (Number.isFinite(value) && value > 1000 && value < 1000000000) {
+        if (
+          Number.isFinite(value) &&
+          value > 1000 &&
+          value < 1000000000
+        ) {
           foundAmounts.push(value);
         }
       }
@@ -185,5 +208,8 @@ function normalizeText(value: string): string {
 }
 
 function cleanupLabel(value: string): string {
-  return value.replace(/\s{2,}/g, " ").trim().slice(0, 160);
+  return value
+    .replace(/\s{2,}/g, " ")
+    .trim()
+    .slice(0, 160);
 }
