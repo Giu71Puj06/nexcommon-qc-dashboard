@@ -63,7 +63,7 @@ export default function CorreggiNumerazioneSchedePage() {
           setRisultato(JSON.parse(headerStats));
         } catch {
           setRisultato(null);
-    setReportRows([]);
+          setReportRows([]);
         }
       }
 
@@ -92,6 +92,27 @@ export default function CorreggiNumerazioneSchedePage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function mostraRigheDaVerificare() {
+    const rows = reportRows.filter(
+      (r) =>
+        r.stato === "NON_TROVATO" ||
+        r.stato === "DUPLICATO_RIFERIMENTO" ||
+        r.stato === "SENZA_CODICE"
+    );
+
+    if (rows.length === 0) {
+      alert("Tutte le schede risultano allineate.");
+      return;
+    }
+
+    const text = rows
+      .slice(0, 50)
+      .map((r) => `${r.file} - Riga ${r.riga} - ${r.codice_originale || "senza codice"}`)
+      .join("\n");
+
+    alert(text);
   }
 
   return (
@@ -138,8 +159,8 @@ export default function CorreggiNumerazioneSchedePage() {
         <section style={cardStyle}>
           <h2 style={sectionTitleStyle}>2. Regola di correzione</h2>
           <div style={ruleBoxStyle}>
-            Se il testo <b>Rilievi ODI</b> è uguale, il codice NC/OSS dell'emissione da correggere viene sostituito
-            con il codice NC/OSS dell'emissione precedente.
+            Se il testo <b>Rilievi ODI</b> è uguale, il cronologico NC/OSS dell'emissione da correggere viene sostituito
+            con il cronologico NC/OSS dell'emissione precedente.
           </div>
         </section>
 
@@ -154,15 +175,20 @@ export default function CorreggiNumerazioneSchedePage() {
               <Stat label="Righe analizzate" value={risultato.totaleRighe} />
               <Stat label="Corrette" value={risultato.corretti} />
               <Stat label="Già allineate" value={risultato.giaAllineati} />
-              <Stat label="Senza riferimento" value={(risultato.mancanti || 0) + (risultato.nonTrovati || 0)} />
-              <Stat label="Duplicati riferimento" value={risultato.duplicati} />
+              <Stat label="Allineamento %" value={calcolaPercentualeAllineamento(risultato)} />
+              <div style={{ cursor: "pointer" }} onClick={mostraRigheDaVerificare}>
+                <Stat
+                  label="Da verificare manualmente"
+                  value={(risultato.mancanti || 0) + (risultato.nonTrovati || 0) + (risultato.duplicati || 0)}
+                />
+              </div>
             </div>
           </section>
         )}
 
         {reportRows.length > 0 && (
           <section style={cardStyle}>
-            <h2 style={sectionTitleStyle}>Report a video - righe non allineate</h2>
+            <h2 style={sectionTitleStyle}>Report a video - righe non allineate / da verificare</h2>
             <div style={tableWrapStyle}>
               <table style={tableStyle}>
                 <thead>
@@ -254,6 +280,17 @@ function parseCsvLine(line: string): string[] {
 
   values.push(current);
   return values;
+}
+
+function calcolaPercentualeAllineamento(r: StatoRisultato | null) {
+  if (!r) return 0;
+
+  const totale = r.totaleRighe || 0;
+  const ok = (r.corretti || 0) + (r.giaAllineati || 0);
+
+  if (totale === 0) return 0;
+
+  return Math.round((ok / totale) * 100);
 }
 
 function Stat({ label, value }: { label: string; value?: number }) {
@@ -358,7 +395,6 @@ const statStyle: React.CSSProperties = {
   padding: 16,
   background: "#f8fafc",
 };
-
 
 const tableWrapStyle: React.CSSProperties = {
   overflowX: "auto",
