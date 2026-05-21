@@ -96,9 +96,51 @@ export default function CorreggiNumerazioneSchedePage() {
     }
   }
 
+  async function esportaReportXlsx() {
+    if (reportRows.length === 0) {
+      alert("Nessun report da esportare.");
+      return;
+    }
+
+    try {
+      const XLSX = await import("xlsx");
+
+      const rows = reportRows.map((row) => ({
+        "Scheda": row.file,
+        "Riga": row.riga,
+        "Cronologico precedente": row.codice_precedente,
+        "Cronologico originale": row.codice_originale,
+        "Cronologico finale": row.codice_finale,
+        "TR variato": row.tr_variato,
+        "Stato": row.stato,
+        "Rilievi ODI": row.rilievo_odi,
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+
+      ws["!cols"] = [
+        { wch: 45 },
+        { wch: 8 },
+        { wch: 24 },
+        { wch: 24 },
+        { wch: 24 },
+        { wch: 12 },
+        { wch: 18 },
+        { wch: 110 },
+      ];
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Report");
+      XLSX.writeFile(wb, "report_correzione_numerazione.xlsx");
+    } catch (err) {
+      console.error("Errore esportazione XLSX:", err);
+      alert("Errore esportazione XLSX. Verifica che la libreria 'xlsx' sia installata nel progetto.");
+    }
+  }
+
   return (
     <main style={pageStyle}>
-      <div style={{ maxWidth: 980 }}>
+      <div style={contentStyle}>
         <Link href="/" style={backLinkStyle}>← Torna alla dashboard</Link>
 
         <h1 style={titleStyle}>Correzione numerazione NC/OSS</h1>
@@ -145,9 +187,24 @@ export default function CorreggiNumerazioneSchedePage() {
           </div>
         </section>
 
-        <button type="button" onClick={correggiNumerazione} disabled={loading} style={buttonStyle}>
-          {loading ? "Correzione in corso..." : "Correggi numerazione e scarica ZIP"}
-        </button>
+        <div style={actionsStyle}>
+          <button type="button" onClick={correggiNumerazione} disabled={loading} style={buttonStyle}>
+            {loading ? "Correzione in corso..." : "Correggi numerazione e scarica ZIP"}
+          </button>
+
+          <button
+            type="button"
+            onClick={esportaReportXlsx}
+            disabled={reportRows.length === 0}
+            style={{
+              ...secondaryButtonStyle,
+              opacity: reportRows.length === 0 ? 0.5 : 1,
+              cursor: reportRows.length === 0 ? "not-allowed" : "pointer",
+            }}
+          >
+            Esporta report XLSX
+          </button>
+        </div>
 
         {risultato && (
           <section style={cardStyle}>
@@ -165,53 +222,47 @@ export default function CorreggiNumerazioneSchedePage() {
         )}
 
         {reportRows.length > 0 && (
-          <section style={cardStyle}>
-            <h2 style={sectionTitleStyle}>Report a video - esito correzione</h2>
+          <section style={reportCardStyle}>
+            <div style={reportHeaderStyle}>
+              <h2 style={{ ...sectionTitleStyle, marginBottom: 0 }}>Report a video - esito correzione</h2>
+
+              <button type="button" onClick={esportaReportXlsx} style={smallExportButtonStyle}>
+                Esporta XLSX
+              </button>
+            </div>
+
             <div style={tableWrapStyle}>
               <table style={tableStyle}>
                 <thead>
                   <tr>
-                    <th style={thStyle}>Scheda</th>
-                    <th style={thStyle}>Riga</th>
-                    <th style={thStyle}>Cronologico precedente</th>
-                    <th style={thStyle}>Cronologico originale</th>
-                    <th style={thStyle}>Cronologico finale</th>
-                    <th style={thStyle}>TR variato</th>
-                    <th style={thStyle}>Stato</th>
-                    <th style={thStyle}>Rilievi ODI</th>
+                    <th style={{ ...thStyle, minWidth: 280 }}>Scheda</th>
+                    <th style={{ ...thStyle, minWidth: 70 }}>Riga</th>
+                    <th style={{ ...thStyle, minWidth: 190 }}>Cronologico precedente</th>
+                    <th style={{ ...thStyle, minWidth: 190 }}>Cronologico originale</th>
+                    <th style={{ ...thStyle, minWidth: 190 }}>Cronologico finale</th>
+                    <th style={{ ...thStyle, minWidth: 110 }}>TR variato</th>
+                    <th style={{ ...thStyle, minWidth: 170 }}>Stato</th>
+                    <th style={{ ...thStyle, minWidth: 620 }}>Rilievi ODI</th>
                   </tr>
                 </thead>
                 <tbody>
                   {reportRows.slice(0, 300).map((row, index) => (
                     <tr key={`${row.file}-${row.riga}-${index}`}>
-                      <td style={tdStyle}>{row.file}</td>
-                      <td style={tdStyle}>{row.riga}</td>
-                      <td style={tdStyle}>{row.codice_precedente}</td>
-                      <td style={tdStyle}>{row.codice_originale}</td>
-                      <td style={tdStyle}>{row.codice_finale}</td>
-                      <td style={tdStyle}>{row.tr_variato}</td>
-                      <td
-                        style={{
-                          ...tdStyle,
-                          fontWeight: 700,
-                          color:
-                            row.stato === "CORRETTO"
-                              ? "#166534"
-                              : row.stato === "GIÀ_ALLINEATO"
-                              ? "#1d4ed8"
-                              : "#b91c1c",
-                        }}
-                      >
-                        {row.stato}
-                      </td>
-                      <td style={tdStyle}>{row.rilievo_odi}</td>
+                      <td style={{ ...tdStyle, minWidth: 280 }}>{row.file}</td>
+                      <td style={{ ...tdStyle, minWidth: 70 }}>{row.riga}</td>
+                      <td style={{ ...tdStyle, minWidth: 190 }}>{row.codice_precedente}</td>
+                      <td style={{ ...tdStyle, minWidth: 190 }}>{row.codice_originale}</td>
+                      <td style={{ ...tdStyle, minWidth: 190 }}>{row.codice_finale}</td>
+                      <td style={{ ...tdStyle, minWidth: 110 }}>{row.tr_variato}</td>
+                      <td style={statusCellStyle(row.stato)}>{row.stato}</td>
+                      <td style={{ ...tdStyle, minWidth: 620 }}>{row.rilievo_odi}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
             {reportRows.length > 300 && (
-              <p style={helpStyle}>Sono mostrate le prime 300 righe. Il report completo è dentro lo ZIP scaricato.</p>
+              <p style={helpStyle}>Sono mostrate le prime 300 righe. Esporta in XLSX per vedere tutto il report.</p>
             )}
           </section>
         )}
@@ -287,6 +338,21 @@ function calcolaPercentualeAllineamento(r: StatoRisultato | null) {
   return Math.round((ok / totale) * 100);
 }
 
+function statusCellStyle(stato: string): React.CSSProperties {
+  return {
+    ...tdStyle,
+    minWidth: 170,
+    whiteSpace: "nowrap",
+    fontWeight: 800,
+    color:
+      stato === "CORRETTO"
+        ? "#166534"
+        : stato === "GIÀ_ALLINEATO"
+        ? "#1d4ed8"
+        : "#b91c1c",
+  };
+}
+
 function Stat({ label, value }: { label: string; value?: number }) {
   return (
     <div style={statStyle}>
@@ -302,6 +368,12 @@ const pageStyle: React.CSSProperties = {
   fontFamily: "Arial, sans-serif",
   background: "#f1f5f9",
   color: "#0f172a",
+};
+
+const contentStyle: React.CSSProperties = {
+  width: "100%",
+  maxWidth: 1500,
+  margin: "0 auto",
 };
 
 const backLinkStyle: React.CSSProperties = {
@@ -321,7 +393,7 @@ const leadStyle: React.CSSProperties = {
   fontSize: 19,
   lineHeight: 1.55,
   marginBottom: 24,
-  maxWidth: 860,
+  maxWidth: 980,
 };
 
 const cardStyle: React.CSSProperties = {
@@ -331,6 +403,19 @@ const cardStyle: React.CSSProperties = {
   padding: 22,
   marginBottom: 20,
   boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
+};
+
+const reportCardStyle: React.CSSProperties = {
+  ...cardStyle,
+  width: "100%",
+};
+
+const reportHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 16,
+  marginBottom: 16,
 };
 
 const sectionTitleStyle: React.CSSProperties = {
@@ -364,9 +449,15 @@ const ruleBoxStyle: React.CSSProperties = {
   lineHeight: 1.5,
 };
 
-const buttonStyle: React.CSSProperties = {
+const actionsStyle: React.CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 12,
   marginTop: 6,
   marginBottom: 24,
+};
+
+const buttonStyle: React.CSSProperties = {
   padding: "14px 22px",
   border: 0,
   borderRadius: 12,
@@ -375,6 +466,28 @@ const buttonStyle: React.CSSProperties = {
   fontSize: 17,
   fontWeight: 800,
   cursor: "pointer",
+};
+
+const secondaryButtonStyle: React.CSSProperties = {
+  padding: "14px 22px",
+  border: "1px solid #0284c7",
+  borderRadius: 12,
+  background: "#ffffff",
+  color: "#0284c7",
+  fontSize: 17,
+  fontWeight: 800,
+};
+
+const smallExportButtonStyle: React.CSSProperties = {
+  padding: "10px 14px",
+  border: "1px solid #0284c7",
+  borderRadius: 10,
+  background: "#ffffff",
+  color: "#0284c7",
+  fontSize: 14,
+  fontWeight: 800,
+  cursor: "pointer",
+  whiteSpace: "nowrap",
 };
 
 const statsGridStyle: React.CSSProperties = {
@@ -392,26 +505,30 @@ const statStyle: React.CSSProperties = {
 
 const tableWrapStyle: React.CSSProperties = {
   overflowX: "auto",
+  width: "100%",
   border: "1px solid #e2e8f0",
   borderRadius: 12,
 };
 
 const tableStyle: React.CSSProperties = {
-  width: "100%",
+  width: "max-content",
+  minWidth: "100%",
   borderCollapse: "collapse",
   fontSize: 13,
 };
 
 const thStyle: React.CSSProperties = {
   textAlign: "left",
-  padding: 10,
+  padding: 12,
   borderBottom: "1px solid #e2e8f0",
   background: "#f8fafc",
   whiteSpace: "nowrap",
+  verticalAlign: "top",
 };
 
 const tdStyle: React.CSSProperties = {
-  padding: 10,
+  padding: 12,
   borderBottom: "1px solid #e2e8f0",
   verticalAlign: "top",
+  lineHeight: 1.35,
 };
