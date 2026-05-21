@@ -512,7 +512,73 @@ export default function DashboardPMPage() {
       </button>
 
       <h1>Dashboard PM</h1>
+<section
+  style={{
+    marginTop: 18,
+    marginBottom: 24,
+    border: "1px solid #e2e8f0",
+    borderRadius: 14,
+    padding: 18,
+    background: "white",
+  }}
+>
+  <h2 style={{ marginTop: 0 }}>Strumenti PM</h2>
 
+  <div
+    style={{
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+      gap: 16,
+      marginTop: 14,
+    }}
+  >
+    <a
+      href="/dashboard-pm/correggi-numerazione"
+      style={{
+        textDecoration: "none",
+        color: "#0f172a",
+        border: "1px solid #cbd5e1",
+        borderRadius: 14,
+        padding: 18,
+        background: "#f8fafc",
+        transition: "0.2s",
+      }}
+    >
+      <div
+        style={{
+          fontSize: 14,
+          fontWeight: 700,
+          color: "#0284c7",
+          marginBottom: 10,
+        }}
+      >
+        MODULO PM
+      </div>
+
+      <div
+        style={{
+          fontSize: 22,
+          fontWeight: 800,
+          marginBottom: 10,
+        }}
+      >
+        Correzione numerazione schede
+      </div>
+
+      <div
+        style={{
+          fontSize: 14,
+          lineHeight: 1.5,
+          color: "#475569",
+        }}
+      >
+        Allinea automaticamente NC e OSS tra due emissioni di schede
+        ispettive Word, corregge i cronologici, elimina duplicati,
+        riordina le tabelle ed esporta il report Excel.
+      </div>
+    </a>
+  </div>
+</section>
       <p>
         Carica uno o più file BCF / BCFZIP. I file riferiti allo stesso
         progetto vengono sommati in un unico KPI progetto.
