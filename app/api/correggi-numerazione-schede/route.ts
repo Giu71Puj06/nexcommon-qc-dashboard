@@ -90,7 +90,7 @@ export async function POST(req: Request) {
 
     const out = await outputZip.generateAsync({ type: "uint8array" });
 
-    return new NextResponse(out, {
+    return new NextResponse(Buffer.from(out), {
       status: 200,
       headers: {
         "Content-Type": "application/zip",
