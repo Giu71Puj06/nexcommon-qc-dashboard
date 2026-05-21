@@ -356,13 +356,19 @@ function riordinaTabelleCronologiche(xml: string) {
 
       const parsed = parseCodiceOrdinamento(codice);
 
-      return {
-        row,
-        originalIndex,
-        tipo: parsed.tipo,
-        numero: parsed.numero,
-        ordinabile: parsed.ordinabile,
-      };
+      const elaborato =
+  cells.length > 1
+    ? normalizzaCodiceElaborato(estraiTesto(cells[1]))
+    : "";
+
+return {
+  row,
+  originalIndex,
+  tipo: parsed.tipo,
+  numero: parsed.numero,
+  ordinabile: parsed.ordinabile,
+  elaborato,
+};
     });
 
     const ordinabili = sortable.filter((x) => x.ordinabile);
