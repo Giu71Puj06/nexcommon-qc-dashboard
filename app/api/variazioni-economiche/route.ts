@@ -14,8 +14,11 @@ type ExtractedEconomicFile = {
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
+
     const files = formData.getAll("files") as File[];
-    const fase = (formData.get("fase") || "iniziale") as "iniziale" | "finale";
+
+    const fase = (formData.get("fase") ||
+      "iniziale") as "iniziale" | "finale";
 
     if (!files.length) {
       return NextResponse.json(
@@ -43,7 +46,9 @@ export async function POST(request: NextRequest) {
       }
 
       const commessa = extractCommessa(text, file.name);
+
       const importo = extractImporto(text);
+
       const isEstimativo = isComputoEstimativo(text);
 
       results.push({
@@ -51,7 +56,7 @@ export async function POST(request: NextRequest) {
         commessa,
         importo,
         fase,
-        testoEstratto: text.slice(0, 3000),
+        testoEstratto: text.slice(0, 5000),
         warning:
           !isEstimativo
             ? "Documento metrico senza prezzi: importo non calcolato."
@@ -78,31 +83,28 @@ export async function POST(request: NextRequest) {
 function extractCommessa(text: string, fileName: string): string {
   const cleanText = normalizeText(text);
 
-  const titlePatterns = [
-    /SOTTOVIA\s+INTERCONNESSIONE\s+A13/i,
-    /INTERVENTO\s+DI\s+RISANAMENTO\s+EVOLUTIVO/i,
+  const patterns = [
+    /SOTTOVIA[\s\S]{0,120}?A13/i,
+
+    /INTERVENTO[\s\S]{0,150}?RISANAMENTO[\s\S]{0,120}?EVOLUTIVO/i,
+
+    /PROGETTO[\s:]+([A-Z0-9À-ÿ\s._/-]{10,180})/i,
+
+    /OGGETTO[\s:]+([A-Z0-9À-ÿ\s._/-]{10,180})/i,
+
+    /OPERA[\s:]+([A-Z0-9À-ÿ\s._/-]{10,180})/i,
   ];
 
-  const titleParts: string[] = [];
-
-  for (const pattern of titlePatterns) {
+  for (const pattern of patterns) {
     const match = cleanText.match(pattern);
 
     if (match?.[0]) {
-      titleParts.push(cleanupLabel(match[0]));
+      return cleanupLabel(match[0]);
     }
-  }
 
-  if (titleParts.length > 0) {
-    return titleParts.join(" - ");
-  }
-
-  const operaMatch = cleanText.match(
-    /OPERA[:\s]+([A-Z0-9À-ÿ\s._/-]{3,120})/i
-  );
-
-  if (operaMatch?.[1]) {
-    return cleanupLabel(operaMatch[1]);
+    if (match?.[1]) {
+      return cleanupLabel(match[1]);
+    }
   }
 
   const codiceMatch = cleanText.match(
@@ -129,41 +131,41 @@ function extractImporto(text: string): number {
   const foundAmounts: number[] = [];
 
   const patterns = [
-    /T\s*O\s*T\s*A\s*L\s*E[\s\S]{0,300}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
+    /T\s*O\s*T\s*A\s*L\s*E[\s\S]{0,200}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
 
-    /Totale\s+Super\s+Categorie[\s\S]{0,300}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
+    /Totale\s+Generale[\s\S]{0,200}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
 
-    /Totale\s+Categorie[\s\S]{0,300}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
+    /Totale\s+Complessivo[\s\S]{0,200}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
 
-    /Totale\s+Sub\s+Categorie[\s\S]{0,300}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
+    /Importo\s+Totale[\s\S]{0,200}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
 
-    /IMPORTO\s+TOTALE[\s\S]{0,300}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
+    /Totale\s+Super\s+Categorie[\s\S]{0,200}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
 
-    /TOTALE\s+GENERALE[\s\S]{0,300}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
+    /Totale\s+Categorie[\s\S]{0,200}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
 
-    /TOTALE\s+COMPLESSIVO[\s\S]{0,300}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
+    /Totale\s+Sub\s+Categorie[\s\S]{0,200}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
 
-    /Parziale\s+LAVORI\s+A\s+MISURA[\s\S]{0,300}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
+    /Parziale\s+LAVORI\s+A\s+MISURA[\s\S]{0,200}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
 
-    /Parziale\s+LAVORI\s+A\s+CORPO[\s\S]{0,300}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
+    /Parziale\s+LAVORI\s+A\s+CORPO[\s\S]{0,200}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
 
-    /euro[\s\S]{0,80}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
+    /euro[\s:]{0,20}([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
   ];
 
   for (const pattern of patterns) {
     const matches = Array.from(cleanText.matchAll(pattern));
 
     for (const match of matches) {
-      if (match?.[1]) {
-        const value = parseEuro(match[1]);
+      if (!match?.[1]) continue;
 
-        if (
-          Number.isFinite(value) &&
-          value > 1000 &&
-          value < 1000000000
-        ) {
-          foundAmounts.push(value);
-        }
+      const value = parseEuro(match[1]);
+
+      if (
+        Number.isFinite(value) &&
+        value > 10000 &&
+        value < 1000000000
+      ) {
+        foundAmounts.push(value);
       }
     }
   }
@@ -172,7 +174,9 @@ function extractImporto(text: string): number {
     return 0;
   }
 
-  return Math.max(...foundAmounts);
+  const sorted = foundAmounts.sort((a, b) => b - a);
+
+  return sorted[0];
 }
 
 function isComputoEstimativo(text: string): boolean {
@@ -181,7 +185,7 @@ function isComputoEstimativo(text: string): boolean {
   return (
     cleanText.includes("COMPUTO METRICO ESTIMATIVO") ||
     cleanText.includes("TOTALE EURO") ||
-    cleanText.includes("T O T A L E EURO") ||
+    cleanText.includes("T O T A L E") ||
     cleanText.includes("IMPORTO TOTALE") ||
     cleanText.includes("TOTALE GENERALE") ||
     cleanText.includes("TOTALE CATEGORIE") ||
@@ -204,12 +208,20 @@ function parseEuro(value: string): number {
 }
 
 function normalizeText(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
+  return value
+    .replace(/\r/g, " ")
+    .replace(/\n/g, " ")
+    .replace(/\t/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function cleanupLabel(value: string): string {
   return value
     .replace(/\s{2,}/g, " ")
+    .replace(/TOTALE.*$/i, "")
+    .replace(/IMPORTO.*$/i, "")
+    .replace(/CATEGORIE.*$/i, "")
     .trim()
-    .slice(0, 160);
+    .slice(0, 180);
 }
