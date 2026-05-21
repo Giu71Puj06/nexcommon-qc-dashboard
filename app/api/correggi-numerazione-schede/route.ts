@@ -371,15 +371,23 @@ function riordinaTabelleCronologiche(xml: string) {
     const prima = ordinabili.map((x) => `${x.tipo}${x.numero}`).join("|");
 
     sortable.sort((a, b) => {
-      if (!a.ordinabile && !b.ordinabile) return a.originalIndex - b.originalIndex;
-      if (!a.ordinabile) return 1;
-      if (!b.ordinabile) return -1;
+  if (!a.ordinabile && !b.ordinabile) {
+    return a.originalIndex - b.originalIndex;
+  }
 
-      const tipoOrder = tipoSortOrder(a.tipo) - tipoSortOrder(b.tipo);
-      if (tipoOrder !== 0) return tipoOrder;
+  if (!a.ordinabile) return 1;
+  if (!b.ordinabile) return -1;
 
-      return a.numero - b.numero;
-    });
+  // 1. Raggruppa per codice elaborato
+  const elaboratoCompare = a.elaborato.localeCompare(b.elaborato);
+
+  if (elaboratoCompare !== 0) {
+    return elaboratoCompare;
+  }
+
+  // 2. Ordine cronologico assoluto NC/OSS
+  return a.numero - b.numero;
+});
 
     const dopo = sortable
       .filter((x) => x.ordinabile)
