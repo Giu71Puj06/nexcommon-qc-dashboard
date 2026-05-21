@@ -117,29 +117,37 @@ function extractImporto(text: string): number {
     return 0;
   }
 
-  const totalPatterns = [
-    /T\s*O\s*T\s*A\s*L\s*E\s+euro\s+([0-9.'´\s]+,[0-9]{2})/gi,
-    /Totale\s+SUPER\s+CATEGORIE\s+euro\s+([0-9.'´\s]+,[0-9]{2})/gi,
-    /Totale\s+CATEGORIE\s+euro\s+([0-9.'´\s]+,[0-9]{2})/gi,
-    /Totale\s+SUB\s+CATEGORIE\s+euro\s+([0-9.'´\s]+,[0-9]{2})/gi,
-    /Parziale\s+LAVORI\s+A\s+MISURA\s+euro\s+([0-9.'´\s]+,[0-9]{2})/gi,
-    /Parziale\s+LAVORI\s+A\s+CORPO\s+euro\s+([0-9.'´\s]+,[0-9]{2})/gi,
-  ];
-
   const foundAmounts: number[] = [];
 
-  for (const pattern of totalPatterns) {
+  const patterns = [
+    /T\s*O\s*T\s*A\s*L\s*E[\s\S]{0,80}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
+    /Totale\s+Super\s+Categorie[\s\S]{0,80}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
+    /Totale\s+Categorie[\s\S]{0,80}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
+    /Totale\s+Sub\s+Categorie[\s\S]{0,80}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
+    /IMPORTO\s+TOTALE[\s\S]{0,80}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
+    /TOTALE\s+GENERALE[\s\S]{0,80}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
+    /TOTALE\s+COMPLESSIVO[\s\S]{0,80}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
+    /Parziale\s+LAVORI\s+A\s+MISURA[\s\S]{0,80}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
+    /Parziale\s+LAVORI\s+A\s+CORPO[\s\S]{0,80}?([0-9]{1,3}(?:[.'´\s][0-9]{3})*,[0-9]{2})/gi,
+  ];
+
+  for (const pattern of patterns) {
     const matches = Array.from(cleanText.matchAll(pattern));
 
     for (const match of matches) {
       if (match?.[1]) {
         const value = parseEuro(match[1]);
-        if (value > 0) foundAmounts.push(value);
+
+        if (Number.isFinite(value) && value > 1000 && value < 1000000000) {
+          foundAmounts.push(value);
+        }
       }
     }
   }
 
-  if (!foundAmounts.length) return 0;
+  if (!foundAmounts.length) {
+    return 0;
+  }
 
   return Math.max(...foundAmounts);
 }
