@@ -74,6 +74,12 @@ export default function VariazioniEconomichePage() {
         importo: amount,
       }));
 
+    if (newRows.length === 0) {
+      alert("Carica almeno un file PDF.");
+      event.target.value = "";
+      return;
+    }
+
     setFiles((prev) => [...prev, ...newRows]);
     event.target.value = "";
   }
@@ -352,18 +358,20 @@ function buildKpis(files: EconomicFile[]): EconomicKpi[] {
       const delta = importoFinale - importoIniziale;
       const deltaPercent = importoIniziale > 0 ? (delta / importoIniziale) * 100 : 0;
 
+      const stato: EconomicKpi["stato"] =
+        delta > 0
+          ? "In aumento"
+          : delta < 0
+          ? "In diminuzione"
+          : "Stabile";
+
       return {
         commessa,
         importoIniziale,
         importoFinale,
         delta,
         deltaPercent,
-        stato:
-          delta > 0
-            ? "In aumento"
-            : delta < 0
-            ? "In diminuzione"
-            : "Stabile",
+        stato,
         fileIniziali: iniziali.map((row) => row.fileName),
         fileFinali: finali.map((row) => row.fileName),
       };
@@ -553,4 +561,3 @@ const tdStyle: React.CSSProperties = {
   fontSize: 14,
   verticalAlign: "top",
 };
-
