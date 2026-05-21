@@ -32,7 +32,8 @@ export async function POST(request: NextRequest) {
       let text = "";
 
       try {
-        const pdfParse = (await import("pdf-parse")).default;
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+const pdfParse = require("pdf-parse");
         const parsed = await pdfParse(buffer);
         text = parsed.text || "";
       } catch {
