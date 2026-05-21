@@ -1,356 +1,136 @@
 "use client";
 
-import React from "react";
 import Link from "next/link";
 
-export default function DashboardPmPage() {
+export default function DashboardPMPage() {
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        background: "#f1f5f9",
-        padding: 16,
-        fontFamily: "Arial, sans-serif",
-        color: "#0f172a",
-      }}
-    >
-      <div
-        style={{
-          width: "100%",
-          maxWidth: 1800,
-          margin: "0 auto",
-        }}
-      >
-        <Link
-          href="/"
-          style={{
-            display: "inline-block",
-            marginBottom: 24,
-            padding: "10px 18px",
-            borderRadius: 10,
-            background: "#0f172a",
-            color: "#fff",
-            textDecoration: "none",
-            fontWeight: 700,
-          }}
-        >
+    <main style={pageStyle}>
+      <div style={contentStyle}>
+        <Link href="/" style={backLinkStyle}>
           ← Torna alla dashboard
         </Link>
 
-        <h1
-          style={{
-            fontSize: 28,
-            fontWeight: 800,
-            marginBottom: 28,
-          }}
-        >
-          Dashboard PM
-        </h1>
+        <h1 style={titleStyle}>Dashboard PM</h1>
 
-        <section
-          style={{
-            background: "#ffffff",
-            border: "1px solid #cbd5e1",
-            borderRadius: 16,
-            padding: 20,
-            marginBottom: 28,
-          }}
-        >
-          <h2
-            style={{
-              marginTop: 0,
-              marginBottom: 18,
-              fontSize: 20,
-              fontWeight: 800,
-            }}
-          >
-            Strumenti PM
-          </h2>
+        <p style={leadStyle}>
+          Area strumenti per il Project Manager. Seleziona il modulo operativo da utilizzare.
+        </p>
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))",
-              gap: 18,
-            }}
-          >
-            <a
-              href="/dashboard-pm/correggi-numerazione"
-              style={{
-                textDecoration: "none",
-                color: "#0f172a",
-                border: "1px solid #cbd5e1",
-                borderRadius: 14,
-                padding: 18,
-                background: "#f8fafc",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 14,
-                  fontWeight: 700,
-                  color: "#0284c7",
-                  marginBottom: 10,
-                }}
-              >
-                MODULO PM
-              </div>
+        <section style={cardStyle}>
+          <h2 style={sectionTitleStyle}>Strumenti PM</h2>
 
-              <div
-                style={{
-                  fontSize: 22,
-                  fontWeight: 800,
-                  marginBottom: 10,
-                }}
-              >
-                Correzione numerazione schede
-              </div>
+          <div style={toolsGridStyle}>
+            <a href="/dashboard-pm/correggi-numerazione" style={toolCardStyle}>
+              <div style={{ ...badgeStyle, color: "#0284c7" }}>MODULO PM</div>
 
-              <div
-                style={{
-                  fontSize: 14,
-                  lineHeight: 1.5,
-                  color: "#475569",
-                }}
-              >
+              <div style={toolTitleStyle}>Correzione numerazione schede</div>
+
+              <div style={toolDescriptionStyle}>
                 Allinea automaticamente NC e OSS tra due emissioni di schede ispettive Word,
                 corregge i cronologici, elimina duplicati, riordina le tabelle ed esporta il report Excel.
               </div>
             </a>
 
-            <a
-              href="/dashboard-pm/tempi-verifica"
-              style={{
-                textDecoration: "none",
-                color: "#0f172a",
-                border: "1px solid #cbd5e1",
-                borderRadius: 14,
-                padding: 18,
-                background: "#f8fafc",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 14,
-                  fontWeight: 700,
-                  color: "#0284c7",
-                  marginBottom: 10,
-                }}
-              >
-                MODULO PM
-              </div>
+            <a href="/dashboard-pm/tempi-verifica" style={toolCardStyle}>
+              <div style={{ ...badgeStyle, color: "#16a34a" }}>MODULO KPI</div>
 
-              <div
-                style={{
-                  fontSize: 22,
-                  fontWeight: 800,
-                  marginBottom: 10,
-                }}
-              >
-                Stima tempi medi verifica
-              </div>
+              <div style={toolTitleStyle}>Stima costi e tempi verifica</div>
 
-              <div
-                style={{
-                  fontSize: 14,
-                  lineHeight: 1.5,
-                  color: "#475569",
-                }}
-              >
-                Analizza file BCF, BCFZIP e schede Word per stimare durata media delle verifiche,
-                giorni medi per rilievo, KPI commessa ed esportazione report XLSX.
+              <div style={toolDescriptionStyle}>
+                Analizza file BCF, schede ispettive Word ed elaborati economici per stimare
+                tempi medi di verifica, impatti economici, produttività ispettiva e KPI QA/QC.
               </div>
             </a>
-          </div>
-        </section>
-
-        <section
-          style={{
-            background: "#ffffff",
-            border: "1px solid #cbd5e1",
-            borderRadius: 16,
-            padding: 20,
-            marginBottom: 20,
-          }}
-        >
-          <p
-            style={{
-              marginTop: 0,
-              marginBottom: 12,
-              fontSize: 16,
-              color: "#334155",
-            }}
-          >
-            Carica uno o più file BCF / BCFZIP. I file riferiti allo stesso progetto
-            vengono sommati in un unico KPI progetto.
-          </p>
-
-          <div
-            style={{
-              display: "flex",
-              gap: 12,
-              alignItems: "center",
-            }}
-          >
-            <input
-              type="file"
-              multiple
-              style={{
-                flex: 1,
-              }}
-            />
-
-            <button
-              style={{
-                padding: "12px 18px",
-                border: 0,
-                borderRadius: 10,
-                background: "#94a3b8",
-                color: "#fff",
-                fontWeight: 700,
-              }}
-            >
-              Svuota progetti
-            </button>
-
-            <button
-              style={{
-                padding: "12px 18px",
-                border: 0,
-                borderRadius: 10,
-                background: "#94a3b8",
-                color: "#fff",
-                fontWeight: 700,
-              }}
-            >
-              Esporta Excel
-            </button>
-          </div>
-        </section>
-
-        <section
-          style={{
-            background: "#ffffff",
-            border: "1px solid #cbd5e1",
-            borderRadius: 16,
-            padding: 20,
-            marginBottom: 20,
-          }}
-        >
-          <h2
-            style={{
-              marginTop: 0,
-              marginBottom: 14,
-              fontSize: 20,
-              fontWeight: 800,
-            }}
-          >
-            Schede ispettive Word
-          </h2>
-
-          <p
-            style={{
-              marginTop: 0,
-              marginBottom: 12,
-              color: "#64748b",
-            }}
-          >
-            Carica le schede ispettive storiche in formato Word.
-            Le schede vengono associate al progetto e rese disponibili come archivio documentale della commessa.
-          </p>
-
-          <div
-            style={{
-              display: "flex",
-              gap: 12,
-              alignItems: "center",
-            }}
-          >
-            <input type="file" multiple style={{ flex: 1 }} />
-
-            <button
-              style={{
-                padding: "12px 18px",
-                border: 0,
-                borderRadius: 10,
-                background: "#94a3b8",
-                color: "#fff",
-                fontWeight: 700,
-              }}
-            >
-              Svuota schede
-            </button>
-
-            <button
-              style={{
-                padding: "12px 18px",
-                border: 0,
-                borderRadius: 10,
-                background: "#94a3b8",
-                color: "#fff",
-                fontWeight: 700,
-              }}
-            >
-              Genera BCF
-            </button>
-          </div>
-        </section>
-
-        <section
-          style={{
-            background: "#ffffff",
-            border: "1px solid #cbd5e1",
-            borderRadius: 16,
-            padding: 20,
-          }}
-        >
-          <h2
-            style={{
-              marginTop: 0,
-              marginBottom: 14,
-              fontSize: 20,
-              fontWeight: 800,
-            }}
-          >
-            Elaborati economici
-          </h2>
-
-          <p
-            style={{
-              marginTop: 0,
-              marginBottom: 12,
-              color: "#64748b",
-            }}
-          >
-            Carica gli elaborati economici in formato Excel delle diverse consegne.
-            Il sistema legge gli importi, costruisce i trend economici e confronta la variazione
-            con le issue BCF e i rilievi ispettivi.
-          </p>
-
-          <div
-            style={{
-              display: "flex",
-              gap: 12,
-              alignItems: "center",
-            }}
-          >
-            <input type="file" multiple style={{ flex: 1 }} />
-
-            <button
-              style={{
-                padding: "12px 18px",
-                border: 0,
-                borderRadius: 10,
-                background: "#94a3b8",
-                color: "#fff",
-                fontWeight: 700,
-              }}
-            >
-              Svuota costi
-            </button>
           </div>
         </section>
       </div>
     </main>
   );
 }
+
+const pageStyle: React.CSSProperties = {
+  minHeight: "100vh",
+  padding: 30,
+  fontFamily: "Arial, sans-serif",
+  background: "#f1f5f9",
+  color: "#0f172a",
+};
+
+const contentStyle: React.CSSProperties = {
+  width: "100%",
+  maxWidth: 1300,
+  margin: "0 auto",
+};
+
+const backLinkStyle: React.CSSProperties = {
+  display: "inline-block",
+  marginBottom: 24,
+  padding: "10px 14px",
+  borderRadius: 10,
+  background: "#0f172a",
+  color: "white",
+  fontWeight: 700,
+  textDecoration: "none",
+};
+
+const titleStyle: React.CSSProperties = {
+  fontSize: 42,
+  marginBottom: 10,
+};
+
+const leadStyle: React.CSSProperties = {
+  fontSize: 18,
+  lineHeight: 1.5,
+  marginBottom: 24,
+  color: "#475569",
+};
+
+const cardStyle: React.CSSProperties = {
+  background: "#ffffff",
+  border: "1px solid #e2e8f0",
+  borderRadius: 16,
+  padding: 22,
+  boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
+};
+
+const sectionTitleStyle: React.CSSProperties = {
+  fontSize: 22,
+  marginTop: 0,
+  marginBottom: 18,
+};
+
+const toolsGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+  gap: 18,
+};
+
+const toolCardStyle: React.CSSProperties = {
+  textDecoration: "none",
+  color: "#0f172a",
+  border: "1px solid #cbd5e1",
+  borderRadius: 14,
+  padding: 20,
+  background: "#f8fafc",
+  display: "block",
+  boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+};
+
+const badgeStyle: React.CSSProperties = {
+  fontSize: 13,
+  fontWeight: 800,
+  marginBottom: 10,
+  letterSpacing: 0.4,
+};
+
+const toolTitleStyle: React.CSSProperties = {
+  fontSize: 24,
+  fontWeight: 800,
+  marginBottom: 12,
+};
+
+const toolDescriptionStyle: React.CSSProperties = {
+  fontSize: 14,
+  lineHeight: 1.6,
+  color: "#475569",
+};
