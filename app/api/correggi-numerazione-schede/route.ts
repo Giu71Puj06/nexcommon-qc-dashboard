@@ -70,6 +70,7 @@ export async function POST(req: Request) {
     let mancanti = 0;
     let duplicati = 0;
     let riordinate = 0;
+    let rinumerate = 0;
 
     for (const entry of Object.values(zipDaCorreggere.files)) {
       if (entry.dir) continue;
@@ -104,6 +105,7 @@ export async function POST(req: Request) {
       mancanti += parsed.stats.mancanti;
       duplicati += parsed.stats.duplicati;
       riordinate += parsed.stats.riordinate;
+      rinumerate += parsed.stats.rinumerate;
 
       const correctedBuffer = await docx.generateAsync({ type: "uint8array" });
       outputZip.file(entry.name, correctedBuffer);
@@ -112,7 +114,7 @@ export async function POST(req: Request) {
     outputZip.file("report_correzione_numerazione.csv", buildCsv(report));
     outputZip.file(
       "log_correzione.txt",
-      buildLog({ totaleRighe, corretti, giaAllineati, mancanti, duplicati, riordinate })
+      buildLog({ totaleRighe, corretti, giaAllineati, mancanti, duplicati, riordinate, rinumerate })
     );
 
     const out = await outputZip.generateAsync({ type: "uint8array" });
@@ -130,6 +132,7 @@ export async function POST(req: Request) {
           nonTrovati: mancanti,
           duplicati,
           riordinate,
+          rinumerate,
         }),
       },
     });
@@ -198,6 +201,7 @@ function correggiDocumentXml(
     mancanti: 0,
     duplicati: 0,
     riordinate: 0,
+    rinumerate: 0,
   };
 
   const tables = matchAll(xml, /<w:tbl[\s\S]*?<\/w:tbl>/g);
@@ -323,6 +327,10 @@ function correggiDocumentXml(
   output = riordino.xml;
   stats.riordinate += riordino.riordinate;
 
+  const rinumerazione = rinumeraProgressiviFinali(output);
+  output = rinumerazione.xml;
+  stats.rinumerate += rinumerazione.rinumerate;
+
   return { xml: output, stats };
 }
 
@@ -393,6 +401,52 @@ function riordinaTabelleCronologiche(xml: string) {
   });
 
   return { xml: newXml, riordinate };
+}
+
+function rinumeraProgressiviFinali(xml: string) {
+  let rinumerate = 0;
+
+  const newXml = xml.replace(/<w:tbl[\s\S]*?<\/w:tbl>/g, (tableXml) => {
+    const rows = matchAll(tableXml, /<w:tr[\s\S]*?<\/w:tr>/g);
+    if (rows.length < 3) return tableXml;
+
+    const headerInfo = trovaColonneTabella(rows);
+    if (!headerInfo) return tableXml;
+
+    let nextNC = 1;
+    let nextOSS = 1;
+
+    const newRows = rows.map((row, index) => {
+      if (index <= headerInfo.headerRowIndex) return row;
+
+      const cells = estraiCelle(row);
+      if (cells.length <= headerInfo.codiceCol) return row;
+
+      const codice = normalizzaCodice(estraiTesto(cells[headerInfo.codiceCol]));
+      const match = codice.match(/^(NC|OSS)(\d+)(.*)$/i);
+
+      if (!match) return row;
+
+      const tipo = match[1].toUpperCase();
+      const resto = match[3] || "";
+      const nuovoNumero = tipo === "NC" ? nextNC++ : nextOSS++;
+      const nuovoCodice = `${tipo}${nuovoNumero}${resto}`;
+
+      if (nuovoCodice === codice) return row;
+
+      const newCell = sostituisciTestoCella(cells[headerInfo.codiceCol], nuovoCodice);
+      const newCells = [...cells];
+      newCells[headerInfo.codiceCol] = newCell;
+
+      rinumerate += 1;
+      return ricostruisciRiga(row, newCells);
+    });
+
+    let idx = 0;
+    return tableXml.replace(/<w:tr[\s\S]*?<\/w:tr>/g, () => newRows[idx++] || "");
+  });
+
+  return { xml: newXml, rinumerate };
 }
 
 function parseCodiceOrdinamento(codice: string) {
@@ -635,6 +689,7 @@ function buildLog(stats: {
   mancanti: number;
   duplicati: number;
   riordinate: number;
+  rinumerate: number;
 }) {
   return [
     "Correzione numerazione NC/OSS tra emissioni",
@@ -642,13 +697,15 @@ function buildLog(stats: {
     "Chiave di confronto: testo della colonna Rilievi ODI / Rilievi ITS Controlli Tecnici.",
     "Fallback: se il rilievo non coincide, usa il progressivo NC/OSS.",
     "Riordino: le righe Word vengono ordinate per progressivo NC e OSS.",
+    "Rinumerazione finale: elimina duplicati e buchi nella progressione NC/OSS.",
     "",
     `Righe analizzate: ${stats.totaleRighe}`,
-    `Numerazioni corrette: ${stats.corretti}`,
+    `Numerazioni corrette da riferimento: ${stats.corretti}`,
     `Numerazioni gia allineate: ${stats.giaAllineati}`,
     `Rilievi non trovati o senza codice: ${stats.mancanti}`,
     `Rilievi duplicati nel riferimento: ${stats.duplicati}`,
     `Tabelle riordinate: ${stats.riordinate}`,
+    `Progressivi rinumerati: ${stats.rinumerate}`,
     "",
   ].join("\n");
 }
