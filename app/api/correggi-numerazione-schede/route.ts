@@ -294,12 +294,15 @@ function trovaColonneTabella(rows: string[]) {
     const texts = cells.map((cell) => normalizeHeader(estraiTesto(cell)));
 
     let codiceCol = texts.findIndex((text) =>
-      text === "NCOSS" ||
-      text.includes("NCOSS") ||
-      text.includes("NC OSS") ||
-      text.includes("CLASSIFICAZIONE") ||
-      text.includes("TIPO RILIEVO") ||
-      text === "CODICE"
+      text.includes("CRONOLOGICO") ||
+text.includes("N CRONOLOGICO") ||
+text.includes("NUMERO CRONOLOGICO") ||
+text === "NCOSS" ||
+text.includes("NCOSS") ||
+text.includes("NC OSS") ||
+text.includes("CLASSIFICAZIONE") ||
+text.includes("TIPO RILIEVO") ||
+text === "CODICE"
     );
 
     let rilievoCol = texts.findIndex((text) =>
