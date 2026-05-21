@@ -395,7 +395,8 @@ function trovaColonneTabella(rows: string[]) {
         text.includes("RILIEVI ITS") ||
         text.includes("RILIEVO ITS") ||
         text.includes("ITS CONTROLLI TECNICI") ||
-        text.includes("CONTROLLI TECNICI")
+        text.includes("CONTROLLI TECNICI") ||
+        text.includes("DESCRIZIONE")
     );
 
     if (codiceCol < 0 && cells.length > 0) {
@@ -412,55 +413,6 @@ function trovaColonneTabella(rows: string[]) {
 
     if (rilievoCol < 0 && cells.length >= 4) {
       rilievoCol = 3;
-    }
-
-    if (codiceCol >= 0 && rilievoCol >= 0 && codiceCol !== rilievoCol) {
-      return { headerRowIndex: rowIndex, codiceCol, rilievoCol };
-    }
-  }
-
-  return null;
-}
-  for (let rowIndex = 0; rowIndex < Math.min(rows.length, 5); rowIndex += 1) {
-    const cells = estraiCelle(rows[rowIndex]);
-    const texts = cells.map((cell) => normalizeHeader(estraiTesto(cell)));
-
-    let codiceCol = texts.findIndex(
-      (text) =>
-        text.includes("CRONOLOGICO") ||
-        text.includes("N CRONOLOGICO") ||
-        text.includes("NUMERO CRONOLOGICO") ||
-        text.includes("N CRONOLOGICO") ||
-        text === "NCOSS" ||
-        text.includes("NCOSS") ||
-        text.includes("NC OSS") ||
-        text.includes("CLASSIFICAZIONE") ||
-        text.includes("TIPO RILIEVO") ||
-        text === "CODICE"
-    );
-
-    let rilievoCol = texts.findIndex(
-      (text) =>
-        text.includes("RILIEVI ODI") ||
-        text.includes("RILIEVO ODI") ||
-        text.includes("RILIEVIODI") ||
-        text.includes("RILIEVOODI") ||
-        text.includes("DESCRIZIONE")
-    );
-
-    if (
-      codiceCol < 0 &&
-      cells.length > 0 &&
-      rows.slice(rowIndex + 1, rowIndex + 4).some((r) => {
-        const first = estraiCelle(r)[0];
-        return first && sembraCodiceNcOss(estraiTesto(first));
-      })
-    ) {
-      codiceCol = 0;
-    }
-
-    if (rilievoCol < 0 && cells.length >= 2) {
-      rilievoCol = codiceCol === 0 ? 1 : -1;
     }
 
     if (codiceCol >= 0 && rilievoCol >= 0 && codiceCol !== rilievoCol) {
@@ -588,7 +540,7 @@ function buildLog(stats: {
   return [
     "Correzione numerazione NC/OSS tra emissioni",
     "Regola: l'emissione da correggere viene adeguata all'emissione precedente.",
-    "Chiave di confronto: testo della colonna Rilievi ODI.",
+    "Chiave di confronto: testo della colonna Rilievi ODI / Rilievi ITS Controlli Tecnici.",
     "",
     `Righe analizzate: ${stats.totaleRighe}`,
     `Numerazioni corrette: ${stats.corretti}`,
