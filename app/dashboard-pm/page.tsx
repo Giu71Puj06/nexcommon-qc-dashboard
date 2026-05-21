@@ -532,6 +532,7 @@ export default function DashboardPMPage() {
     marginTop: 14,
   }}
 >
+  {/* MODULO 1 */}
   <a
     href="/dashboard-pm/correggi-numerazione"
     style={{
@@ -581,6 +582,7 @@ export default function DashboardPMPage() {
     </div>
   </a>
 
+  {/* MODULO 2 */}
   <a
     href="/dashboard-pm/tempi-verifica"
     style={{
