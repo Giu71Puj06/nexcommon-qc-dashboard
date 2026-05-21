@@ -30,17 +30,12 @@ export async function POST(req: Request) {
     const precedente = formData.get("emissione_precedente");
     const daCorreggere = formData.get("emissione_da_correggere");
 
-   if (
-  !precedente ||
-  !daCorreggere ||
-  typeof (precedente as Blob).arrayBuffer !== "function" ||
-  typeof (daCorreggere as Blob).arrayBuffer !== "function"
-) {
-  return new NextResponse("Caricare entrambi gli ZIP: emissione precedente ed emissione da correggere.", { status: 400 });
-}
+    if (!(precedente instanceof File) || !(daCorreggere instanceof File)) {
+      return new NextResponse("Caricare entrambi gli ZIP: emissione precedente ed emissione da correggere.", { status: 400 });
+    }
 
-const zipPrecedente = await JSZip.loadAsync(await (precedente as Blob).arrayBuffer());
-const zipDaCorreggere = await JSZip.loadAsync(await (daCorreggere as Blob).arrayBuffer());
+    const zipPrecedente = await JSZip.loadAsync(await precedente.arrayBuffer());
+    const zipDaCorreggere = await JSZip.loadAsync(await daCorreggere.arrayBuffer());
 
     const riferimenti = await estraiRiferimenti(zipPrecedente);
     if (riferimenti.records.length === 0) {
@@ -95,7 +90,7 @@ const zipDaCorreggere = await JSZip.loadAsync(await (daCorreggere as Blob).array
 
     const out = await outputZip.generateAsync({ type: "uint8array" });
 
-    return new NextResponse(Buffer.from(out), {
+    return new NextResponse(out, {
       status: 200,
       headers: {
         "Content-Type": "application/zip",
@@ -295,14 +290,15 @@ function trovaColonneTabella(rows: string[]) {
 
     let codiceCol = texts.findIndex((text) =>
       text.includes("CRONOLOGICO") ||
-text.includes("N CRONOLOGICO") ||
-text.includes("NUMERO CRONOLOGICO") ||
-text === "NCOSS" ||
-text.includes("NCOSS") ||
-text.includes("NC OSS") ||
-text.includes("CLASSIFICAZIONE") ||
-text.includes("TIPO RILIEVO") ||
-text === "CODICE"
+      text.includes("N CRONOLOGICO") ||
+      text.includes("NUMERO CRONOLOGICO") ||
+      text.includes("N. CRONOLOGICO") ||
+      text === "NCOSS" ||
+      text.includes("NCOSS") ||
+      text.includes("NC OSS") ||
+      text.includes("CLASSIFICAZIONE") ||
+      text.includes("TIPO RILIEVO") ||
+      text === "CODICE"
     );
 
     let rilievoCol = texts.findIndex((text) =>
