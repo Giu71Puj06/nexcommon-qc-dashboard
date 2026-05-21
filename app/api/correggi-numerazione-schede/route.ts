@@ -357,47 +357,45 @@ function riordinaTabelleCronologiche(xml: string) {
       const parsed = parseCodiceOrdinamento(codice);
 
       const elaborato =
-  cells.length > 1
-    ? normalizzaCodiceElaborato(estraiTesto(cells[1]))
-    : "";
+        cells.length > 1
+          ? normalizzaCodiceElaborato(estraiTesto(cells[1]))
+          : "";
 
-return {
-  row,
-  originalIndex,
-  tipo: parsed.tipo,
-  numero: parsed.numero,
-  ordinabile: parsed.ordinabile,
-  elaborato,
-};
+      return {
+        row,
+        originalIndex,
+        tipo: parsed.tipo,
+        numero: parsed.numero,
+        ordinabile: parsed.ordinabile,
+        elaborato,
+      };
     });
 
     const ordinabili = sortable.filter((x) => x.ordinabile);
     if (ordinabili.length < 2) return tableXml;
 
-    const prima = ordinabili.map((x) => `${x.tipo}${x.numero}`).join("|");
+    const prima = ordinabili.map((x) => `${x.elaborato}|${x.tipo}${x.numero}`).join("|");
 
     sortable.sort((a, b) => {
-  if (!a.ordinabile && !b.ordinabile) {
-    return a.originalIndex - b.originalIndex;
-  }
+      if (!a.ordinabile && !b.ordinabile) {
+        return a.originalIndex - b.originalIndex;
+      }
 
-  if (!a.ordinabile) return 1;
-  if (!b.ordinabile) return -1;
+      if (!a.ordinabile) return 1;
+      if (!b.ordinabile) return -1;
 
-  // 1. Raggruppa per codice elaborato
-  const elaboratoCompare = a.elaborato.localeCompare(b.elaborato);
+      const elaboratoCompare = a.elaborato.localeCompare(b.elaborato);
 
-  if (elaboratoCompare !== 0) {
-    return elaboratoCompare;
-  }
+      if (elaboratoCompare !== 0) {
+        return elaboratoCompare;
+      }
 
-  // 2. Ordine cronologico assoluto NC/OSS
-  return a.numero - b.numero;
-});
+      return a.numero - b.numero;
+    });
 
     const dopo = sortable
       .filter((x) => x.ordinabile)
-      .map((x) => `${x.tipo}${x.numero}`)
+      .map((x) => `${x.elaborato}|${x.tipo}${x.numero}`)
       .join("|");
 
     if (prima !== dopo) {
@@ -660,7 +658,7 @@ function normalizeRilievoKey(value: string) {
     .trim();
 }
 
-ffunction normalizeHeader(value: string) {
+function normalizeHeader(value: string) {
   return normalizeRilievoKey(value);
 }
 
@@ -717,7 +715,7 @@ function buildLog(stats: {
     "Regola: l'emissione da correggere viene adeguata all'emissione precedente.",
     "Chiave di confronto: testo della colonna Rilievi ODI / Rilievi ITS Controlli Tecnici.",
     "Fallback: se il rilievo non coincide, usa il progressivo NC/OSS.",
-    "Riordino: le righe Word vengono ordinate per progressivo NC e OSS.",
+    "Riordino: le righe Word vengono ordinate per codice elaborato e progressivo.",
     "Rinumerazione finale: elimina duplicati e buchi nella progressione NC/OSS.",
     "",
     `Righe analizzate: ${stats.totaleRighe}`,
