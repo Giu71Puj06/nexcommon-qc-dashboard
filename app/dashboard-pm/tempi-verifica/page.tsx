@@ -320,4 +320,3 @@ const tableWrapStyle: React.CSSProperties = { overflowX: "auto", border: "1px so
 const tableStyle: React.CSSProperties = { width: "100%", minWidth: 1200, borderCollapse: "collapse", fontSize: 13 };
 const thStyle: React.CSSProperties = { textAlign: "left", padding: 10, borderBottom: "1px solid #e2e8f0", background: "#f8fafc", whiteSpace: "nowrap" };
 const tdStyle: React.CSSProperties = { padding: 10, borderBottom: "1px solid #e2e8f0", verticalAlign: "top" };
-
