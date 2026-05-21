@@ -10,7 +10,8 @@ type StatoRisultato = {
   giaAllineati?: number;
   mancanti?: number;
   nonTrovati?: number;
-  duplicati?: number;
+  riordinate?: number;
+  rinumerate?: number;
 };
 
 type ReportRow = {
@@ -19,6 +20,7 @@ type ReportRow = {
   codice_precedente: string;
   codice_originale: string;
   codice_finale: string;
+  tr_variato: string;
   stato: string;
   rilievo_odi: string;
 };
@@ -71,7 +73,7 @@ export default function CorreggiNumerazioneSchedePage() {
 
       try {
         const report = await estraiReportDaZip(blob);
-        setReportRows(report.filter((row) => row.stato !== "OK"));
+        setReportRows(report);
       } catch (err) {
         console.warn("Report non leggibile dal file ZIP", err);
       }
@@ -92,27 +94,6 @@ export default function CorreggiNumerazioneSchedePage() {
     } finally {
       setLoading(false);
     }
-  }
-
-  function mostraRigheDaVerificare() {
-    const rows = reportRows.filter(
-      (r) =>
-        r.stato === "NON_TROVATO" ||
-        r.stato === "DUPLICATO_RIFERIMENTO" ||
-        r.stato === "SENZA_CODICE"
-    );
-
-    if (rows.length === 0) {
-      alert("Tutte le schede risultano allineate.");
-      return;
-    }
-
-    const text = rows
-      .slice(0, 50)
-      .map((r) => `${r.file} - Riga ${r.riga} - ${r.codice_originale || "senza codice"}`)
-      .join("\n");
-
-    alert(text);
   }
 
   return (
@@ -176,19 +157,16 @@ export default function CorreggiNumerazioneSchedePage() {
               <Stat label="Corrette" value={risultato.corretti} />
               <Stat label="Già allineate" value={risultato.giaAllineati} />
               <Stat label="Allineamento %" value={calcolaPercentualeAllineamento(risultato)} />
-              <div style={{ cursor: "pointer" }} onClick={mostraRigheDaVerificare}>
-                <Stat
-                  label="Da verificare manualmente"
-                  value={(risultato.mancanti || 0) + (risultato.nonTrovati || 0) + (risultato.duplicati || 0)}
-                />
-              </div>
+              <Stat label="Non trovate" value={risultato.nonTrovati || risultato.mancanti || 0} />
+              <Stat label="Tabelle riordinate" value={risultato.riordinate || 0} />
+              <Stat label="Progressivi rinumerati" value={risultato.rinumerate || 0} />
             </div>
           </section>
         )}
 
         {reportRows.length > 0 && (
           <section style={cardStyle}>
-            <h2 style={sectionTitleStyle}>Report a video - righe non allineate / da verificare</h2>
+            <h2 style={sectionTitleStyle}>Report a video - esito correzione</h2>
             <div style={tableWrapStyle}>
               <table style={tableStyle}>
                 <thead>
@@ -198,6 +176,7 @@ export default function CorreggiNumerazioneSchedePage() {
                     <th style={thStyle}>Cronologico precedente</th>
                     <th style={thStyle}>Cronologico originale</th>
                     <th style={thStyle}>Cronologico finale</th>
+                    <th style={thStyle}>TR variato</th>
                     <th style={thStyle}>Stato</th>
                     <th style={thStyle}>Rilievi ODI</th>
                   </tr>
@@ -210,7 +189,21 @@ export default function CorreggiNumerazioneSchedePage() {
                       <td style={tdStyle}>{row.codice_precedente}</td>
                       <td style={tdStyle}>{row.codice_originale}</td>
                       <td style={tdStyle}>{row.codice_finale}</td>
-                      <td style={tdStyle}><b>{row.stato}</b></td>
+                      <td style={tdStyle}>{row.tr_variato}</td>
+                      <td
+                        style={{
+                          ...tdStyle,
+                          fontWeight: 700,
+                          color:
+                            row.stato === "CORRETTO"
+                              ? "#166534"
+                              : row.stato === "GIÀ_ALLINEATO"
+                              ? "#1d4ed8"
+                              : "#b91c1c",
+                        }}
+                      >
+                        {row.stato}
+                      </td>
                       <td style={tdStyle}>{row.rilievo_odi}</td>
                     </tr>
                   ))}
@@ -241,15 +234,16 @@ function parseCsvReport(csv: string): ReportRow[] {
 
   for (const line of lines.slice(1)) {
     const values = parseCsvLine(line);
-    if (values.length < 7) continue;
+    if (values.length < 8) continue;
     rows.push({
       file: values[0] || "",
       riga: values[1] || "",
       codice_precedente: values[2] || "",
       codice_originale: values[3] || "",
       codice_finale: values[4] || "",
-      stato: values[5] || "",
-      rilievo_odi: values[6] || "",
+      tr_variato: values[5] || "",
+      stato: values[6] || "",
+      rilievo_odi: values[7] || "",
     });
   }
 
