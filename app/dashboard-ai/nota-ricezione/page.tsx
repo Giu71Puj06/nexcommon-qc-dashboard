@@ -468,34 +468,76 @@ export default function NotaRicezioneAIPage() {
     setError("");
   }
 
-  function esportaExcel() {
-    const data = rows.map((row) => ({
-      Cartella: row.cartella,
-      Percorso: row.percorso,
-      "File PDF": row.fileName,
-      "Codice elenco": row.codiceElenco,
-      "Codice file": row.codiceFile,
-      "Codice cartiglio": row.codiceCartiglio,
-      "Titolo elenco": row.titoloElenco,
-      "Titolo cartiglio": row.titoloCartiglio,
-      "Rev elenco": row.revisioneElenco,
-      "Rev file": row.revisioneFile,
-      "Rev cartiglio": row.revisioneCartiglio,
-      "Disciplina elenco": row.disciplinaElenco,
-      "Disciplina cartiglio": row.disciplinaCartiglio,
-      "Formato elenco": row.formatoElenco,
-      "Formato documento": row.formatoDocumento,
-      "Stato controllo": row.statoControllo,
-      "Anomalia rilevata": row.anomalia,
-      "Azione richiesta": row.azioneRichiesta,
-      Confidenza: row.confidenza,
-    }));
+  async function esportaExcel() {
+    try {
+      const templateResponse = await fetch("/Nota_Ricezione_Template.xlsx");
 
-    const workbook = XLSX.utils.book_new();
-    const worksheet = XLSX.utils.json_to_sheet(data);
+      if (!templateResponse.ok) {
+        throw new Error("Template Nota_Ricezione_Template.xlsx non trovato in /public.");
+      }
 
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Controllo documentale");
-    XLSX.writeFile(workbook, "Report_Controllo_Documentale_AI.xlsx");
+      const templateArrayBuffer = await templateResponse.arrayBuffer();
+
+      const workbook = XLSX.read(templateArrayBuffer, {
+        type: "array",
+      });
+
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+
+      const reportRows = rows.map((row) => ({
+        CARTELLA: row.cartella || "-",
+        "FILE PDF": row.fileName || "-",
+        "CODICE ELENCO": row.codiceElenco || "-",
+        "CODICE CARTIGLIO": row.codiceCartiglio || "-",
+        "TITOLO ELENCO": row.titoloElenco || "-",
+        "TITOLO CARTIGLIO": row.titoloCartiglio || "-",
+        "REV ELENCO": row.revisioneElenco || "-",
+        "REV CARTIGLIO": row.revisioneCartiglio || "-",
+        STATO: row.statoControllo || "-",
+        ANOMALIA: row.anomalia || "-",
+        "AZIONE RICHIESTA": row.azioneRichiesta || "-",
+      }));
+
+      XLSX.utils.sheet_add_json(worksheet, reportRows, {
+        origin: "A10",
+        skipHeader: false,
+      });
+
+      const riepilogoSheet = XLSX.utils.aoa_to_sheet([
+        ["RIEPILOGO CONTROLLO DOCUMENTALE"],
+        [""],
+        ["Elaborati analizzati", rows.length],
+        ["PRESENTE", rows.filter((row) => row.statoControllo === "PRESENTE").length],
+        ["INCOERENTE", rows.filter((row) => row.statoControllo === "INCOERENTE").length],
+        ["Elaborati in elenco", elenco.length],
+        [""],
+        ["NOTE"],
+        [
+          'Il carattere "-" e il carattere "_" nel codice elaborato sono considerati equivalenti.',
+        ],
+      ]);
+
+      XLSX.utils.book_append_sheet(workbook, riepilogoSheet, "Riepilogo");
+
+      const emailSheet = XLSX.utils.aoa_to_sheet([
+        ["TESTO EMAIL AI PROGETTISTI"],
+        [""],
+        [emailText || ""],
+      ]);
+
+      XLSX.utils.book_append_sheet(workbook, emailSheet, "Email_Progettisti");
+
+      XLSX.writeFile(workbook, "Report_Completo.xlsx");
+    } catch (error) {
+      console.error(error);
+
+      alert(
+        error instanceof Error
+          ? error.message
+          : "Errore durante la generazione del report Excel completo."
+      );
+    }
   }
 
   const kpi = useMemo(() => {
