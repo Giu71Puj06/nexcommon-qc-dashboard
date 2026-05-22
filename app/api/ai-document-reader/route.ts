@@ -7,6 +7,7 @@ export const dynamic = "force-dynamic";
 type ReaderMode =
   | "economic-analysis"
   | "document-reception-check"
+  | "document-list-extraction"
   | "generic-document-reading";
 
 export async function GET() {
@@ -27,12 +28,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const client = new OpenAI({
-      apiKey,
-    });
+    const client = new OpenAI({ apiKey });
 
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
+    const elencoInfoRaw = formData.get("elencoInfo");
 
     const mode =
       (formData.get("mode") as ReaderMode) || "generic-document-reading";
@@ -47,7 +47,12 @@ export async function POST(request: NextRequest) {
     const bytes = await file.arrayBuffer();
     const base64File = Buffer.from(bytes).toString("base64");
 
-    const prompt = buildPrompt(mode, file.name);
+    const elencoInfo =
+      typeof elencoInfoRaw === "string" && elencoInfoRaw
+        ? elencoInfoRaw
+        : "";
+
+    const prompt = buildPrompt(mode, file.name, elencoInfo);
 
     const response = await client.responses.create({
       model: "gpt-4.1-mini",
@@ -88,7 +93,57 @@ export async function POST(request: NextRequest) {
   }
 }
 
-function buildPrompt(mode: ReaderMode, fileName: string): string {
+function buildPrompt(mode: ReaderMode, fileName: string, elencoInfo = ""): string {
+  if (mode === "document-list-extraction") {
+    return `
+Sei un assistente tecnico esperto in elenchi elaborati progettuali italiani.
+
+Analizza SOLO il PDF allegato, che è un elenco elaborati.
+
+Nome file elenco:
+${fileName}
+
+Estrai tutte le righe dell'elenco elaborati.
+
+Per ogni elaborato estrai:
+- codice elaborato
+- revisione
+- titolo elaborato
+- disciplina
+- formato, se presente
+- scala, se presente
+- data, se presente
+
+Regole:
+- Rispondi SOLO in JSON valido.
+- Non usare markdown.
+- Non aggiungere testo fuori dal JSON.
+- Se un dato non è presente, usa stringa vuota.
+- Non inventare dati.
+- Mantieni i codici esattamente come compaiono nel documento.
+
+Formato JSON:
+{
+  "tipoDocumento": "elenco_elaborati",
+  "fileName": "${fileName}",
+  "commessa": "",
+  "elaborati": [
+    {
+      "codice": "",
+      "revisione": "",
+      "titolo": "",
+      "disciplina": "",
+      "formato": "",
+      "scala": "",
+      "data": ""
+    }
+  ],
+  "warning": "",
+  "confidenza": 0
+}
+`;
+  }
+
   if (mode === "economic-analysis") {
     return `
 Sei un assistente tecnico esperto in computi metrici italiani, quadri economici, cartigli e documentazione di appalto.
@@ -137,29 +192,39 @@ Formato JSON:
 
   if (mode === "document-reception-check") {
     return `
-Sei un assistente tecnico esperto in controllo elaborati progettuali, cartigli, codici documento e revisioni.
+Sei un assistente tecnico esperto in controllo elaborati progettuali, cartigli, codici documento, revisioni e formati.
 
-Analizza il PDF allegato.
+Analizza SOLO il PDF allegato.
 
-Nome file:
+Nome file PDF da verificare:
 ${fileName}
 
-Verifica:
-- codice elaborato nel nome file
+Informazioni leggere disponibili dal frontend:
+${elencoInfo || "Nessuna informazione aggiuntiva."}
+
+Estrai dal PDF:
 - codice elaborato nel cartiglio
-- titolo elaborato
-- revisione
+- titolo elaborato nel cartiglio
+- revisione nel cartiglio
 - data revisione
 - disciplina
 - fase progettuale
-- coerenza tra nome file e cartiglio
+- formato documento o formato tavola, se presente
+- commessa, se presente
 
-Rispondi SOLO in JSON valido.
+Regole:
+- Rispondi SOLO in JSON valido.
+- Non usare markdown.
+- Non aggiungere testo fuori dal JSON.
+- Non leggere né confrontare altri PDF.
+- Non inventare dati.
+- Il confronto con l'elenco elaborati verrà fatto dal frontend in TypeScript.
+- Qui devi solo leggere il cartiglio e i dati del singolo PDF.
 
 Formato JSON:
 {
   "commessa": "",
-  "codiceDocumentoFile": "",
+  "codiceDocumentoFile": "${fileName.replace(/\.pdf$/i, "")}",
   "codiceDocumentoCartiglio": "",
   "titoloElaborato": "",
   "revisioneFile": "",
@@ -167,11 +232,11 @@ Formato JSON:
   "dataRevisione": "",
   "disciplina": "",
   "faseProgettuale": "",
+  "formatoDocumento": "",
+  "formatoCartiglio": "",
   "coerenze": {
-    "codiceCoerente": true,
-    "revisioneCoerente": true,
-    "titoloPresente": true,
-    "cartiglioLeggibile": true
+    "cartiglioLeggibile": true,
+    "titoloPresente": true
   },
   "incoerenze": [],
   "azioniConsigliate": [],
