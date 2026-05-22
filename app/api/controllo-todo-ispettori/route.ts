@@ -566,24 +566,9 @@ function buildChecks(todoRows: any[][], reportCodes: Map<string, string>, discip
     // esplicitiamo quale parte della storia manca.
 
     if (isRilievo) {
-  if (isClosed) {
-    esitoStoria = "COMPLETA";
-  } else if (!tr && !extractComparableCode(title) && !extractComparableCode(codiceReport)) {
-    esitoStoria = "Manca commento del progettista";
-    warning.push("Codice TR o codice elaborato non trovato nel ToDo");
-  } else if (!bcf) {
-    esitoStoria = "Manca commento del progettista";
-    warning.push(`Risposta progettista non trovata per ${tr || codiceReport || title}`);
-  } else if (!bcf.commentsPrg && !bcf.allComments) {
-    esitoStoria = "Manca commento del progettista";
-    warning.push("Risposta progettista mancante nei commenti BCF");
-  } else if (!bcf.commentsIsp) {
-    esitoStoria = "Manca il riscontro dell'ispettore";
-    warning.push("Riscontro ispettore mancante nei commenti BCF");
-  } else {
-    esitoStoria = "COMPLETA";
-  }
-}
+      if (isClosed) {
+        esitoStoria = "COMPLETA";
+      } else if (!tr && !extractComparableCode(title) && !extractComparableCode(codiceReport)) {
         esitoStoria = "Manca commento del progettista";
         warning.push("Codice TR o codice elaborato non trovato nel ToDo");
       } else if (!bcf) {
@@ -592,11 +577,8 @@ function buildChecks(todoRows: any[][], reportCodes: Map<string, string>, discip
       } else if (!bcf.commentsPrg && !bcf.allComments) {
         esitoStoria = "Manca commento del progettista";
         warning.push("Risposta progettista mancante nei commenti BCF");
-      } else if (!bcf.commentsIsp && isClosed) {
-        esitoStoria = "Manca il riscontro dell\'ispettore";
-        warning.push("Riscontro ispettore mancante nei commenti BCF");
       } else if (!bcf.commentsIsp) {
-        esitoStoria = "Manca il riscontro dell\'ispettore";
+        esitoStoria = "Manca il riscontro dell'ispettore";
         warning.push("Riscontro ispettore mancante nei commenti BCF");
       } else {
         esitoStoria = "COMPLETA";
