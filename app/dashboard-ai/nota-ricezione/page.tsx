@@ -92,7 +92,20 @@ export default function NotaRicezioneAIPage() {
         const fd = new FormData();
 
         fd.append("file", file);
-        fd.append("elencoElaborati", elencoFile);
+
+        // Non inviamo tutto l'elenco elaborati PDF a ogni chiamata AI:
+        // evitamo il superamento del context window del modello.
+        fd.append(
+          "elencoInfo",
+          JSON.stringify({
+            elencoFileName: elencoFile.name,
+            fileDaVerificare: file.name,
+            percorsoRelativo:
+              (file as File & { webkitRelativePath?: string })
+                .webkitRelativePath || file.name,
+          })
+        );
+
         fd.append("mode", "document-reception-check");
 
         const res = await fetch("/api/ai-document-reader", {
@@ -292,7 +305,17 @@ export default function NotaRicezioneAIPage() {
               type="file"
               accept=".pdf"
               multiple
-              onChange={(e) => setFiles(Array.from(e.target.files || []))}
+              // @ts-expect-error webkitdirectory e' supportato da Chrome/Edge ma non tipizzato da React
+              webkitdirectory="true"
+              // @ts-expect-error directory e' supportato da alcuni browser ma non tipizzato da React
+              directory="true"
+              onChange={(e) => {
+                const selectedFiles = Array.from(e.target.files || []).filter(
+                  (file) => file.name.toLowerCase().endsWith(".pdf")
+                );
+
+                setFiles(selectedFiles);
+              }}
               style={inputStyle}
             />
 
