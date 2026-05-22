@@ -3,10 +3,6 @@ import OpenAI from "openai";
 
 export const runtime = "nodejs";
 
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
 type ReaderMode =
   | "economic-analysis"
   | "document-reception-check"
@@ -20,6 +16,10 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
+
+    const client = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
 
     const formData = await request.formData();
     const mode = String(
@@ -54,7 +54,9 @@ export async function POST(request: NextRequest) {
               {
                 type: "input_file",
                 filename: file.name,
-                file_data: `data:${file.type || "application/pdf"};base64,${base64}`,
+                file_data: `data:${
+                  file.type || "application/pdf"
+                };base64,${base64}`,
               },
             ],
           },
