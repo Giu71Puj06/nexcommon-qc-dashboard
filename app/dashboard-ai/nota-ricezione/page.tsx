@@ -51,6 +51,26 @@ type Row = {
   result: AiReceptionResult;
 };
 
+type ElencoItem = {
+  codice: string;
+  revisione?: string;
+  titolo?: string;
+  disciplina?: string;
+  formato?: string;
+  scala?: string;
+  data?: string;
+};
+
+type ElencoExtractionResult = {
+  tipoDocumento?: string;
+  fileName?: string;
+  commessa?: string;
+  elaborati?: ElencoItem[];
+  warning?: string;
+  confidenza?: number;
+};
+
+
 function normalizeCode(value: string) {
   return String(value || "")
     .toUpperCase()
@@ -63,6 +83,52 @@ function normalizeCode(value: string) {
 function extractFileBaseName(fileName: string) {
   return String(fileName || "").replace(/\.pdf$/i, "").trim();
 }
+
+function safeJsonParse<T>(value: unknown, fallback: T): T {
+  if (typeof value !== "string") return (value as T) || fallback;
+
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    const jsonMatch = value.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return fallback;
+
+    try {
+      return JSON.parse(jsonMatch[0]) as T;
+    } catch {
+      return fallback;
+    }
+  }
+}
+
+function extractRevisionFromFileName(fileName: string) {
+  const baseName = extractFileBaseName(fileName);
+  const match = baseName.match(/(?:-|_)([0-9]{2}|[A-Z][0-9]?|REV[0-9A-Z]+)$/i);
+  return match?.[1] || "";
+}
+
+function findMatchingElencoItem(
+  fileName: string,
+  cartiglioCode: string,
+  elencoItems: ElencoItem[]
+) {
+  const fileCode = normalizeCode(extractFileBaseName(fileName));
+  const cartiglioNormalized = normalizeCode(cartiglioCode);
+
+  return (
+    elencoItems.find((item) => normalizeCode(item.codice) === fileCode) ||
+    elencoItems.find(
+      (item) =>
+        !!cartiglioNormalized && normalizeCode(item.codice) === cartiglioNormalized
+    ) ||
+    elencoItems.find((item) => {
+      const itemCode = normalizeCode(item.codice);
+      return fileCode.includes(itemCode) || itemCode.includes(fileCode);
+    }) ||
+    null
+  );
+}
+
 
 export default function NotaRicezioneAIPage() {
   const [elencoFile, setElencoFile] = useState<File | null>(null);
@@ -86,15 +152,47 @@ export default function NotaRicezioneAIPage() {
     setError("");
 
     try {
+      const elencoFormData = new FormData();
+      elencoFormData.append("file", elencoFile);
+      elencoFormData.append("mode", "document-list-extraction");
+
+      const elencoResponse = await fetch("/api/ai-document-reader", {
+        method: "POST",
+        body: elencoFormData,
+      });
+
+      const elencoData = await elencoResponse.json();
+
+      if (!elencoResponse.ok || !elencoData.success) {
+        throw new Error(
+          elencoData.error || "Errore durante la lettura AI dell'elenco elaborati."
+        );
+      }
+
+      const elencoParsed = safeJsonParse<ElencoExtractionResult>(
+        elencoData.result,
+        {
+          elaborati: [],
+          warning: "Risposta AI elenco elaborati non leggibile come JSON.",
+        }
+      );
+
+      const elencoItems = Array.isArray(elencoParsed.elaborati)
+        ? elencoParsed.elaborati
+        : [];
+
+      if (!elencoItems.length) {
+        throw new Error(
+          "L'AI non ha estratto righe dall'elenco elaborati. Verifica che il PDF elenco sia leggibile."
+        );
+      }
+
       const newRows: Row[] = [];
 
       for (const file of files) {
         const fd = new FormData();
 
         fd.append("file", file);
-
-        // Non inviamo tutto l'elenco elaborati PDF a ogni chiamata AI:
-        // evitamo il superamento del context window del modello.
         fd.append(
           "elencoInfo",
           JSON.stringify({
@@ -105,7 +203,6 @@ export default function NotaRicezioneAIPage() {
                 .webkitRelativePath || file.name,
           })
         );
-
         fd.append("mode", "document-reception-check");
 
         const res = await fetch("/api/ai-document-reader", {
@@ -119,45 +216,132 @@ export default function NotaRicezioneAIPage() {
           throw new Error(data.error || "Errore durante l'analisi AI.");
         }
 
-        let parsed: AiReceptionResult;
-
-        try {
-          parsed =
-            typeof data.result === "string"
-              ? JSON.parse(data.result)
-              : data.result;
-        } catch {
-          parsed = {
-            incoerenze: ["Risposta AI non leggibile come JSON."],
-            azioniConsigliate: ["Verificare manualmente il documento."],
-          };
-        }
+        let parsed = safeJsonParse<AiReceptionResult>(data.result, {
+          incoerenze: ["Risposta AI non leggibile come JSON."],
+          azioniConsigliate: ["Verificare manualmente il documento."],
+        });
 
         const fileBaseName = extractFileBaseName(file.name);
-        const codiceFile =
-          parsed.codiceDocumentoFile || parsed.codiceElenco || fileBaseName;
+        const revisioneFile = parsed.revisioneFile || extractRevisionFromFileName(file.name);
 
-        const codiceCoerente =
-          parsed.coerenze?.codiceCoerente ??
-          parsed.coerenze?.codiceFileCoerenteConCartiglio ??
-          Boolean(
-            normalizeCode(codiceFile) &&
-              normalizeCode(parsed.codiceDocumentoCartiglio || "") &&
-              normalizeCode(codiceFile) ===
-                normalizeCode(parsed.codiceDocumentoCartiglio || "")
+        const matchingItem = findMatchingElencoItem(
+          file.name,
+          parsed.codiceDocumentoCartiglio || "",
+          elencoItems
+        );
+
+        const codiceElenco = matchingItem?.codice || "";
+        const codiceFile = parsed.codiceDocumentoFile || fileBaseName;
+        const codiceCartiglio = parsed.codiceDocumentoCartiglio || "";
+
+        const presenteInElenco = !!matchingItem;
+
+        const nomeFileCoerenteConElenco =
+          presenteInElenco &&
+          normalizeCode(fileBaseName) === normalizeCode(codiceElenco);
+
+        const codiceFileCoerenteConCartiglio =
+          !!codiceCartiglio &&
+          normalizeCode(codiceFile) === normalizeCode(codiceCartiglio);
+
+        const codiceElencoCoerenteConCartiglio =
+          !!codiceElenco &&
+          !!codiceCartiglio &&
+          normalizeCode(codiceElenco) === normalizeCode(codiceCartiglio);
+
+        const revisioneElenco = matchingItem?.revisione || "";
+        const revisioneCartiglio = parsed.revisioneCartiglio || "";
+
+        const revisioneCoerente =
+          !!revisioneElenco &&
+          !!revisioneCartiglio &&
+          normalizeCode(revisioneElenco) === normalizeCode(revisioneCartiglio);
+
+        const formatoElenco = matchingItem?.formato || "";
+        const formatoDocumento = parsed.formatoDocumento || "";
+        const formatoCartiglio = parsed.formatoCartiglio || "";
+
+        const formatoCoerente =
+          !!formatoElenco &&
+          (!!formatoDocumento || !!formatoCartiglio) &&
+          (normalizeCode(formatoElenco) === normalizeCode(formatoDocumento) ||
+            normalizeCode(formatoElenco) === normalizeCode(formatoCartiglio));
+
+        const incoerenze = [...(parsed.incoerenze || [])];
+
+        if (!presenteInElenco) {
+          incoerenze.push("Elaborato non trovato nell'elenco elaborati.");
+        }
+
+        if (presenteInElenco && !nomeFileCoerenteConElenco) {
+          incoerenze.push("Nome file non coerente con il codice presente nell'elenco elaborati.");
+        }
+
+        if (!codiceCartiglio) {
+          incoerenze.push("Codice elaborato non rilevato nel cartiglio.");
+        } else if (!codiceFileCoerenteConCartiglio) {
+          incoerenze.push("Codice nel nome file non coerente con il codice nel cartiglio.");
+        }
+
+        if (codiceElenco && codiceCartiglio && !codiceElencoCoerenteConCartiglio) {
+          incoerenze.push("Codice elenco elaborati non coerente con il codice nel cartiglio.");
+        }
+
+        if (revisioneElenco && revisioneCartiglio && !revisioneCoerente) {
+          incoerenze.push("Revisione elenco non coerente con revisione cartiglio.");
+        }
+
+        if (formatoElenco && (formatoDocumento || formatoCartiglio) && !formatoCoerente) {
+          incoerenze.push("Formato documento non coerente con elenco/cartiglio.");
+        }
+
+        const azioniConsigliate = [...(parsed.azioniConsigliate || [])];
+
+        if (incoerenze.length > 0 && !azioniConsigliate.length) {
+          azioniConsigliate.push(
+            "Verificare nome file, codice cartiglio, revisione e formato rispetto all'elenco elaborati."
           );
+        }
 
         parsed = {
           ...parsed,
+          commessa: parsed.commessa || elencoParsed.commessa || "",
+          codiceElenco,
           codiceDocumentoFile: codiceFile,
+          codiceDocumentoCartiglio: codiceCartiglio,
+          revisioneElenco,
+          revisioneFile,
+          revisioneCartiglio,
+          formatoElenco,
+          formatoDocumento,
+          formatoCartiglio,
+          titoloElenco: matchingItem?.titolo || "",
+          disciplina: parsed.disciplina || matchingItem?.disciplina || "",
+          presenteInElenco,
           coerenze: {
             ...(parsed.coerenze || {}),
-            codiceCoerente,
+            presenteInElenco,
+            nomeFileCoerenteConElenco,
+            codiceFileCoerenteConCartiglio,
+            codiceElencoCoerenteConCartiglio,
+            codiceCoerente:
+              codiceFileCoerenteConCartiglio &&
+              (!codiceElenco || codiceElencoCoerenteConCartiglio),
+            revisioneCoerente,
+            formatoCoerente,
+            titoloPresente: Boolean(parsed.titoloElaborato || matchingItem?.titolo),
+            cartiglioLeggibile:
+              parsed.coerenze?.cartiglioLeggibile ??
+              Boolean(codiceCartiglio || parsed.titoloElaborato),
           },
+          incoerenze,
+          azioniConsigliate,
         };
 
         newRows.push({
-          fileName: file.name,
+          fileName:
+            (file as File & { webkitRelativePath?: string }).webkitRelativePath ||
+            file.name,
           result: parsed,
         });
       }
@@ -170,6 +354,7 @@ export default function NotaRicezioneAIPage() {
       setLoading(false);
     }
   }
+
 
   function svuota() {
     setElencoFile(null);
