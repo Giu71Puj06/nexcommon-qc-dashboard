@@ -19,10 +19,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const client = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
-
     const formData = await request.formData();
 
     const file = formData.get("file") as File | null;
