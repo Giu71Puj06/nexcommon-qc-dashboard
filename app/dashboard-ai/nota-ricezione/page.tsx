@@ -302,23 +302,22 @@ export default function NotaRicezioneAIPage() {
           <div>
             <label style={labelStyle}>Elaborati PDF da verificare</label>
             <input
-              type="file"
-              accept=".pdf"
-              multiple
-              // @ts-expect-error webkitdirectory e' supportato da Chrome/Edge ma non tipizzato da React
-              webkitdirectory="true"
-              // @ts-expect-error directory e' supportato da alcuni browser ma non tipizzato da React
-              directory="true"
-              onChange={(e) => {
-                const selectedFiles = Array.from(e.target.files || []).filter(
-                  (file) => file.name.toLowerCase().endsWith(".pdf")
-                );
+  type="file"
+  accept=".pdf"
+  multiple
+  {...({
+    webkitdirectory: "",
+    directory: "",
+  } as any)}
+  onChange={(e) => {
+    const selectedFiles = Array.from(e.target.files || []).filter(
+      (file) => file.name.toLowerCase().endsWith(".pdf")
+    );
 
-                setFiles(selectedFiles);
-              }}
-              style={inputStyle}
-            />
-
+    setFiles(selectedFiles);
+  }}
+  style={inputStyle}
+/>
             {files.length > 0 && (
               <div style={infoStyle}>PDF selezionati: {files.length}</div>
             )}
