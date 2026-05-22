@@ -619,6 +619,17 @@ function buildChecks(todoRows: any[][], reportCodes: Map<string, string>, discip
   });
 }
 
+
+function isUploadedFile(value: FormDataEntryValue | null): value is File {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    "arrayBuffer" in value &&
+    "size" in value &&
+    Number((value as File).size) > 0
+  );
+}
+
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
@@ -628,17 +639,17 @@ export async function POST(req: NextRequest) {
     const elencoFile = formData.get("elenco");
     const bcfFiles = formData
       .getAll("bcf")
-      .filter((file): file is File => file instanceof File && file.size > 0);
+      .filter((file): file is File => isUploadedFile(file));
 
-    if (!(todoFile instanceof File)) {
+    if (!isUploadedFile(todoFile)) {
       return NextResponse.json({ ok: false, error: "ToDo XLSX mancante" }, { status: 400 });
     }
 
-    if (!(reportFile instanceof File)) {
+    if (!isUploadedFile(reportFile)) {
       return NextResponse.json({ ok: false, error: "Report_Completo.xlsx mancante" }, { status: 400 });
     }
 
-    if (!(elencoFile instanceof File)) {
+    if (!isUploadedFile(elencoFile)) {
       return NextResponse.json({ ok: false, error: "ELENCO_ELABORATI.xlsx mancante" }, { status: 400 });
     }
 
