@@ -15,7 +15,32 @@ function getSurveillancePrompt(mode: SurveillanceMode) {
   const common = `
 Agisci come assistente tecnico per ispettori ITS.
 
-Devi analizzare l'elaborato ricevuto rispetto al Piano di Sorveglianza selezionato.
+FASE 1 - CLASSIFICAZIONE OBBLIGATORIA
+Prima di applicare il Piano di Sorveglianza selezionato, devi classificare il documento ricevuto leggendo cartiglio, titolo, codice elaborato e contenuto.
+
+Devi identificare:
+- disciplina reale del documento
+- tipo reale del documento
+- pertinenza rispetto al Piano di Sorveglianza selezionato
+
+Esempi:
+- ESPROPRI / ELENCO DITTE non è pertinente al Piano Architettonico
+- ELENCO ELABORATI non è pertinente a una verifica tecnica grafica
+- COMPUTO METRICO non è pertinente a una verifica grafica architettonica
+- TAVOLA ARCHITETTONICA è pertinente al Piano Architettonico
+- RELAZIONE ANTINCENDIO è pertinente al Piano Antincendio
+- PIANO DEMOLIZIONI è pertinente al Piano Demolizioni
+
+REGOLA FONDAMENTALE
+Se il documento NON è pertinente al Piano di Sorveglianza selezionato:
+- NON generare rilievi tecnici inventati
+- NON applicare checklist non coerenti
+- restituisci esitoGenerale = "NA"
+- inserisci un solo rilievo di tipo "NA"
+- spiega che il documento non è pertinente al piano selezionato
+- indica quale disciplina/tipo documento è stato rilevato
+
+Devi analizzare l'elaborato ricevuto rispetto al Piano di Sorveglianza selezionato SOLO se il documento è pertinente.
 
 NON inventare rilievi.
 Se un'informazione non è leggibile o non verificabile, indicarlo chiaramente.
@@ -24,7 +49,7 @@ Classifica ogni rilievo come:
 - OK = nessuna criticità evidente
 - OSS = osservazione / approfondimento consigliato
 - NC = non conformità evidente rispetto al punto di controllo
-- NA = non applicabile
+- NA = non applicabile o documento non pertinente
 
 Rispondi SOLO in JSON valido.
 Non usare markdown.
@@ -37,6 +62,7 @@ Formato:
   "revisione": "",
   "disciplinaRilevata": "",
   "tipoElaborato": "",
+  "pertinenteAlPiano": true,
   "esitoGenerale": "OK",
   "priorita": "BASSA",
   "rilievi": [
