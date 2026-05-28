@@ -18,8 +18,8 @@ export default function SchedeIspettivePage() {
   const [dataRev2, setDataRev2] = useState("");
   const [dataRev3, setDataRev3] = useState("");
   const [dataRev4, setDataRev4] = useState("");
-  const [dataRispostaProgettista, setDataRispostaProgettista] = useState("");
-  const [dataRiscontroIspettore, setDataRiscontroIspettore] = useState("");
+  const [dateRispostaProgettista, setDateRispostaProgettista] = useState<string[]>(["", "", "", "", ""]);
+  const [dateRiscontroIspettore, setDateRiscontroIspettore] = useState<string[]>(["", "", "", "", ""]);
   const [responsabileIts, setResponsabileIts] = useState("");
   const [responsabilePcq, setResponsabilePcq] = useState("");
   const [loading, setLoading] = useState(false);
@@ -51,8 +51,14 @@ export default function SchedeIspettivePage() {
       fd.append("data_rev_2", dataRev2);
       fd.append("data_rev_3", dataRev3);
       fd.append("data_rev_4", dataRev4);
-      fd.append("data_risposta_progettista", dataRispostaProgettista);
-      fd.append("data_riscontro_ispettore", dataRiscontroIspettore);
+      fd.append("data_risposta_progettista", dateRispostaProgettista[0] || "");
+      fd.append("data_riscontro_ispettore", dateRiscontroIspettore[0] || "");
+      dateRispostaProgettista.forEach((data, index) => {
+        fd.append(`data_risposta_progettista_${index}`, data);
+      });
+      dateRiscontroIspettore.forEach((data, index) => {
+        fd.append(`data_riscontro_ispettore_${index}`, data);
+      });
       fd.append("responsabile_its", responsabileIts);
       fd.append("responsabile_pcq", responsabilePcq);
 
@@ -300,27 +306,75 @@ export default function SchedeIspettivePage() {
               </label>
             </div>
 
-            <label>
-              <b>Data risposta progettista</b>
-              <input
-                type="text"
-                value={dataRispostaProgettista}
-                onChange={(e) => setDataRispostaProgettista(e.target.value)}
-                placeholder="gg/mm/aaaa"
-                style={inputStyle}
-              />
-            </label>
+            <div
+              style={{
+                display: "grid",
+                gap: 12,
+                padding: 14,
+                border: "1px solid #cbd5e1",
+                borderRadius: 10,
+                background: "#f8fafc",
+              }}
+            >
+              <h3 style={{ margin: 0, fontSize: 18 }}>
+                Date commenti progettista da inserire nelle schede
+              </h3>
+              <div style={helpStyle}>
+                Compilare una data per ogni commento distinto. Se piu commenti dello stesso autore hanno la stessa data, la data verra riportata una sola volta.
+              </div>
 
-            <label>
-              <b>Data riscontro ispettore ITS</b>
-              <input
-                type="text"
-                value={dataRiscontroIspettore}
-                onChange={(e) => setDataRiscontroIspettore(e.target.value)}
-                placeholder="gg/mm/aaaa"
-                style={inputStyle}
-              />
-            </label>
+              {dateRispostaProgettista.map((data, index) => (
+                <label key={`data-risposta-progettista-${index}`}>
+                  <b>Data risposta progettista {index + 1}</b>
+                  <input
+                    type="text"
+                    value={data}
+                    onChange={(e) => {
+                      const next = [...dateRispostaProgettista];
+                      next[index] = e.target.value;
+                      setDateRispostaProgettista(next);
+                    }}
+                    placeholder="gg/mm/aaaa"
+                    style={inputStyle}
+                  />
+                </label>
+              ))}
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gap: 12,
+                padding: 14,
+                border: "1px solid #cbd5e1",
+                borderRadius: 10,
+                background: "#f8fafc",
+              }}
+            >
+              <h3 style={{ margin: 0, fontSize: 18 }}>
+                Date commenti ispettore ITS da inserire nelle schede
+              </h3>
+              <div style={helpStyle}>
+                Compilare una data per ogni riscontro distinto. Le date sono usate solo quando Trimble/BCF non fornisce gia la data del commento.
+              </div>
+
+              {dateRiscontroIspettore.map((data, index) => (
+                <label key={`data-riscontro-ispettore-${index}`}>
+                  <b>Data riscontro ispettore ITS {index + 1}</b>
+                  <input
+                    type="text"
+                    value={data}
+                    onChange={(e) => {
+                      const next = [...dateRiscontroIspettore];
+                      next[index] = e.target.value;
+                      setDateRiscontroIspettore(next);
+                    }}
+                    placeholder="gg/mm/aaaa"
+                    style={inputStyle}
+                  />
+                </label>
+              ))}
+            </div>
 
             <label>
               <b>Responsabile tecnico ITS</b>
