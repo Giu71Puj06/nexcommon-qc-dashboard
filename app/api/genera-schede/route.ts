@@ -514,20 +514,56 @@ function resolveIspettoreFinale(
   return ispettoreRemappato;
 }
 
+function isDaNcAOss(tags: string, status?: string) {
+  const text = normalizeText(`${tags || ""} ${status || ""}`);
+
+  // Riconosce solo indicazioni esplicite di declassamento.
+  // Evita falsi positivi generici su stringhe che contengono solo NC o OSS.
+  return (
+    /DA\s+NC\s+A\s+OSS/.test(text) ||
+    /DA\s+NC\s+AD\s+OSS/.test(text) ||
+    /NC\s*[- ]?>\s*OSS/.test(text) ||
+    /NC\s+A\s+OSS/.test(text) ||
+    /NC\s+AD\s+OSS/.test(text) ||
+    text.includes("NC DECLASSATA A OSS") ||
+    text.includes("NC DECLASSATO A OSS")
+  );
+}
+
 function normalizeStatus(status: string, tags: string) {
-  const s = String(status || "").toUpperCase();
-  const t = String(tags || "").toUpperCase();
+  const s = normalizeText(status);
+
+  if (isDaNcAOss(tags, status)) return "NC declassata a OSS";
 
   if (
-    t.includes("DA NC A OSS") ||
-    t.includes("NC A OSS") ||
-    t.includes("DA NC AD OSS")
+    s.includes("CLOSED") ||
+    s.includes("CLOSE") ||
+    s.includes("CLOSING") ||
+    s.includes("CHIUSA") ||
+    s.includes("CHIUSO") ||
+    s.includes("CHIUSE") ||
+    s.includes("CHIUSI") ||
+    s.includes("RISOLTA") ||
+    s.includes("RISOLTO") ||
+    s.includes("RISOLTE") ||
+    s.includes("RISOLTI")
   ) {
-    return "NC declassata a OSS";
+    return "Chiusa";
   }
 
-  if (s.includes("CLOSED") || s.includes("CHIUS")) return "Chiusa";
-  if (s.includes("NEW") || s.includes("OPEN") || s.includes("APERT")) return "Aperta";
+  if (
+    s.includes("OPEN") ||
+    s.includes("APERTA") ||
+    s.includes("APERTO") ||
+    s.includes("APERTE") ||
+    s.includes("APERTI") ||
+    s.includes("NEW") ||
+    s.includes("DA VERIFICARE") ||
+    s.includes("IN ATTESA") ||
+    s.includes("WAITING")
+  ) {
+    return "Aperta";
+  }
 
   return status || "";
 }
@@ -544,20 +580,24 @@ function isClosedStatus(status: string) {
 }
 
 function isOpenStatus(status: string) {
-  const s = String(status || "").toUpperCase().trim();
+  const s = normalizeText(status);
 
-  if (!s) return true;
+  // Prima era presente "|| true": questo rendeva aperti tutti i rilievi,
+  // falsando stato, conteggi e X nella tabella finale.
+  if (!s) return false;
   if (isClosedStatus(s)) return false;
+  if (isDaNcAOss("", s)) return false;
 
   return (
     s.includes("OPEN") ||
-    s.includes("APERT") ||
-    s.includes("WAITING") ||
+    s.includes("APERTA") ||
+    s.includes("APERTO") ||
+    s.includes("APERTE") ||
+    s.includes("APERTI") ||
     s.includes("NEW") ||
     s.includes("DA VERIFICARE") ||
     s.includes("IN ATTESA") ||
-    s.includes("RISCONTRO") ||
-    true
+    s.includes("WAITING")
   );
 }
 
@@ -712,6 +752,10 @@ function elaboratoAggregationKey(value: string) {
 }
 
 function isRilievoOSS(row: any) {
+  if (isDaNcAOss(row?.Tipo || row?.["Codice Rilievo"] || "", row?.Stato || "")) {
+    return true;
+  }
+
   const tipo = normalizeKey(row?.TipoBase || row?.Tipo || row?.["Codice Rilievo"] || "");
   return tipo.includes("OSS");
 }
