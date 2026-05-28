@@ -520,73 +520,126 @@ function isDaNcAOss(tags: string, status?: string) {
   // Riconosce solo indicazioni esplicite di declassamento.
   // Evita falsi positivi generici su stringhe che contengono solo NC o OSS.
   return (
-    /DA\s+NC\s+A\s+OSS/.test(text) ||
-    /DA\s+NC\s+AD\s+OSS/.test(text) ||
-    /NC\s*[- ]?>\s*OSS/.test(text) ||
-    /NC\s+A\s+OSS/.test(text) ||
-    /NC\s+AD\s+OSS/.test(text) ||
+    text.includes("DA NC A OSS") ||
+    text.includes("DA NC AD OSS") ||
+    text.includes("NC A OSS") ||
+    text.includes("NC AD OSS") ||
     text.includes("NC DECLASSATA A OSS") ||
-    text.includes("NC DECLASSATO A OSS")
+    text.includes("NC DECLASSATO A OSS") ||
+    text.includes("DECLASSATA AD OSSERVAZIONE") ||
+    text.includes("DECLASSATO AD OSSERVAZIONE") ||
+    text.includes("DECLASSATA A OSSERVAZIONE") ||
+    text.includes("DECLASSATO A OSSERVAZIONE")
   );
 }
 
-function normalizeStatus(status: string, tags: string) {
-  const s = normalizeText(status);
+function determineRilievoStatus(
+  status: string,
+  tags: string,
+  riscontroIspettore: string,
+  rispostaProgettista: string = ""
+) {
+  const statusText = normalizeText(status);
+  const tagsText = normalizeText(tags);
+  const riscontroText = normalizeText(riscontroIspettore);
+  const rispostaText = normalizeText(rispostaProgettista);
+  const allText = normalizeText(`${status || ""} ${tags || ""} ${riscontroIspettore || ""} ${rispostaProgettista || ""}`);
 
-  if (isDaNcAOss(tags, status)) return "NC declassata a OSS";
+  // Caso specifico: una NC declassata ad OSS resta evidenziata come aperta/nera,
+  // ma deve essere conteggiata e marcata come OSS nella tabella finale.
+  if (isDaNcAOss(tags, status) || isDaNcAOss(riscontroIspettore, rispostaProgettista)) {
+    return "Da NC a OSS";
+  }
+
+  // Prima intercettiamo le formule negative, perché contengono spesso la parola "risolta".
+  // Esempi: "Non conformità non risolta", "NC permane", "non si condivide".
+  if (
+    allText.includes("NON CONFORMITA NON RISOLTA") ||
+    allText.includes("NC NON RISOLTA") ||
+    allText.includes("NON RISOLTA") ||
+    allText.includes("NON RISOLTO") ||
+    allText.includes("NON SUPERATA") ||
+    allText.includes("NC PERMANE") ||
+    allText.includes("PERMANE LA NON CONFORMITA") ||
+    allText.includes("PERMANE IL RILIEVO") ||
+    allText.includes("PERMANE") ||
+    allText.includes("NON SI CONDIVIDE") ||
+    allText.includes("NON CONDIVIDE") ||
+    allText.includes("CHIARIMENTO NON RICEVUTO") ||
+    allText.includes("SI CHIEDE DI FORNIRE RISPOSTA") ||
+    allText.includes("SI RIBADISCE") ||
+    allText.includes("SI RIMANDA ALLA VALUTAZIONE") ||
+    allText.includes("DA DISCUTERE IN SEDE DI CONTRADDITTORIO")
+  ) {
+    return "Aperta";
+  }
 
   if (
-    s.includes("CLOSED") ||
-    s.includes("CLOSE") ||
-    s.includes("CLOSING") ||
-    s.includes("CHIUSA") ||
-    s.includes("CHIUSO") ||
-    s.includes("CHIUSE") ||
-    s.includes("CHIUSI") ||
-    s.includes("RISOLTA") ||
-    s.includes("RISOLTO") ||
-    s.includes("RISOLTE") ||
-    s.includes("RISOLTI")
+    statusText.includes("CLOSED") ||
+    statusText.includes("CLOSE") ||
+    statusText.includes("CHIUSA") ||
+    statusText.includes("CHIUSO") ||
+    statusText.includes("CHIUSE") ||
+    statusText.includes("CHIUSI") ||
+    riscontroText.includes("NON CONFORMITA RISOLTA") ||
+    riscontroText.includes("NC RISOLTA") ||
+    riscontroText.includes("NC RISOLTO") ||
+    riscontroText.includes("NC SUPERATA") ||
+    riscontroText.includes("NON CONFORMITA SUPERATA") ||
+    riscontroText.includes("OSSERVAZIONE RISOLTA") ||
+    riscontroText.includes("OSS SUPERATA") ||
+    riscontroText.includes("OSSERVAZIONE SUPERATA") ||
+    riscontroText.includes("SI CONDIVIDE IL CHIARIMENTO") ||
+    riscontroText.includes("SI PRENDE ATTO DEL CHIARIMENTO") ||
+    riscontroText.includes("SI CHIUDE LA NC") ||
+    riscontroText.includes("RILIEVO CHIUSO") ||
+    riscontroText.includes("RILIEVO SUPERATO") ||
+    riscontroText.includes("RISOLTA") ||
+    riscontroText.includes("RISOLTO") ||
+    riscontroText.includes("SUPERATA") ||
+    riscontroText.includes("SUPERATO")
   ) {
     return "Chiusa";
   }
 
   if (
-    s.includes("OPEN") ||
-    s.includes("APERTA") ||
-    s.includes("APERTO") ||
-    s.includes("APERTE") ||
-    s.includes("APERTI") ||
-    s.includes("NEW") ||
-    s.includes("DA VERIFICARE") ||
-    s.includes("IN ATTESA") ||
-    s.includes("WAITING")
+    statusText.includes("OPEN") ||
+    statusText.includes("APERTA") ||
+    statusText.includes("APERTO") ||
+    statusText.includes("NEW") ||
+    statusText.includes("DA VERIFICARE") ||
+    statusText.includes("IN ATTESA") ||
+    statusText.includes("WAITING")
   ) {
     return "Aperta";
   }
 
-  return status || "";
+  return status || "Aperta";
 }
 
-function isNessunRilievo(tags: string, descrizione: string) {
-  return `${tags || ""} ${descrizione || ""}`
-    .toUpperCase()
-    .includes("NESSUN RILIEVO");
+function normalizeStatus(status: string, tags: string) {
+  return determineRilievoStatus(status, tags, "");
+}
+
+function isDaNcAOssStatus(status: string) {
+  const s = normalizeText(status);
+  return s.includes("DA NC A OSS") || s.includes("NC DECLASSATA A OSS") || s.includes("NC DECLASSATO A OSS");
 }
 
 function isClosedStatus(status: string) {
-  const s = String(status || "").toUpperCase();
-  return s.includes("CLOSED") || s.includes("CHIUS");
+  const s = normalizeText(status);
+  return s === "CHIUSA" || s.includes("CLOSED") || s.includes("CHIUS");
 }
 
 function isOpenStatus(status: string) {
   const s = normalizeText(status);
 
-  // Prima era presente "|| true": questo rendeva aperti tutti i rilievi,
-  // falsando stato, conteggi e X nella tabella finale.
   if (!s) return false;
   if (isClosedStatus(s)) return false;
-  if (isDaNcAOss("", s)) return false;
+
+  // Le NC declassate ad OSS non vanno in grigio e devono restare considerate aperte
+  // ai fini della X nella colonna OSS.
+  if (isDaNcAOssStatus(s)) return true;
 
   return (
     s.includes("OPEN") ||
@@ -604,6 +657,13 @@ function isOpenStatus(status: string) {
 function isOpenRilievoRow(row: any) {
   return isOpenStatus(row?.Stato || row?.Status || row?.stato || "");
 }
+
+function isNessunRilievo(tags: string, descrizione: string) {
+  return `${tags || ""} ${descrizione || ""}`
+    .toUpperCase()
+    .includes("NESSUN RILIEVO");
+}
+
 
 function disciplinaFromCodice(codice: string) {
   const c = String(codice || "").toUpperCase();
@@ -1710,6 +1770,21 @@ export async function POST(req: Request) {
           ? buildTitoloAllegato(titoloElaboratoBase || reportInfo.titolo, allegatoNumero)
           : reportInfo.titolo || titoloElaboratoBase || "";
 
+        const rispostaProgettista = getRispostaProgettistaText(
+          bcf,
+          dataRispostaProgettista
+        );
+        const riscontroIspettore = getRiscontroIspettoreText(
+          bcf,
+          dataRiscontroIspettore
+        );
+        const statoFinale = determineRilievoStatus(
+          findValue(todo, ["Status", "Stato"]) || bcf?.stato || "",
+          tags,
+          riscontroIspettore,
+          rispostaProgettista
+        );
+
         return {
           Disciplina: disciplina,
           Label: label,
@@ -1724,17 +1799,11 @@ export async function POST(req: Request) {
           Tipo: tags || tipoBase,
           "Descrizione Rilievo": getRilievoItsText(todo, bcf),
           Ispettore: ispettoreFinale,
-          "Risposta Progettista PRG": getRispostaProgettistaText(
-            bcf,
-            dataRispostaProgettista
-          ),
-          "Riscontro Ispettore ISP": getRiscontroIspettoreText(
-            bcf,
-            dataRiscontroIspettore
-          ),
+          "Risposta Progettista PRG": rispostaProgettista,
+          "Riscontro Ispettore ISP": riscontroIspettore,
           "Ultimo Commento": bcf?.ultimoCommento || "",
           "Azione Richiesta": "",
-          Stato: normalizeStatus(findValue(todo, ["Status", "Stato"]) || bcf?.stato || "", tags),
+          Stato: statoFinale,
           "Nota Ricezione Elaborati": disciplinaInfo.notaRicezione || "",
           "Data Ricezione": disciplinaInfo.dataRicezione || "",
           "Nome Redattore": disciplinaInfo.nomeRedattore || "",
@@ -1965,11 +2034,11 @@ export async function POST(req: Request) {
       });
 
       const numeroNC = rilievi.filter(
-        (r) => String(r.tipo_progressivo).startsWith("NC") && isOpenStatus(r.stato)
+        (r) => !isRilievoOSS({ ...r, Stato: r.stato, TipoBase: String(r.tipo_progressivo).startsWith("OSS") ? "OSS" : "NC" }) && isOpenStatus(r.stato)
       ).length;
 
       const numeroOSS = rilievi.filter(
-        (r) => String(r.tipo_progressivo).startsWith("OSS") && isOpenStatus(r.stato)
+        (r) => isRilievoOSS({ ...r, Stato: r.stato, TipoBase: String(r.tipo_progressivo).startsWith("OSS") ? "OSS" : "NC" }) && isOpenStatus(r.stato)
       ).length;
 
       const numeroChiuse = rilievi.filter((r) => isClosedStatus(r.stato)).length;
