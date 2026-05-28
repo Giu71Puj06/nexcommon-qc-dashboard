@@ -517,6 +517,20 @@ function mergeText(existing: string, additions: string[]) {
   return Array.from(new Set(values)).join("\n");
 }
 
+function extractAcronimiIspettoriUfficiali(nomeRedattore: string) {
+  return Array.from(
+    new Set(
+      String(nomeRedattore || "")
+        .match(/\([A-Z]{2,4}\)/g)
+        ?.map((value) => value.trim().toUpperCase()) || []
+    )
+  );
+}
+
+function firstAllowedAcronimo(allowed: string[], fallback = "") {
+  return allowed.length > 0 ? allowed[0] : fallback;
+}
+
 function remapIspettoreByDisciplina(sigla: string, disciplina: string) {
   const s = String(sigla || "").trim().toUpperCase();
   const d = normalizeKey(disciplina);
@@ -526,8 +540,7 @@ function remapIspettoreByDisciplina(sigla: string, disciplina: string) {
   }
 
   if (d === "DOCUMENTAZIONEECONOMICA") {
-    if (s === "(CS)") return "(MG)";
-    if (s === "(CR)" || s === "(CA)" || s === "(GB)") return "(OB)";
+    if (s === "(CS)" || s === "(CR)" || s === "(CA)" || s === "(GB)") return "(MG)";
   }
 
   return sigla;
@@ -537,12 +550,49 @@ function remapIspettoreFinale(sigla: string, disciplina: string) {
   const s = String(sigla || "").trim().toUpperCase();
   const d = normalizeKey(disciplina);
 
+  if (d === "DOCUMENTAZIONEECONOMICA") {
+    if (s === "(CS)" || s === "(CR)" || s === "(CA)" || s === "(GB)") return "(MG)";
+  }
+
+  if (d === "IMPIANTI") {
+    if (s === "(CR)" || s === "(CA)" || s === "(GB)") return "(OB)";
+  }
+
+  if (d === "DOCUMENTAZIONEGENERALE" || d === "DOCUMENTIGENERALI") {
+    if (s === "(CS)") return "(MG)";
+    if (s === "(CR)" || s === "(CA)" || s === "(GB)") return "(OB)";
+  }
+
   if (s === "(CR)" || s === "(CA)") return "(OB)";
   if (d === "SICUREZZACANTIERE" && s === "(GB)") return "(FM)";
-  if (d === "DOCUMENTAZIONEECONOMICA" && s === "(GB)") return "(OB)";
-  if (d === "DOCUMENTAZIONEECONOMICA" && s === "(CS)") return "(MG)";
 
   return remapIspettoreByDisciplina(sigla, disciplina);
+}
+
+function remapIspettoreUfficiale(
+  sigla: string,
+  disciplina: string,
+  nomeRedattore: string
+) {
+  const allowed = extractAcronimiIspettoriUfficiali(nomeRedattore);
+  const mapped = remapIspettoreFinale(sigla, disciplina);
+  const normalized = String(mapped || "").trim().toUpperCase();
+
+  if (!normalized) return firstAllowedAcronimo(allowed, "");
+  if (allowed.length === 0) return normalized;
+  if (allowed.includes(normalized)) return normalized;
+
+  const d = normalizeKey(disciplina);
+
+  if (d === "DOCUMENTAZIONEECONOMICA" && allowed.includes("(MG)")) return "(MG)";
+  if (d === "IMPIANTI" && allowed.includes("(OB)")) return "(OB)";
+
+  if (d === "DOCUMENTAZIONEGENERALE" || d === "DOCUMENTIGENERALI") {
+    if ((normalized === "(CS)" || normalized === "(MG)") && allowed.includes("(MG)")) return "(MG)";
+    if ((normalized === "(CR)" || normalized === "(CA)" || normalized === "(GB)" || normalized === "(OB)") && allowed.includes("(OB)")) return "(OB)";
+  }
+
+  return firstAllowedAcronimo(allowed, normalized);
 }
 
 function siglaDaNome(nome: string) {
@@ -1852,7 +1902,7 @@ export async function POST(req: Request) {
         const ispettoreElenco =
           infoElenco.ispettoreElenco || disciplinaInfo.ispettoreElenco || "";
 
-        const ispettoreFinale = ispettoreTodo
+        const ispettoreGrezzo = ispettoreTodo
           ? remapIspettoreFinale(siglaDaNome(ispettoreTodo), disciplina)
           : resolveIspettoreFinale(
               bcf?.ispettore || "",
@@ -1860,6 +1910,12 @@ export async function POST(req: Request) {
               disciplina,
               ispettoreElenco
             );
+
+        const ispettoreFinale = remapIspettoreUfficiale(
+          ispettoreGrezzo,
+          disciplina,
+          disciplinaInfo.nomeRedattore || infoElenco.nomeRedattore || ispettoreElenco
+        );
 
         const titoloElaboratoBase =
           getTitoloElaboratoFromTodo(todo) ||
