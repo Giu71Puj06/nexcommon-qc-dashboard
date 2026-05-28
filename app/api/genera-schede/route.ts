@@ -138,7 +138,7 @@ function buildRevisioniSchedaRows(
   const currentRev = clampRevisioneScheda(revisioneScheda);
   const rows: RevisioneSchedaRow[] = [];
 
-  for (let rev = currentRev; rev >= 0; rev -= 1) {
+  for (let rev = 0; rev <= currentRev; rev += 1) {
     let data =
       readFormString(formData, `data_rev_${rev}`) ||
       (rev === currentRev ? dataRevisioneScheda : "");
@@ -1195,19 +1195,29 @@ function buildCellWithText(cellXml: string, value: string) {
 
 function buildRevisionRowFromTemplate(rowXml: string, revisione: RevisioneSchedaRow) {
   const cells = rowXml.match(/<w:tc\b[^>]*>[\s\S]*?<\/w:tc>/g);
-  if (!cells || cells.length < 5) return rowXml;
+  if (!cells || cells.length < 4) return rowXml;
 
   const open = rowXml.match(/^<w:tr\b[^>]*>/)?.[0] || "<w:tr>";
   const trPr = rowXml.match(/<w:trPr\b[^>]*>[\s\S]*?<\/w:trPr>/)?.[0] || "";
   const close = "</w:tr>";
 
-  const values = [
-    revisione.rev,
-    revisione.data,
-    revisione.descrizione,
-    revisione.responsabile_pcq,
-    revisione.responsabile_its,
-  ];
+  // Supporta sia template con 5 colonne (ASPI: PCQ + ITS)
+  // sia template con 4 colonne (ORERO: solo ITS).
+  const values =
+    cells.length >= 5
+      ? [
+          revisione.rev,
+          revisione.data,
+          revisione.descrizione,
+          revisione.responsabile_pcq,
+          revisione.responsabile_its,
+        ]
+      : [
+          revisione.rev,
+          revisione.data,
+          revisione.descrizione,
+          revisione.responsabile_its,
+        ];
 
   const newCells = cells.map((cell, index) => {
     if (index >= values.length) return cell;
