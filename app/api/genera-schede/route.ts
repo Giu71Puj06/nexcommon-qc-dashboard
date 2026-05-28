@@ -286,6 +286,55 @@ function prefixCommentWithDate(text: string, dateValue: string) {
   return `${formattedDate}\n${cleanText}`;
 }
 
+function isStandaloneItalianDate(value: string) {
+  return /^\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}$/.test(String(value || "").trim());
+}
+
+function coalesceCommentBlocksByDate(text: string) {
+  const cleanText = String(text || "").trim();
+  if (!cleanText) return "";
+
+  const groups: Record<string, string[]> = {};
+  const orderedKeys: string[] = [];
+  let undatedCounter = 0;
+
+  cleanText
+    .split(/\n{2,}/g)
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .forEach((block) => {
+      const lines = block.split(/\n/g);
+      const firstLine = lines[0]?.trim() || "";
+      const hasDate = isStandaloneItalianDate(firstLine);
+      const key = hasDate ? `DATE__${firstLine}` : `NO_DATE__${undatedCounter++}`;
+      const body = hasDate ? lines.slice(1).join("\n").trim() : block;
+
+      if (!body) return;
+
+      if (!groups[key]) {
+        groups[key] = [];
+        orderedKeys.push(key);
+      }
+
+      if (!groups[key].includes(body)) groups[key].push(body);
+    });
+
+  return orderedKeys
+    .map((key) => {
+      const body = groups[key].join("\n\n").trim();
+      if (!body) return "";
+
+      if (key.startsWith("DATE__")) {
+        const date = key.replace(/^DATE__/, "");
+        return `${date}\n${body}`;
+      }
+
+      return body;
+    })
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 function buildCommentBlocks(entries: CommentEntry[]) {
   const groups: Record<string, CommentEntry[]> = {};
   const orderedKeys: string[] = [];
@@ -294,9 +343,11 @@ function buildCommentBlocks(entries: CommentEntry[]) {
     .filter((entry) => String(entry.text || "").trim())
     .sort((a, b) => a.order - b.order)
     .forEach((entry) => {
-      const authorKey = normalizeAccount(entry.author || "SENZA_AUTORE");
-      const dateKey = entry.date || "";
-      const key = `${authorKey}__${dateKey}`;
+      // REGOLA CORRETTA:
+      // nella stessa NC/OSS la data deve comparire una sola volta.
+      // Se piu' commenti hanno la stessa data, vengono accorpati sotto quella data.
+      const dateKey = entry.date || `SENZA_DATA_${entry.order}`;
+      const key = `DATE__${dateKey}`;
 
       if (!groups[key]) {
         groups[key] = [];
@@ -306,19 +357,21 @@ function buildCommentBlocks(entries: CommentEntry[]) {
       groups[key].push(entry);
     });
 
-  return orderedKeys
+  const text = orderedKeys
     .map((key) => {
       const blockEntries = groups[key];
       const date = blockEntries[0]?.date || "";
-      const text = Array.from(
+      const body = Array.from(
         new Set(blockEntries.map((entry) => String(entry.text || "").trim()).filter(Boolean))
       ).join("\n\n");
 
-      if (!text) return "";
-      return date ? `${date}\n${text}` : text;
+      if (!body) return "";
+      return date ? `${date}\n${body}` : body;
     })
     .filter(Boolean)
     .join("\n\n");
+
+  return coalesceCommentBlocksByDate(text);
 }
 
 function mergeCommentBlocks(existing: string, next: string) {
@@ -326,7 +379,7 @@ function mergeCommentBlocks(existing: string, next: string) {
     .map((value) => String(value || "").trim())
     .filter(Boolean);
 
-  return Array.from(new Set(values)).join("\n\n");
+  return coalesceCommentBlocksByDate(Array.from(new Set(values)).join("\n\n"));
 }
 
 function readIndexedFormDates(formData: FormData, prefix: string, fallback: string) {
@@ -347,15 +400,15 @@ function applyFallbackDatesToUndatedBlocks(text: string, dates: string[]) {
   if (!cleanText) return "";
 
   const availableDates = dates.map((d) => String(d || "").trim()).filter(Boolean);
-  if (availableDates.length === 0) return cleanText;
+  if (availableDates.length === 0) return coalesceCommentBlocksByDate(cleanText);
 
   const blocks = cleanText.split(/\n{2,}/g).map((block) => block.trim()).filter(Boolean);
   let dateIndex = 0;
 
-  return blocks
+  const withDates = blocks
     .map((block) => {
       const firstLine = block.split(/\n/g)[0]?.trim() || "";
-      const alreadyDated = /^\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}$/.test(firstLine);
+      const alreadyDated = isStandaloneItalianDate(firstLine);
       if (alreadyDated) return block;
 
       const date = availableDates[Math.min(dateIndex, availableDates.length - 1)];
@@ -363,6 +416,8 @@ function applyFallbackDatesToUndatedBlocks(text: string, dates: string[]) {
       return `${date}\n${block}`;
     })
     .join("\n\n");
+
+  return coalesceCommentBlocksByDate(withDates);
 }
 
 function stripLeadingCommentDate(text: string) {
