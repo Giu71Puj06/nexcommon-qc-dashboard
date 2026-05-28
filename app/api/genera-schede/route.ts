@@ -78,6 +78,13 @@ type BcfTopicData = {
   ultimoCommento: string;
 };
 
+type CommentEntry = {
+  author: string;
+  date: string;
+  text: string;
+  order: number;
+};
+
 type ElaboratoVerificatoRow = {
   codice_elaborato: string;
   codice_file: string;
@@ -274,8 +281,88 @@ function prefixCommentWithDate(text: string, dateValue: string) {
 
   if (cleanText.startsWith(`${formattedDate} - `)) return cleanText;
   if (cleanText.startsWith(`[${formattedDate}]`)) return cleanText;
+  if (cleanText.startsWith(`${formattedDate}\n`)) return cleanText;
 
-  return `${formattedDate} - ${cleanText}`;
+  return `${formattedDate}\n${cleanText}`;
+}
+
+function buildCommentBlocks(entries: CommentEntry[]) {
+  const groups: Record<string, CommentEntry[]> = {};
+  const orderedKeys: string[] = [];
+
+  entries
+    .filter((entry) => String(entry.text || "").trim())
+    .sort((a, b) => a.order - b.order)
+    .forEach((entry) => {
+      const authorKey = normalizeAccount(entry.author || "SENZA_AUTORE");
+      const dateKey = entry.date || "";
+      const key = `${authorKey}__${dateKey}`;
+
+      if (!groups[key]) {
+        groups[key] = [];
+        orderedKeys.push(key);
+      }
+
+      groups[key].push(entry);
+    });
+
+  return orderedKeys
+    .map((key) => {
+      const blockEntries = groups[key];
+      const date = blockEntries[0]?.date || "";
+      const text = Array.from(
+        new Set(blockEntries.map((entry) => String(entry.text || "").trim()).filter(Boolean))
+      ).join("\n\n");
+
+      if (!text) return "";
+      return date ? `${date}\n${text}` : text;
+    })
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function mergeCommentBlocks(existing: string, next: string) {
+  const values = [existing || "", next || ""]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
+  return Array.from(new Set(values)).join("\n\n");
+}
+
+function readIndexedFormDates(formData: FormData, prefix: string, fallback: string) {
+  const values: string[] = [];
+
+  for (let i = 0; i < 10; i += 1) {
+    const value = readFormString(formData, `${prefix}_${i}`);
+    if (value) values.push(value);
+  }
+
+  if (fallback) values.push(fallback);
+
+  return Array.from(new Set(values));
+}
+
+function applyFallbackDatesToUndatedBlocks(text: string, dates: string[]) {
+  const cleanText = String(text || "").trim();
+  if (!cleanText) return "";
+
+  const availableDates = dates.map((d) => String(d || "").trim()).filter(Boolean);
+  if (availableDates.length === 0) return cleanText;
+
+  const blocks = cleanText.split(/\n{2,}/g).map((block) => block.trim()).filter(Boolean);
+  let dateIndex = 0;
+
+  return blocks
+    .map((block) => {
+      const firstLine = block.split(/\n/g)[0]?.trim() || "";
+      const alreadyDated = /^\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}$/.test(firstLine);
+      if (alreadyDated) return block;
+
+      const date = availableDates[Math.min(dateIndex, availableDates.length - 1)];
+      dateIndex += 1;
+      return `${date}\n${block}`;
+    })
+    .join("\n\n");
 }
 
 function stripLeadingCommentDate(text: string) {
@@ -916,22 +1003,16 @@ function getRilievoItsText(todo: any, _bcf?: BcfTopicData | null) {
 
 function getRispostaProgettistaText(
   bcf: BcfTopicData | null | undefined,
-  dataRispostaProgettista: string
+  dateRispostaProgettista: string[]
 ) {
-  return applyPmDateToMultilineComments(
-    bcf?.commentiPRG || "",
-    dataRispostaProgettista
-  );
+  return applyFallbackDatesToUndatedBlocks(bcf?.commentiPRG || "", dateRispostaProgettista);
 }
 
 function getRiscontroIspettoreText(
   bcf: BcfTopicData | null | undefined,
-  dataRiscontroIspettore: string
+  dateRiscontroIspettore: string[]
 ) {
-  return applyPmDateToMultilineComments(
-    bcf?.commentiISP || "",
-    dataRiscontroIspettore
-  );
+  return applyFallbackDatesToUndatedBlocks(bcf?.commentiISP || "", dateRiscontroIspettore);
 }
 
 function buildElaboratiFromRowsDisciplina(rows: any[]) {
@@ -1421,6 +1502,16 @@ export async function POST(req: Request) {
     const dataRiscontroIspettore = String(
       formData.get("data_riscontro_ispettore") || ""
     ).trim();
+    const dateRispostaProgettista = readIndexedFormDates(
+      formData,
+      "data_risposta_progettista",
+      dataRispostaProgettista
+    );
+    const dateRiscontroIspettore = readIndexedFormDates(
+      formData,
+      "data_riscontro_ispettore",
+      dataRiscontroIspettore
+    );
     const responsabilePcq = String(formData.get("responsabile_pcq") || "").trim();
     const responsabileIts = String(formData.get("responsabile_its") || "").trim();
 
@@ -1606,43 +1697,53 @@ export async function POST(req: Request) {
             ""
         );
 
-        const commentiPRGList: string[] = [];
-        const commentiISPList: string[] = [];
+        const commentiPRGEntries: CommentEntry[] = [];
+        const commentiISPEntries: CommentEntry[] = [];
         let lastIspAuthor = "";
 
-        comments.forEach((c: any) => {
+        comments.forEach((c: any, index: number) => {
           const testo = getCommentText(c);
           const cleanText = cleanRolePrefix(testo);
-          const datedCleanText = prefixCommentWithDate(cleanText, getCommentDateValue(c));
           const author = getCommentAuthor(c);
+          const date = formatBcfCommentDate(getCommentDateValue(c));
 
           if (!cleanText) return;
+
+          const entry: CommentEntry = {
+            author,
+            date,
+            text: cleanText,
+            order: index,
+          };
 
           const isPRGByAccount = isInPeopleList(author, progettisti);
           const isISPByAccount = isInPeopleList(author, ispettori);
 
           if (isPRGByAccount) {
-            commentiPRGList.push(datedCleanText);
+            commentiPRGEntries.push(entry);
             return;
           }
 
           if (isISPByAccount) {
             lastIspAuthor = author || lastIspAuthor;
-            commentiISPList.push(datedCleanText);
+            commentiISPEntries.push(entry);
             return;
           }
 
           if (/\(\s*PRG\s*\)/i.test(testo)) {
-            commentiPRGList.push(datedCleanText);
+            commentiPRGEntries.push(entry);
             return;
           }
 
           if (/\(\s*ISP\s*\)/i.test(testo)) {
             lastIspAuthor = author || lastIspAuthor;
-            commentiISPList.push(datedCleanText);
+            commentiISPEntries.push(entry);
             return;
           }
         });
+
+        const commentiPRGText = buildCommentBlocks(commentiPRGEntries);
+        const commentiISPText = buildCommentBlocks(commentiISPEntries);
 
         const topicAuthor =
           topic?.CreationAuthor ||
@@ -1674,8 +1775,8 @@ export async function POST(req: Request) {
             ispettoreNomeBcf || existing?.ispettoreNomeBcf || "",
           labels: topicLabels || existing?.labels || "",
           stato: topicStatus || existing?.stato || "",
-          commentiPRG: mergeText(existing?.commentiPRG || "", commentiPRGList),
-          commentiISP: mergeText(existing?.commentiISP || "", commentiISPList),
+          commentiPRG: mergeCommentBlocks(existing?.commentiPRG || "", commentiPRGText),
+          commentiISP: mergeCommentBlocks(existing?.commentiISP || "", commentiISPText),
           ultimoCommento: lastComment
             ? prefixCommentWithDate(
                 cleanRolePrefix(getCommentText(lastComment)),
@@ -1772,11 +1873,11 @@ export async function POST(req: Request) {
 
         const rispostaProgettista = getRispostaProgettistaText(
           bcf,
-          dataRispostaProgettista
+          dateRispostaProgettista
         );
         const riscontroIspettore = getRiscontroIspettoreText(
           bcf,
-          dataRiscontroIspettore
+          dateRiscontroIspettore
         );
         const statoFinale = determineRilievoStatus(
           findValue(todo, ["Status", "Stato"]) || bcf?.stato || "",
