@@ -33,6 +33,7 @@ export default function SchedeIspettiveUpload() {
   const [elencoFile, setElencoFile] = useState<File | null>(null);
   const [reportFile, setReportFile] = useState<File | null>(null);
   const [templateFile, setTemplateFile] = useState<File | null>(null);
+  const [schedeEmesseZip, setSchedeEmesseZip] = useState<File | null>(null);
   const [progettisti, setProgettisti] = useState("");
   const [ispettori, setIspettori] = useState("");
   const [error, setError] = useState("");
@@ -56,6 +57,10 @@ export default function SchedeIspettiveUpload() {
       bcfFiles.forEach((f) => fd.append("bcf", f));
       fd.append("elenco", elencoFile);
       fd.append("template", templateFile);
+
+      if (schedeEmesseZip) {
+        fd.append("schede_emesse_zip", schedeEmesseZip);
+      }
 
       if (reportFile) {
         fd.append("files", reportFile);
@@ -190,6 +195,19 @@ export default function SchedeIspettiveUpload() {
               style={inputStyle}
               onChange={(e) => setTemplateFile(e.target.files?.[0] || null)}
             />
+          </div>
+
+          <div>
+            <label style={labelStyle}>ZIP schede emissione precedente</label>
+            <input
+              type="file"
+              accept=".zip"
+              style={inputStyle}
+              onChange={(e) => setSchedeEmesseZip(e.target.files?.[0] || null)}
+            />
+            <div style={{ marginTop: 6, color: "#64748b", fontSize: 12 }}>
+              Obbligatorio dalla seconda emissione in poi. Caricare lo ZIP delle schede gia emesse nell emissione precedente; non richiesto per la prima emissione.
+            </div>
           </div>
 
           <div>
