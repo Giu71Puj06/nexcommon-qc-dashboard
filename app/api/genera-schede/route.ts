@@ -739,6 +739,21 @@ function determineRilievoStatus(
   const rispostaText = normalizeText(rispostaProgettista);
   const allText = normalizeText(`${status || ""} ${tags || ""} ${riscontroIspettore || ""} ${rispostaProgettista || ""}`);
 
+  // REGOLA PRIORITARIA:
+  // se Trimble/ToDo riporta lo stato CLOSED/CHIUSA, la NC/OSS deve risultare Chiusa
+  // anche se nel testo dei riscontri storici compaiono frasi precedenti tipo
+  // "si ribadisce", "permane", "non risolta".
+  if (
+    statusText.includes("CLOSED") ||
+    statusText.includes("CLOSE") ||
+    statusText.includes("CHIUSA") ||
+    statusText.includes("CHIUSO") ||
+    statusText.includes("CHIUSE") ||
+    statusText.includes("CHIUSI")
+  ) {
+    return "Chiusa";
+  }
+
   // Caso specifico: una NC declassata ad OSS resta evidenziata come aperta/nera,
   // ma deve essere conteggiata e marcata come OSS nella tabella finale.
   if (isDaNcAOss(tags, status) || isDaNcAOss(riscontroIspettore, rispostaProgettista)) {
