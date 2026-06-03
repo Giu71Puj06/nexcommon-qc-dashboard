@@ -111,12 +111,6 @@ type RevisioneSchedaRow = {
   responsabile_its: string;
 };
 
-type StoricoRilievoRow = {
-  tr: string;
-  tipoBase: string;
-  descrizioneRilievo: string;
-};
-
 
 function descrizioneRevisioneScheda(rev: string) {
   const n = Number(String(rev || "0").trim());
@@ -1192,118 +1186,228 @@ function getBcfTR(bcf: BcfTopicData) {
 }
 
 
-function getRilievoTipoBase(row: any) {
-  const tipo = normalizeKey(row?.TipoBase || row?.Tipo || row?.["Codice Rilievo"] || "");
-  return tipo.includes("OSS") ? "OSS" : "NC";
+
+
+type StoricoRilievoRow = {
+  tipo_progressivo: string;
+  tipoBase: string;
+  progressivo: number;
+  codiceTR: string;
+  codice_elaborato: string;
+  titolo_elaborato: string;
+  rilievo_its: string;
+  ispettore: string;
+};
+
+function normalizeStoricoTR(value: string) {
+  return normalizeTR(value) || extractAnyTR(value);
 }
 
-function getTrNumericValue(value: string) {
-  const tr = normalizeTR(value) || extractAnyTR(value);
-  const match = tr.match(/TR-(\d+)/i);
-  if (!match) return Number.MAX_SAFE_INTEGER;
-  return Number(match[1]);
+function extractWordTableCells(rowXml: string) {
+  const cells = rowXml.match(/<w:tc\b[^>]*>[\s\S]*?<\/w:tc>/g) || [];
+  return cells.map((cell) => getPlainTextFromWordXml(cell));
 }
 
-function getTrAlphaSuffix(value: string) {
-  const tr = normalizeTR(value) || extractAnyTR(value);
-  const match = tr.match(/TR-\d+([A-Z]+)/i);
-  return match ? match[1].toUpperCase() : "";
+function cleanStoricoCellText(value: string) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .replace(/\s+\(/g, " (")
+    .trim();
 }
 
-function getRilievoStableIdentity(row: any, index: number) {
-  // REGOLA CORRETTA:
-  // il TR e' l'identificativo principale del rilievo.
-  // La descrizione NON deve essere usata come chiave perche' puo' essere copiata
-  // o uguale tra rilievi diversi.
-  const tr = normalizeTR(row?.CodiceTR || row?.["Codice Rilievo"] || row?.Label || "");
-  if (tr) return tr;
+function parseStoricoTipoProgressivo(value: string) {
+  const text = cleanStoricoCellText(value).toUpperCase();
+  const tipoMatch = text.match(/\b(NC|OSS)\s*(\d+)\b/);
+  const tr = normalizeStoricoTR(text);
 
-  // Fallback solo per casi anomali senza TR: evita di fondere descrizioni uguali.
-  return `TR-ND-${index + 1}`;
+  if (!tipoMatch || !tr) return null;
+
+  const tipoBase = tipoMatch[1];
+  const progressivo = Number(tipoMatch[2]);
+
+  if (!Number.isFinite(progressivo)) return null;
+
+  return {
+    tipoBase,
+    progressivo,
+    codiceTR: tr,
+    tipo_progressivo: `${tipoBase}${progressivo}\n(${tr})`,
+  };
 }
 
-function buildStableProgressiviByTR(rows: any[]) {
-  const identitiesByType: Record<string, string[]> = { NC: [], OSS: [] };
-  const firstIndexByIdentity: Record<string, number> = {};
-  const progressivoByIdentity: Record<string, string> = {};
+function buildStoricoRilieviMapFromDocumentXml(documentXml: string) {
+  const storico: Record<string, StoricoRilievoRow> = {};
+  const rows = documentXml.match(/<w:tr\b[^>]*>[\s\S]*?<\/w:tr>/g) || [];
 
-  rows.forEach((row, index) => {
-    const tipo = getRilievoTipoBase(row);
-    const identity = getRilievoStableIdentity(row, index);
+  rows.forEach((rowXml) => {
+    const cells = extractWordTableCells(rowXml).map(cleanStoricoCellText);
+    if (cells.length < 4) return;
 
-    if (firstIndexByIdentity[identity] === undefined) {
-      firstIndexByIdentity[identity] = index;
-    }
+    const parsed = parseStoricoTipoProgressivo(cells[0] || "");
+    if (!parsed?.codiceTR) return;
 
-    if (!identitiesByType[tipo].includes(identity)) {
-      identitiesByType[tipo].push(identity);
+    const rilievoIts = cells[3] || "";
+    if (!rilievoIts) return;
+
+    storico[parsed.codiceTR] = {
+      ...parsed,
+      codice_elaborato: cells[1] || "",
+      titolo_elaborato: cells[2] || "",
+      rilievo_its: rilievoIts,
+      ispettore: cells[4] || "",
+    };
+  });
+
+  return storico;
+}
+
+async function buildStoricoRilieviMapFromDocxFiles(files: File[]) {
+  const storico: Record<string, StoricoRilievoRow> = {};
+
+  for (const file of files) {
+    if (!file || !String(file.name || "").toLowerCase().endsWith(".docx")) continue;
+
+    const zip = await JSZip.loadAsync(Buffer.from(await file.arrayBuffer()));
+    const documentFile = zip.file("word/document.xml");
+    if (!documentFile) continue;
+
+    const documentXml = await documentFile.async("string");
+    const fileMap = buildStoricoRilieviMapFromDocumentXml(documentXml);
+
+    Object.entries(fileMap).forEach(([tr, row]) => {
+      if (!storico[tr]) storico[tr] = row;
+    });
+  }
+
+  return storico;
+}
+
+function collectStoricoFiles(formData: FormData) {
+  const names = [
+    "scheda_precedente",
+    "schede_precedenti",
+    "storico_schede",
+    "storico",
+    "precedente",
+  ];
+
+  const files: File[] = [];
+  names.forEach((name) => {
+    formData.getAll(name).forEach((value) => {
+      if (value instanceof File && value.size > 0) files.push(value);
+    });
+  });
+
+  return files;
+}
+
+function buildProgressiviStorici(rows: any[], storicoRilieviMap: Record<string, StoricoRilievoRow>) {
+  const progressivi: Record<string, number> = { NC: 0, OSS: 0 };
+  const assegnati: Record<string, { tipoBase: string; progressivo: number; tipo_progressivo: string }> = {};
+
+  Object.values(storicoRilieviMap).forEach((row) => {
+    const tipo = row.tipoBase === "OSS" ? "OSS" : "NC";
+    if (Number.isFinite(row.progressivo)) {
+      progressivi[tipo] = Math.max(progressivi[tipo] || 0, row.progressivo);
+      assegnati[row.codiceTR] = {
+        tipoBase: tipo,
+        progressivo: row.progressivo,
+        tipo_progressivo: row.tipo_progressivo,
+      };
     }
   });
 
-  (["NC", "OSS"] as const).forEach((tipo) => {
-    identitiesByType[tipo]
-      .sort((a, b) => {
-        const numA = getTrNumericValue(a);
-        const numB = getTrNumericValue(b);
-        if (numA !== numB) return numA - numB;
+  rows.forEach((row) => {
+    const tr = normalizeStoricoTR(row?.CodiceTR || row?.["Codice Rilievo"] || "") || "TR-ND";
+    if (assegnati[tr]) return;
 
-        const suffixA = getTrAlphaSuffix(a);
-        const suffixB = getTrAlphaSuffix(b);
-        if (suffixA !== suffixB) return suffixA.localeCompare(suffixB);
+    const tipo = String(row?.TipoBase || "").includes("OSS") ? "OSS" : "NC";
+    progressivi[tipo] += 1;
 
-        return (firstIndexByIdentity[a] ?? 0) - (firstIndexByIdentity[b] ?? 0);
-      })
-      .forEach((identity, index) => {
-        progressivoByIdentity[identity] = `${tipo}${index + 1}`;
-      });
+    assegnati[tr] = {
+      tipoBase: tipo,
+      progressivo: progressivi[tipo],
+      tipo_progressivo: `${tipo}${progressivi[tipo]}\n(${tr})`,
+    };
   });
 
-  return progressivoByIdentity;
+  return assegnati;
 }
 
+function buildElaboratoOrderMap(elaborati: ElaboratoVerificatoRow[]) {
+  const map: Record<string, number> = {};
 
-function readStoricoRilieviRows(workbook: XLSX.WorkBook) {
-  const sheetName =
-    workbook.SheetNames.find((n) => normalizeKey(n) === "SCHEDEISPETTIVE") ||
-    workbook.SheetNames[0];
-
-  return XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]) as any[];
-}
-
-function buildStoricoRilieviMap(rows: any[]) {
-  const map: Record<string, StoricoRilievoRow> = {};
-
-  rows.forEach((row: any) => {
-    const tr = normalizeTR(
-      findValue(row, ["CodiceTR", "Codice TR", "TR", "Codice Rilievo", "Label", "Etichetta"])
-    ) || extractAnyTR(
-      findValue(row, ["CodiceTR", "Codice TR", "TR", "Codice Rilievo", "Label", "Etichetta"])
+  elaborati.forEach((e, index) => {
+    const key = elaboratoAggregationKeyFromValues(
+      e.codice_file || e.codice_elaborato || "",
+      e.titolo_elaborato || ""
     );
 
-    if (!tr || map[tr]) return;
-
-    const tipoRaw = findValue(row, ["TipoBase", "Tipo Base", "Tipo", "Tags", "Tag", "Esito"]);
-    const tipoBase = normalizeKey(tipoRaw).includes("OSS") ? "OSS" : "NC";
-
-    const descrizioneRilievo = findValue(row, [
-      "Descrizione Rilievo",
-      "RILIEVI ITS CONTROLLI TECNICI",
-      "Rilievi ITS Controlli Tecnici",
-      "Description",
-      "Descrizione",
-      "DESCRIZIONE",
-    ]);
-
-    map[tr] = {
-      tr,
-      tipoBase,
-      descrizioneRilievo,
-    };
+    if (key && map[key] === undefined) map[key] = index;
   });
 
   return map;
 }
 
+function getRilievoElaboratoKey(row: any, storico?: StoricoRilievoRow) {
+  return elaboratoAggregationKeyFromValues(
+    storico?.codice_elaborato || row?.["Codice Elaborato"] || "",
+    storico?.titolo_elaborato || row?.["Titolo Elaborato"] || ""
+  );
+}
+
+function getProgressivoSortValue(
+  row: any,
+  storicoRilieviMap: Record<string, StoricoRilievoRow>,
+  progressiviStorici: Record<string, { tipoBase: string; progressivo: number; tipo_progressivo: string }>
+) {
+  const tr = normalizeStoricoTR(row?.CodiceTR || row?.["Codice Rilievo"] || "") || "TR-ND";
+  const storico = storicoRilieviMap[tr];
+  const progressivo = progressiviStorici[tr];
+
+  const tipoBase = storico?.tipoBase || progressivo?.tipoBase || (String(row?.TipoBase || "").includes("OSS") ? "OSS" : "NC");
+  const numero = storico?.progressivo || progressivo?.progressivo || 999999;
+
+  // Prima le NC e poi le OSS dentro lo stesso elaborato, mantenendo il progressivo storico.
+  return `${tipoBase === "OSS" ? "2" : "1"}_${String(numero).padStart(6, "0")}_${tr}`;
+}
+
+function orderRowsByElaboratoAndStoricoProgressivo(
+  rows: any[],
+  elaborati: ElaboratoVerificatoRow[],
+  storicoRilieviMap: Record<string, StoricoRilievoRow>,
+  progressiviStorici: Record<string, { tipoBase: string; progressivo: number; tipo_progressivo: string }>
+) {
+  const elaboratoOrderMap = buildElaboratoOrderMap(elaborati);
+
+  return rows
+    .map((row, originalIndex) => {
+      const tr = normalizeStoricoTR(row?.CodiceTR || row?.["Codice Rilievo"] || "") || "TR-ND";
+      const storico = storicoRilieviMap[tr];
+      const elaboratoKey = getRilievoElaboratoKey(row, storico);
+      const elaboratoOrder =
+        elaboratoKey && elaboratoOrderMap[elaboratoKey] !== undefined
+          ? elaboratoOrderMap[elaboratoKey]
+          : 999999;
+
+      return {
+        row,
+        originalIndex,
+        elaboratoKey: elaboratoKey || "ZZZ_SENZA_ELABORATO",
+        elaboratoOrder,
+        progressivoOrder: getProgressivoSortValue(row, storicoRilieviMap, progressiviStorici),
+      };
+    })
+    .sort((a, b) => {
+      if (a.elaboratoOrder !== b.elaboratoOrder) return a.elaboratoOrder - b.elaboratoOrder;
+      if (a.elaboratoKey !== b.elaboratoKey) return a.elaboratoKey.localeCompare(b.elaboratoKey);
+      if (a.progressivoOrder !== b.progressivoOrder) {
+        return a.progressivoOrder.localeCompare(b.progressivoOrder);
+      }
+      return a.originalIndex - b.originalIndex;
+    })
+    .map((item) => item.row);
+}
 
 function extractAllegatoNumber(value: string) {
   const text = String(value || "");
@@ -1710,11 +1814,7 @@ export async function POST(req: Request) {
     const elencoFile = formData.get("elenco") as File;
     const templateFile = formData.get("template") as File;
     const reportFile = (formData.get("report") || formData.get("files")) as File | null;
-    const storicoFile = (
-      formData.get("storico") ||
-      formData.get("storico_rilievi") ||
-      formData.get("schede_precedenti")
-    ) as File | null;
+    const storicoSchedeFiles = collectStoricoFiles(formData);
 
     const progettisti = parsePeopleList(formData.get("progettisti"));
     const ispettori = parsePeopleList(formData.get("ispettori"));
@@ -1761,6 +1861,8 @@ export async function POST(req: Request) {
       });
     }
 
+    const storicoRilieviMap = await buildStoricoRilieviMapFromDocxFiles(storicoSchedeFiles);
+
     const todoWorkbook = XLSX.read(Buffer.from(await todoFile.arrayBuffer()), {
       type: "buffer",
     });
@@ -1778,16 +1880,6 @@ export async function POST(req: Request) {
       });
       reportRows = readReportRows(reportWorkbook) as any[];
     }
-
-    let storicoRows: any[] = [];
-    if (storicoFile) {
-      const storicoWorkbook = XLSX.read(Buffer.from(await storicoFile.arrayBuffer()), {
-        type: "buffer",
-      });
-      storicoRows = readStoricoRilieviRows(storicoWorkbook) as any[];
-    }
-
-    const storicoRilieviMap = buildStoricoRilieviMap(storicoRows);
 
     const elencoInfoMap: Record<string, any> = {};
     const disciplinaInfoMap: Record<string, any> = {};
@@ -2080,8 +2172,6 @@ export async function POST(req: Request) {
           getTodoTR(todo) ||
           (label ? labelToTR(label) : extractTR(titoloTodo) || extractTR(descrizioneTodo) || "");
 
-        const storicoRilievo = storicoRilieviMap[normalizeTR(codiceTR)] || null;
-
         const codiceElaboratoBase = extractCodiceElaborato(titoloTodo || descrizioneTodo);
         const allegatoNumero = getTodoAllegatoNumber(todo, bcf);
         const codiceElaborato = appendAllegatoToCodice(codiceElaboratoBase, allegatoNumero);
@@ -2133,21 +2223,24 @@ export async function POST(req: Request) {
           rispostaProgettista
         );
 
+        const trNormalizzato = normalizeStoricoTR(codiceTR);
+        const storicoRilievo = trNormalizzato ? storicoRilieviMap[trNormalizzato] : null;
+
         return {
           Disciplina: disciplina,
           Label: label,
           TipoBase: storicoRilievo?.tipoBase || tipoBase,
-          CodiceTR: normalizeTR(codiceTR) || codiceTR,
-          "Codice Rilievo": label || codiceTR,
-          "Codice Elaborato": codiceElaborato || titoloTodo || "",
-          "Titolo Elaborato": titoloElaborato || codiceElaborato || titoloTodo || "",
+          CodiceTR: trNormalizzato || codiceTR,
+          "Codice Rilievo": label || trNormalizzato || codiceTR,
+          "Codice Elaborato": storicoRilievo?.codice_elaborato || codiceElaborato || titoloTodo || "",
+          "Titolo Elaborato": storicoRilievo?.titolo_elaborato || titoloElaborato || codiceElaborato || titoloTodo || "",
           Revisione:
             reportInfo.revisione ||
             getRevisioneDaCodice(codiceElaboratoBase || titoloTodo),
           Tipo: tags || storicoRilievo?.tipoBase || tipoBase,
-          "Descrizione Rilievo":
-            storicoRilievo?.descrizioneRilievo || getRilievoItsText(todo, bcf),
-          Ispettore: ispettoreFinale,
+          // Se il TR esiste in una scheda precedente, la descrizione originaria non si sovrascrive.
+          "Descrizione Rilievo": storicoRilievo?.rilievo_its || getRilievoItsText(todo, bcf),
+          Ispettore: storicoRilievo?.ispettore || ispettoreFinale,
           "Risposta Progettista PRG": rispostaProgettista,
           "Riscontro Ispettore ISP": riscontroIspettore,
           "Ultimo Commento": bcf?.ultimoCommento || "",
@@ -2364,19 +2457,27 @@ export async function POST(req: Request) {
         );
       }
 
-      const progressivoByTR = buildStableProgressiviByTR(rowsDisciplina);
+      const progressiviStorici = buildProgressiviStorici(rowsDisciplina, storicoRilieviMap);
+      const rowsDisciplinaOrdinate = orderRowsByElaboratoAndStoricoProgressivo(
+        rowsDisciplina,
+        elaboratiVerificati,
+        storicoRilieviMap,
+        progressiviStorici
+      );
 
-      const rilievi = rowsDisciplina.map((r, index) => {
-        const identity = getRilievoStableIdentity(r, index);
-        const tr = normalizeTR(r.CodiceTR || r["Codice Rilievo"] || r.Label || "") || r.CodiceTR || "TR-ND";
-        const progressivo = progressivoByTR[identity] || `${getRilievoTipoBase(r)}${index + 1}`;
+      const rilievi = rowsDisciplinaOrdinate.map((r) => {
+        const tr = normalizeStoricoTR(r.CodiceTR || r["Codice Rilievo"] || "") || "TR-ND";
+        const storico = storicoRilieviMap[tr];
+        const progressivo = progressiviStorici[tr];
+        const tipoFallback = String(r.TipoBase || "NC").includes("OSS") ? "OSS" : "NC";
 
         return {
-          tipo_progressivo: `${progressivo}\n(${tr})`,
-          codice_elaborato: r["Codice Elaborato"] || "",
-          titolo_elaborato: r["Titolo Elaborato"] || "",
-          rilievo_its: r["Descrizione Rilievo"] || "",
-          ispettore: r.Ispettore || "",
+          tipo_progressivo: storico?.tipo_progressivo || progressivo?.tipo_progressivo || `${tipoFallback}
+(${tr})`,
+          codice_elaborato: storico?.codice_elaborato || r["Codice Elaborato"] || "",
+          titolo_elaborato: storico?.titolo_elaborato || r["Titolo Elaborato"] || "",
+          rilievo_its: storico?.rilievo_its || r["Descrizione Rilievo"] || "",
+          ispettore: storico?.ispettore || r.Ispettore || "",
           risposta_prg: r["Risposta Progettista PRG"] || "",
           riscontro_isp: r["Riscontro Ispettore ISP"] || "",
           stato: r.Stato || "",
