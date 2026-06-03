@@ -2320,10 +2320,21 @@ export async function POST(req: Request) {
       })
       .filter(Boolean) as ElaboratoVerificatoRow[];
 
+    // Le schede DOCX devono essere generate anche quando l'Elenco Elaborati
+    // non contiene una colonna DISCIPLINA/Disciplina valorizzata.
+    // In quel caso le discipline vengono recuperate dai rilievi elaborati
+    // e dagli elaborati verificati. Senza questo fallback lo ZIP contiene
+    // solo SCHEDE_ISPETTIVE_CONSOLIDATE.xlsx.
     const discipline = Array.from(
       new Set(
-        elencoRows
-          .map((r: any) => findValue(r, ["DISCIPLINA", "Disciplina"]))
+        [
+          ...elencoRows.map((r: any) =>
+            findValue(r, ["DISCIPLINA", "Disciplina", "Oggetto", "OGGETTO"])
+          ),
+          ...finalRows.map((r: any) => r.Disciplina || ""),
+          ...elaboratiVerificatiAll.map((e: ElaboratoVerificatoRow) => e.disciplina || ""),
+        ]
+          .map((value) => String(value || "").trim())
           .filter(Boolean)
       )
     );
