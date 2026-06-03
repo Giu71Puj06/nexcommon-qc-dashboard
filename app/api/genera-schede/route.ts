@@ -1261,22 +1261,62 @@ function buildStoricoRilieviMapFromDocumentXml(documentXml: string) {
   return storico;
 }
 
+function mergeStoricoRilieviMap(
+  target: Record<string, StoricoRilievoRow>,
+  source: Record<string, StoricoRilievoRow>
+) {
+  Object.entries(source).forEach(([tr, row]) => {
+    // La prima occorrenza letta dallo ZIP precedente resta prevalente.
+    // In questo modo TR-241 mantiene sempre NC10, TR-252 mantiene NC1, ecc.
+    if (!target[tr]) target[tr] = row;
+  });
+}
+
+async function buildStoricoRilieviMapFromDocxBuffer(buffer: Buffer) {
+  const zip = await JSZip.loadAsync(buffer);
+  const documentFile = zip.file("word/document.xml");
+  if (!documentFile) return {};
+
+  const documentXml = await documentFile.async("string");
+  return buildStoricoRilieviMapFromDocumentXml(documentXml);
+}
+
+async function buildStoricoRilieviMapFromZipBuffer(buffer: Buffer) {
+  const storico: Record<string, StoricoRilievoRow> = {};
+  const zip = await JSZip.loadAsync(buffer);
+
+  for (const fileName of Object.keys(zip.files)) {
+    const entry = zip.files[fileName];
+    if (entry.dir) continue;
+    if (!fileName.toLowerCase().endsWith(".docx")) continue;
+
+    const docxBuffer = Buffer.from(await entry.async("nodebuffer"));
+    const fileMap = await buildStoricoRilieviMapFromDocxBuffer(docxBuffer);
+    mergeStoricoRilieviMap(storico, fileMap);
+  }
+
+  return storico;
+}
+
 async function buildStoricoRilieviMapFromDocxFiles(files: File[]) {
   const storico: Record<string, StoricoRilievoRow> = {};
 
   for (const file of files) {
-    if (!file || !String(file.name || "").toLowerCase().endsWith(".docx")) continue;
+    if (!file || file.size <= 0) continue;
 
-    const zip = await JSZip.loadAsync(Buffer.from(await file.arrayBuffer()));
-    const documentFile = zip.file("word/document.xml");
-    if (!documentFile) continue;
+    const fileName = String(file.name || "").toLowerCase();
+    const buffer = Buffer.from(await file.arrayBuffer());
 
-    const documentXml = await documentFile.async("string");
-    const fileMap = buildStoricoRilieviMapFromDocumentXml(documentXml);
+    if (fileName.endsWith(".docx")) {
+      const fileMap = await buildStoricoRilieviMapFromDocxBuffer(buffer);
+      mergeStoricoRilieviMap(storico, fileMap);
+      continue;
+    }
 
-    Object.entries(fileMap).forEach(([tr, row]) => {
-      if (!storico[tr]) storico[tr] = row;
-    });
+    if (fileName.endsWith(".zip")) {
+      const fileMap = await buildStoricoRilieviMapFromZipBuffer(buffer);
+      mergeStoricoRilieviMap(storico, fileMap);
+    }
   }
 
   return storico;
@@ -1284,6 +1324,12 @@ async function buildStoricoRilieviMapFromDocxFiles(files: File[]) {
 
 function collectStoricoFiles(formData: FormData) {
   const names = [
+    // Campo aggiunto nel frontend: ZIP schede emissione precedente.
+    "schede_emesse_zip",
+    "zip_schede_emesse",
+    "zip_emissione_precedente",
+    "schede_emissione_precedente",
+    // Compatibilita con nomi usati nelle prove precedenti.
     "scheda_precedente",
     "schede_precedenti",
     "storico_schede",
@@ -1861,7 +1907,24 @@ export async function POST(req: Request) {
       });
     }
 
+    const revisioneNumero = Number(String(revisioneScheda || "0").trim());
+    if (Number.isFinite(revisioneNumero) && revisioneNumero > 0 && storicoSchedeFiles.length === 0) {
+      return NextResponse.json({
+        ok: false,
+        error:
+          "Per le emissioni successive alla prima e' obbligatorio caricare lo ZIP delle schede gia emesse nell'emissione precedente.",
+      });
+    }
+
     const storicoRilieviMap = await buildStoricoRilieviMapFromDocxFiles(storicoSchedeFiles);
+
+    if (Number.isFinite(revisioneNumero) && revisioneNumero > 0 && Object.keys(storicoRilieviMap).length === 0) {
+      return NextResponse.json({
+        ok: false,
+        error:
+          "Lo ZIP delle schede gia emesse non contiene schede DOCX leggibili oppure non sono stati trovati NC/OSS con codice TR. Caricare lo ZIP prodotto dall'emissione precedente.",
+      });
+    }
 
     const todoWorkbook = XLSX.read(Buffer.from(await todoFile.arrayBuffer()), {
       type: "buffer",
