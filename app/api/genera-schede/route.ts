@@ -163,7 +163,9 @@ function buildRevisioniSchedaRows(
     });
   }
 
-  return rows;
+  // Nella tabella delle revisioni la revisione piu recente deve stare sopra.
+  // Esempio: Rev. 1 sopra Rev. 0.
+  return rows.reverse();
 }
 
 
@@ -1127,30 +1129,75 @@ function stripManualDateLinesFromBlock(block: string) {
   return removeLeadingAnyDate(lines.join("\n"));
 }
 
+function parseDateForSort(value: string) {
+  const raw = String(value || "").trim();
+  if (!raw) return 0;
+
+  const italianMatch = raw.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/);
+  if (italianMatch) {
+    const day = Number(italianMatch[1]);
+    const month = Number(italianMatch[2]) - 1;
+    const year = Number(italianMatch[3].length === 2 ? `20${italianMatch[3]}` : italianMatch[3]);
+    const time = new Date(year, month, day).getTime();
+    return Number.isNaN(time) ? 0 : time;
+  }
+
+  const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) {
+    const time = new Date(`${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}T00:00:00`).getTime();
+    return Number.isNaN(time) ? 0 : time;
+  }
+
+  const parsed = new Date(raw).getTime();
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function getOriginalDateSortFromBlock(block: string) {
+  const firstLine = String(block || "").split("\n")[0]?.trim() || "";
+  if (isStandaloneItalianDate(firstLine) || /^\d{4}-\d{2}-\d{2}/.test(firstLine)) {
+    return parseDateForSort(firstLine);
+  }
+
+  const inlineDate = String(block || "").match(/\b(\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}|\d{4}-\d{2}-\d{2})\b/);
+  return inlineDate ? parseDateForSort(inlineDate[1]) : 0;
+}
+
 function applyOnlyManualDatesToBlocks(text: string, dates: string[]) {
   const cleanText = String(text || "").trim();
   if (!cleanText) return "";
 
-  const manualDates = Array.from(
-    new Set(dates.map((d) => String(d || "").trim()).filter(Boolean))
-  );
+  const manualDates = dates.map((d) => String(d || "").trim()).filter(Boolean);
 
   const blocks = cleanText
     .split(/\n{2,}/g)
-    .map(stripManualDateLinesFromBlock)
-    .filter(Boolean);
+    .map((block, originalIndex) => ({
+      originalIndex,
+      sortDate: getOriginalDateSortFromBlock(block),
+      body: stripManualDateLinesFromBlock(block),
+    }))
+    .filter((item) => item.body)
+    .sort((a, b) => {
+      // I commenti devono essere stampati dal primo all'ultimo.
+      // Se Trimble/BCF li esporta in ordine inverso, qui vengono rimessi in ordine cronologico.
+      if (a.sortDate && b.sortDate && a.sortDate !== b.sortDate) return a.sortDate - b.sortDate;
+      if (a.sortDate && !b.sortDate) return -1;
+      if (!a.sortDate && b.sortDate) return 1;
+      return a.originalIndex - b.originalIndex;
+    })
+    .map((item) => item.body);
 
   if (blocks.length === 0) return "";
 
   // Se nella maschera e' stata indicata una sola data, la data deve comparire una sola volta
   // all'inizio della cella, anche se il BCF contiene piu blocchi/commenti nella stessa data.
   if (manualDates.length <= 1) {
-    const body = blocks.join("\n\n");
+    const body = Array.from(new Set(blocks)).join("\n\n");
     return manualDates[0] ? `${manualDates[0]}\n${body}` : body;
   }
 
-  // Se sono state indicate piu date, raggruppa i blocchi associati alla stessa data,
-  // evitando di ripetere la stessa data per ogni sottocommento.
+  // Se sono state indicate piu date, assegna le date nell'ordine della maschera
+  // ai commenti rimessi in ordine cronologico, evitando di ripetere la stessa data
+  // per piu commenti associati alla stessa data.
   const grouped: Record<string, string[]> = {};
   const orderedDates: string[] = [];
 
