@@ -303,7 +303,7 @@ function coalesceCommentBlocksByDate(text: string) {
     .map((block) => block.trim())
     .filter(Boolean)
     .forEach((block) => {
-      const lines = block.split(/\n/g);
+      const lines = block.split("\n");
       const firstLine = lines[0]?.trim() || "";
       const hasDate = isStandaloneItalianDate(firstLine);
       const key = hasDate ? `DATE__${firstLine}` : `NO_DATE__${undatedCounter++}`;
@@ -407,7 +407,7 @@ function applyFallbackDatesToUndatedBlocks(text: string, dates: string[]) {
 
   const withDates = blocks
     .map((block) => {
-      const firstLine = block.split(/\n/g)[0]?.trim() || "";
+      const firstLine = block.split("\n")[0]?.trim() || "";
       const alreadyDated = isStandaloneItalianDate(firstLine);
       if (alreadyDated) return block;
 
@@ -1111,7 +1111,7 @@ function removeLeadingAnyDate(text: string) {
 }
 
 function stripManualDateLinesFromBlock(block: string) {
-  const lines = String(block || "").split(/\n/g);
+  const lines = String(block || "").split("\n");
   while (lines.length > 0) {
     const first = String(lines[0] || "").trim();
     if (!first) {
@@ -1789,7 +1789,7 @@ function ensureDocumentNamespaces(documentXml: string) {
 
 
 function buildWordTextRuns(value: string) {
-  const lines = String(value || "").split(/\n/g);
+  const lines = String(value || "").split("\n");
 
   return lines
     .map((line, index) => {
