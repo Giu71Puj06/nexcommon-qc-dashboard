@@ -9,6 +9,7 @@ export default function SchedeIspettivePage() {
   const [elenco, setElenco] = useState<File | null>(null);
   const [filesXlsx, setFilesXlsx] = useState<File | null>(null);
   const [template, setTemplate] = useState<File | null>(null);
+  const [schedeEmesseZip, setSchedeEmesseZip] = useState<File | null>(null);
   const [progettisti, setProgettisti] = useState("");
   const [ispettori, setIspettori] = useState("");
   const [revisioneScheda, setRevisioneScheda] = useState("0");
@@ -32,6 +33,16 @@ export default function SchedeIspettivePage() {
       return;
     }
 
+    const revNumber = Number(String(revisioneScheda || "0").trim());
+    const isEmissioneSuccessiva = Number.isFinite(revNumber) && revNumber > 0;
+
+    if (isEmissioneSuccessiva && !schedeEmesseZip) {
+      alert(
+        "Per le emissioni successive alla prima devi caricare lo ZIP delle schede ispettive gia emesse nell emissione precedente."
+      );
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -42,6 +53,10 @@ export default function SchedeIspettivePage() {
       fd.append("files", filesXlsx);
       fd.append("report", filesXlsx);
       fd.append("template", template);
+
+      if (schedeEmesseZip) {
+        fd.append("schede_emesse_zip", schedeEmesseZip);
+      }
       fd.append("progettisti", progettisti);
       fd.append("ispettori", ispettori);
       fd.append("revisione_scheda", revisioneScheda);
@@ -198,6 +213,19 @@ export default function SchedeIspettivePage() {
               onChange={(e) => setTemplate(e.target.files?.[0] || null)}
               style={inputStyle}
             />
+          </label>
+
+          <label>
+            <b>ZIP schede emissione precedente</b>
+            <input
+              type="file"
+              accept=".zip"
+              onChange={(e) => setSchedeEmesseZip(e.target.files?.[0] || null)}
+              style={inputStyle}
+            />
+            <div style={helpStyle}>
+              Obbligatorio dalla seconda emissione in poi. Caricare lo ZIP delle schede gia emesse nell emissione precedente; non richiesto per la Rev. 0.
+            </div>
           </label>
 
           <label>
