@@ -1102,22 +1102,95 @@ function getTodoRilievoText(todo: any) {
   ]);
 }
 
-function getRilievoItsText(todo: any, _bcf?: BcfTopicData | null) {
-  return getTodoRilievoText(todo);
+function removeLeadingAnyDate(text: string) {
+  return String(text || "")
+    .replace(/^\s*\d{4}-\d{2}-\d{2}(?:[T\s]\d{1,2}:\d{2}(?::\d{2})?)?\s*[-–]?\s*/g, "")
+    .replace(/^\s*\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}\s*[-–]?\s*/g, "")
+    .replace(/^\s*\[\s*\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}\s*\]\s*/g, "")
+    .trim();
+}
+
+function stripManualDateLinesFromBlock(block: string) {
+  const lines = String(block || "").split(/
+/g);
+  while (lines.length > 0) {
+    const first = String(lines[0] || "").trim();
+    if (!first) {
+      lines.shift();
+      continue;
+    }
+    if (isStandaloneItalianDate(first) || /^\d{4}-\d{2}-\d{2}/.test(first)) {
+      lines.shift();
+      continue;
+    }
+    break;
+  }
+  return removeLeadingAnyDate(lines.join("
+"));
+}
+
+function applyOnlyManualDatesToBlocks(text: string, dates: string[]) {
+  const cleanText = String(text || "").trim();
+  if (!cleanText) return "";
+
+  const manualDates = dates.map((d) => String(d || "").trim()).filter(Boolean);
+
+  const blocks = cleanText
+    .split(/
+{2,}/g)
+    .map(stripManualDateLinesFromBlock)
+    .filter(Boolean);
+
+  if (blocks.length === 0) return "";
+
+  return blocks
+    .map((block, index) => {
+      const manualDate = manualDates[Math.min(index, Math.max(manualDates.length - 1, 0))] || "";
+      return manualDate ? `${manualDate}
+${block}` : block;
+    })
+    .join("
+
+");
+}
+
+function prefixOnlyManualDate(text: string, manualDate: string) {
+  const body = stripManualDateLinesFromBlock(text);
+  const date = String(manualDate || "").trim();
+  if (!body) return "";
+  return date ? `${date}
+${body}` : body;
+}
+
+function getRilievoItsText(
+  todo: any,
+  _bcf: BcfTopicData | null | undefined,
+  dataPrimaEmissione: string
+) {
+  // REGOLA CORRETTA:
+  // nella colonna "RILIEVI ITS CONTROLLI TECNICI" si usa la data di prima emissione
+  // inserita nella maschera, non la data letta da Trimble/BCF.
+  return prefixOnlyManualDate(getTodoRilievoText(todo), dataPrimaEmissione);
 }
 
 function getRispostaProgettistaText(
   bcf: BcfTopicData | null | undefined,
   dateRispostaProgettista: string[]
 ) {
-  return applyFallbackDatesToUndatedBlocks(bcf?.commentiPRG || "", dateRispostaProgettista);
+  // REGOLA CORRETTA:
+  // nella colonna "RISPOSTA DEL PROGETTISTA" le date devono essere solo quelle
+  // inserite nella maschera del modulo. Le date provenienti da Trimble vengono rimosse.
+  return applyOnlyManualDatesToBlocks(bcf?.commentiPRG || "", dateRispostaProgettista);
 }
 
 function getRiscontroIspettoreText(
   bcf: BcfTopicData | null | undefined,
   dateRiscontroIspettore: string[]
 ) {
-  return applyFallbackDatesToUndatedBlocks(bcf?.commentiISP || "", dateRiscontroIspettore);
+  // REGOLA CORRETTA:
+  // nella colonna "RISCONTRO ITS" le date devono essere solo quelle inserite
+  // nella sezione "Date commenti ispettore ITS" della maschera.
+  return applyOnlyManualDatesToBlocks(bcf?.commentiISP || "", dateRiscontroIspettore);
 }
 
 function buildElaboratiFromRowsDisciplina(rows: any[]) {
@@ -1876,6 +1949,9 @@ export async function POST(req: Request) {
       "data_riscontro_ispettore",
       dataRiscontroIspettore
     );
+    const dataPrimaEmissione =
+      readFormString(formData, "data_rev_0") ||
+      (String(revisioneScheda || "0").trim() === "0" ? dataRevisioneScheda : "");
     const responsabilePcq = String(formData.get("responsabile_pcq") || "").trim();
     const responsabileIts = String(formData.get("responsabile_its") || "").trim();
 
@@ -2291,7 +2367,10 @@ export async function POST(req: Request) {
             getRevisioneDaCodice(codiceElaboratoBase || titoloTodo),
           Tipo: tags || storicoRilievo?.tipoBase || tipoBase,
           // Se il TR esiste in una scheda precedente, la descrizione originaria non si sovrascrive.
-          "Descrizione Rilievo": storicoRilievo?.rilievo_its || getRilievoItsText(todo, bcf),
+          "Descrizione Rilievo": prefixOnlyManualDate(
+            storicoRilievo?.rilievo_its || getRilievoItsText(todo, bcf, dataPrimaEmissione),
+            dataPrimaEmissione
+          ),
           Ispettore: storicoRilievo?.ispettore || ispettoreFinale,
           "Risposta Progettista PRG": rispostaProgettista,
           "Riscontro Ispettore ISP": riscontroIspettore,
