@@ -1322,6 +1322,20 @@ async function buildStoricoRilieviMapFromDocxFiles(files: File[]) {
   return storico;
 }
 
+function isUploadedFile(value: FormDataEntryValue | null): value is File {
+  // In alcuni runtime Node/Railway la classe globale File non e' disponibile.
+  // Per questo non usiamo `value instanceof File`, che genera l'errore:
+  // "File is not defined" e fa scaricare un falso ZIP contenente JSON.
+  return (
+    !!value &&
+    typeof value === "object" &&
+    typeof (value as any).arrayBuffer === "function" &&
+    typeof (value as any).name === "string" &&
+    typeof (value as any).size === "number" &&
+    (value as any).size > 0
+  );
+}
+
 function collectStoricoFiles(formData: FormData) {
   const names = [
     // Campo aggiunto nel frontend: ZIP schede emissione precedente.
@@ -1340,7 +1354,7 @@ function collectStoricoFiles(formData: FormData) {
   const files: File[] = [];
   names.forEach((name) => {
     formData.getAll(name).forEach((value) => {
-      if (value instanceof File && value.size > 0) files.push(value);
+      if (isUploadedFile(value)) files.push(value);
     });
   });
 
@@ -2654,9 +2668,12 @@ Totale documenti=${totaleDocumenti}`,
   } catch (err: any) {
     console.error(err);
 
-    return NextResponse.json({
-      ok: false,
-      error: err.message,
-    });
+    return NextResponse.json(
+      {
+        ok: false,
+        error: err.message,
+      },
+      { status: 500 }
+    );
   }
 }
