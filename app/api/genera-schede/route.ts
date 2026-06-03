@@ -1111,8 +1111,7 @@ function removeLeadingAnyDate(text: string) {
 }
 
 function stripManualDateLinesFromBlock(block: string) {
-  const lines = String(block || "").split(/
-/g);
+  const lines = String(block || "").split(/\n/g);
   while (lines.length > 0) {
     const first = String(lines[0] || "").trim();
     if (!first) {
@@ -1125,8 +1124,7 @@ function stripManualDateLinesFromBlock(block: string) {
     }
     break;
   }
-  return removeLeadingAnyDate(lines.join("
-"));
+  return removeLeadingAnyDate(lines.join("\n"));
 }
 
 function applyOnlyManualDatesToBlocks(text: string, dates: string[]) {
@@ -1136,8 +1134,7 @@ function applyOnlyManualDatesToBlocks(text: string, dates: string[]) {
   const manualDates = dates.map((d) => String(d || "").trim()).filter(Boolean);
 
   const blocks = cleanText
-    .split(/
-{2,}/g)
+    .split(/\n{2,}/g)
     .map(stripManualDateLinesFromBlock)
     .filter(Boolean);
 
@@ -1146,20 +1143,16 @@ function applyOnlyManualDatesToBlocks(text: string, dates: string[]) {
   return blocks
     .map((block, index) => {
       const manualDate = manualDates[Math.min(index, Math.max(manualDates.length - 1, 0))] || "";
-      return manualDate ? `${manualDate}
-${block}` : block;
+      return manualDate ? `${manualDate}\n${block}` : block;
     })
-    .join("
-
-");
+    .join("\n\n");
 }
 
 function prefixOnlyManualDate(text: string, manualDate: string) {
   const body = stripManualDateLinesFromBlock(text);
   const date = String(manualDate || "").trim();
   if (!body) return "";
-  return date ? `${date}
-${body}` : body;
+  return date ? `${date}\n${body}` : body;
 }
 
 function getRilievoItsText(
