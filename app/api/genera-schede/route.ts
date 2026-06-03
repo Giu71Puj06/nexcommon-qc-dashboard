@@ -720,6 +720,14 @@ function isDaNcAOss(tags: string, status?: string) {
     text.includes("NC AD OSS") ||
     text.includes("NC DECLASSATA A OSS") ||
     text.includes("NC DECLASSATO A OSS") ||
+    text.includes("DECLASSATA A OSS") ||
+    text.includes("DECLASSATO A OSS") ||
+    text.includes("DECLASSATA AD OSS") ||
+    text.includes("DECLASSATO AD OSS") ||
+    text.includes("DECLASSATA A OSS") ||
+    text.includes("DECLASSATO A OSS") ||
+    text.includes("DECLASSATA AD OSS") ||
+    text.includes("DECLASSATO AD OSS") ||
     text.includes("DECLASSATA AD OSSERVAZIONE") ||
     text.includes("DECLASSATO AD OSSERVAZIONE") ||
     text.includes("DECLASSATA A OSSERVAZIONE") ||
@@ -739,6 +747,13 @@ function determineRilievoStatus(
   const rispostaText = normalizeText(rispostaProgettista);
   const allText = normalizeText(`${status || ""} ${tags || ""} ${riscontroIspettore || ""} ${rispostaProgettista || ""}`);
 
+  // REGOLA PRIORITARIA PER DECLASSAMENTO:
+  // se nei tag o nei riscontri compare "Da NC a OSS", la scheda deve riportare
+  // "Declassata a OSS" e il rilievo deve essere conteggiato/marcato come OSS.
+  if (isDaNcAOss(tags, status) || isDaNcAOss(riscontroIspettore, rispostaProgettista)) {
+    return "Declassata a OSS";
+  }
+
   // REGOLA PRIORITARIA:
   // se Trimble/ToDo riporta lo stato CLOSED/CHIUSA, la NC/OSS deve risultare Chiusa
   // anche se nel testo dei riscontri storici compaiono frasi precedenti tipo
@@ -752,12 +767,6 @@ function determineRilievoStatus(
     statusText.includes("CHIUSI")
   ) {
     return "Chiusa";
-  }
-
-  // Caso specifico: una NC declassata ad OSS resta evidenziata come aperta/nera,
-  // ma deve essere conteggiata e marcata come OSS nella tabella finale.
-  if (isDaNcAOss(tags, status) || isDaNcAOss(riscontroIspettore, rispostaProgettista)) {
-    return "Da NC a OSS";
   }
 
   // Prima intercettiamo le formule negative, perché contengono spesso la parola "risolta".
@@ -832,7 +841,22 @@ function normalizeStatus(status: string, tags: string) {
 
 function isDaNcAOssStatus(status: string) {
   const s = normalizeText(status);
-  return s.includes("DA NC A OSS") || s.includes("NC DECLASSATA A OSS") || s.includes("NC DECLASSATO A OSS");
+  return (
+    s.includes("DA NC A OSS") ||
+    s.includes("DA NC AD OSS") ||
+    s.includes("NC A OSS") ||
+    s.includes("NC AD OSS") ||
+    s.includes("NC DECLASSATA A OSS") ||
+    s.includes("NC DECLASSATO A OSS") ||
+    s.includes("DECLASSATA A OSS") ||
+    s.includes("DECLASSATO A OSS") ||
+    s.includes("DECLASSATA AD OSS") ||
+    s.includes("DECLASSATO AD OSS") ||
+    s.includes("DECLASSATA A OSSERVAZIONE") ||
+    s.includes("DECLASSATO A OSSERVAZIONE") ||
+    s.includes("DECLASSATA AD OSSERVAZIONE") ||
+    s.includes("DECLASSATO AD OSSERVAZIONE")
+  );
 }
 
 function isClosedStatus(status: string) {
