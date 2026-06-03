@@ -1131,7 +1131,9 @@ function applyOnlyManualDatesToBlocks(text: string, dates: string[]) {
   const cleanText = String(text || "").trim();
   if (!cleanText) return "";
 
-  const manualDates = dates.map((d) => String(d || "").trim()).filter(Boolean);
+  const manualDates = Array.from(
+    new Set(dates.map((d) => String(d || "").trim()).filter(Boolean))
+  );
 
   const blocks = cleanText
     .split(/\n{2,}/g)
@@ -1140,11 +1142,38 @@ function applyOnlyManualDatesToBlocks(text: string, dates: string[]) {
 
   if (blocks.length === 0) return "";
 
-  return blocks
-    .map((block, index) => {
-      const manualDate = manualDates[Math.min(index, Math.max(manualDates.length - 1, 0))] || "";
-      return manualDate ? `${manualDate}\n${block}` : block;
+  // Se nella maschera e' stata indicata una sola data, la data deve comparire una sola volta
+  // all'inizio della cella, anche se il BCF contiene piu blocchi/commenti nella stessa data.
+  if (manualDates.length <= 1) {
+    const body = blocks.join("\n\n");
+    return manualDates[0] ? `${manualDates[0]}\n${body}` : body;
+  }
+
+  // Se sono state indicate piu date, raggruppa i blocchi associati alla stessa data,
+  // evitando di ripetere la stessa data per ogni sottocommento.
+  const grouped: Record<string, string[]> = {};
+  const orderedDates: string[] = [];
+
+  blocks.forEach((block, index) => {
+    const manualDate = manualDates[Math.min(index, manualDates.length - 1)] || "";
+    const key = manualDate || `SENZA_DATA_${index}`;
+
+    if (!grouped[key]) {
+      grouped[key] = [];
+      orderedDates.push(key);
+    }
+
+    if (!grouped[key].includes(block)) grouped[key].push(block);
+  });
+
+  return orderedDates
+    .map((key) => {
+      const body = grouped[key].join("\n\n").trim();
+      if (!body) return "";
+      if (key.startsWith("SENZA_DATA_")) return body;
+      return `${key}\n${body}`;
     })
+    .filter(Boolean)
     .join("\n\n");
 }
 
@@ -2610,7 +2639,10 @@ export async function POST(req: Request) {
 (${tr})`,
           codice_elaborato: storico?.codice_elaborato || r["Codice Elaborato"] || "",
           titolo_elaborato: storico?.titolo_elaborato || r["Titolo Elaborato"] || "",
-          rilievo_its: storico?.rilievo_its || r["Descrizione Rilievo"] || "",
+          rilievo_its: prefixOnlyManualDate(
+            storico?.rilievo_its || r["Descrizione Rilievo"] || "",
+            dataPrimaEmissione
+          ),
           ispettore: storico?.ispettore || r.Ispettore || "",
           risposta_prg: r["Risposta Progettista PRG"] || "",
           riscontro_isp: r["Riscontro Ispettore ISP"] || "",
