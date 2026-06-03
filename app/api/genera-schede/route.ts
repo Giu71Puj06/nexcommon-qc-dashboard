@@ -1197,6 +1197,7 @@ type StoricoRilievoRow = {
   titolo_elaborato: string;
   rilievo_its: string;
   ispettore: string;
+  ordineStorico: number;
 };
 
 function normalizeStoricoTR(value: string) {
@@ -1238,6 +1239,7 @@ function parseStoricoTipoProgressivo(value: string) {
 function buildStoricoRilieviMapFromDocumentXml(documentXml: string) {
   const storico: Record<string, StoricoRilievoRow> = {};
   const rows = documentXml.match(/<w:tr\b[^>]*>[\s\S]*?<\/w:tr>/g) || [];
+  let ordineStorico = 0;
 
   rows.forEach((rowXml) => {
     const cells = extractWordTableCells(rowXml).map(cleanStoricoCellText);
@@ -1249,12 +1251,15 @@ function buildStoricoRilieviMapFromDocumentXml(documentXml: string) {
     const rilievoIts = cells[3] || "";
     if (!rilievoIts) return;
 
+    ordineStorico += 1;
+
     storico[parsed.codiceTR] = {
       ...parsed,
       codice_elaborato: cells[1] || "",
       titolo_elaborato: cells[2] || "",
       rilievo_its: rilievoIts,
       ispettore: cells[4] || "",
+      ordineStorico,
     };
   });
 
@@ -1394,28 +1399,6 @@ function buildProgressiviStorici(rows: any[], storicoRilieviMap: Record<string, 
   return assegnati;
 }
 
-function buildElaboratoOrderMap(elaborati: ElaboratoVerificatoRow[]) {
-  const map: Record<string, number> = {};
-
-  elaborati.forEach((e, index) => {
-    const key = elaboratoAggregationKeyFromValues(
-      e.codice_file || e.codice_elaborato || "",
-      e.titolo_elaborato || ""
-    );
-
-    if (key && map[key] === undefined) map[key] = index;
-  });
-
-  return map;
-}
-
-function getRilievoElaboratoKey(row: any, storico?: StoricoRilievoRow) {
-  return elaboratoAggregationKeyFromValues(
-    storico?.codice_elaborato || row?.["Codice Elaborato"] || "",
-    storico?.titolo_elaborato || row?.["Titolo Elaborato"] || ""
-  );
-}
-
 function getProgressivoSortValue(
   row: any,
   storicoRilieviMap: Record<string, StoricoRilievoRow>,
@@ -1425,42 +1408,34 @@ function getProgressivoSortValue(
   const storico = storicoRilieviMap[tr];
   const progressivo = progressiviStorici[tr];
 
-  const tipoBase = storico?.tipoBase || progressivo?.tipoBase || (String(row?.TipoBase || "").includes("OSS") ? "OSS" : "NC");
-  const numero = storico?.progressivo || progressivo?.progressivo || 999999;
+  // REGOLA CORRETTA PER EMISSIONI SUCCESSIVE:
+  // se il TR esiste nello ZIP precedente, l'ordine deve essere quello fisico/storico
+  // della scheda precedente, non quello ricalcolato per elaborato.
+  // In questo modo la seconda emissione riparte da NC1(TR-252), NC2(TR-253), ecc.
+  if (storico && Number.isFinite(storico.ordineStorico)) {
+    return `0_${String(storico.ordineStorico).padStart(6, "0")}_${tr}`;
+  }
 
-  // Prima le NC e poi le OSS dentro lo stesso elaborato, mantenendo il progressivo storico.
-  return `${tipoBase === "OSS" ? "2" : "1"}_${String(numero).padStart(6, "0")}_${tr}`;
+  const tipoBase = progressivo?.tipoBase || (String(row?.TipoBase || "").includes("OSS") ? "OSS" : "NC");
+  const numero = progressivo?.progressivo || 999999;
+
+  // I nuovi rilievi non presenti nello storico vengono aggiunti dopo quelli gia emessi,
+  // mantenendo il progressivo generale assegnato.
+  return `1_${tipoBase === "OSS" ? "2" : "1"}_${String(numero).padStart(6, "0")}_${tr}`;
 }
 
-function orderRowsByElaboratoAndStoricoProgressivo(
+function orderRowsByStoricoProgressivo(
   rows: any[],
-  elaborati: ElaboratoVerificatoRow[],
   storicoRilieviMap: Record<string, StoricoRilievoRow>,
   progressiviStorici: Record<string, { tipoBase: string; progressivo: number; tipo_progressivo: string }>
 ) {
-  const elaboratoOrderMap = buildElaboratoOrderMap(elaborati);
-
   return rows
-    .map((row, originalIndex) => {
-      const tr = normalizeStoricoTR(row?.CodiceTR || row?.["Codice Rilievo"] || "") || "TR-ND";
-      const storico = storicoRilieviMap[tr];
-      const elaboratoKey = getRilievoElaboratoKey(row, storico);
-      const elaboratoOrder =
-        elaboratoKey && elaboratoOrderMap[elaboratoKey] !== undefined
-          ? elaboratoOrderMap[elaboratoKey]
-          : 999999;
-
-      return {
-        row,
-        originalIndex,
-        elaboratoKey: elaboratoKey || "ZZZ_SENZA_ELABORATO",
-        elaboratoOrder,
-        progressivoOrder: getProgressivoSortValue(row, storicoRilieviMap, progressiviStorici),
-      };
-    })
+    .map((row, originalIndex) => ({
+      row,
+      originalIndex,
+      progressivoOrder: getProgressivoSortValue(row, storicoRilieviMap, progressiviStorici),
+    }))
     .sort((a, b) => {
-      if (a.elaboratoOrder !== b.elaboratoOrder) return a.elaboratoOrder - b.elaboratoOrder;
-      if (a.elaboratoKey !== b.elaboratoKey) return a.elaboratoKey.localeCompare(b.elaboratoKey);
       if (a.progressivoOrder !== b.progressivoOrder) {
         return a.progressivoOrder.localeCompare(b.progressivoOrder);
       }
@@ -2546,9 +2521,8 @@ export async function POST(req: Request) {
       }
 
       const progressiviStorici = buildProgressiviStorici(rowsDisciplina, storicoRilieviMap);
-      const rowsDisciplinaOrdinate = orderRowsByElaboratoAndStoricoProgressivo(
+      const rowsDisciplinaOrdinate = orderRowsByStoricoProgressivo(
         rowsDisciplina,
-        elaboratiVerificati,
         storicoRilieviMap,
         progressiviStorici
       );
