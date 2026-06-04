@@ -2626,7 +2626,11 @@ export async function POST(req: Request) {
         );
 
         const trNormalizzato = normalizeStoricoTR(codiceTR);
-        const storicoRilievo: StoricoRilievoRow | null = null;
+        const storicoRilievo = getStoricoRilievo(
+          storicoRilieviMap,
+          disciplina,
+          trNormalizzato || codiceTR
+        );
 
         return {
           Disciplina: disciplina,
