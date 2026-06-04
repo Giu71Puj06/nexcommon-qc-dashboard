@@ -998,6 +998,152 @@ function sameDisciplina(a: string, b: string) {
   );
 }
 
+
+function splitDisciplinaLabels(value: string) {
+  return String(value || "")
+    .replace(/_/g, " ")
+    .split(/[;,|]+/)
+    .map((v) => v.trim())
+    .filter(Boolean)
+    .filter((v) => {
+      const n = normalizeText(v);
+      if (!n) return false;
+      if (isDaNcAOss(v, "")) return false;
+      if (n === "NC" || n === "OSS" || n === "REMARK" || n === "INFORMATION") return false;
+
+      return (
+        n.includes("GENERALE") ||
+        n.includes("DOCUMENTI") ||
+        n.includes("DOCUMENTAZIONE") ||
+        n.includes("STRUTTURE") ||
+        n.includes("STRUTTURALE") ||
+        n.includes("AMBIENTE") ||
+        n.includes("VINCOLI") ||
+        n.includes("SICUREZZA") ||
+        n.includes("CANTIERE") ||
+        n.includes("BOB") ||
+        n.includes("INTERFERENZE") ||
+        n.includes("ESPROPRI") ||
+        n.includes("ECONOMICO") ||
+        n.includes("ECONOMICA") ||
+        n.includes("IMPIANTI") ||
+        n.includes("IMPIANTISTICO") ||
+        n.includes("ARCHITETTONICO") ||
+        n.includes("ARCHITETTURA")
+      );
+    });
+}
+
+function getTodoDiscipline(todo: any, titoloTodo: string, descrizioneTodo: string) {
+  const candidates = [
+    findValue(todo, ["Assignee(s) ", "Assignee(s)", "Disciplina"]),
+    findValue(todo, ["Tags", "Tag", "Tipo", "Esito"]),
+    findValue(todo, ["Labels", "Label", "Etichetta"]),
+  ];
+
+  const discipline: string[] = [];
+
+  candidates.forEach((candidate) => {
+    splitDisciplinaLabels(candidate).forEach((d) => {
+      if (!discipline.some((existing) => sameDisciplina(existing, d))) {
+        discipline.push(d);
+      }
+    });
+  });
+
+  if (discipline.length > 0) return discipline;
+
+  const fromCode = disciplinaFromCodice(titoloTodo || descrizioneTodo);
+  return fromCode ? [fromCode] : [];
+}
+
+function primaryDisciplinaFromTodo(todo: any, titoloTodo: string, descrizioneTodo: string) {
+  const discipline = getTodoDiscipline(todo, titoloTodo, descrizioneTodo);
+  return discipline[0] || "";
+}
+
+function expandRowsByDisciplina(rows: any[]) {
+  return rows.flatMap((row) => {
+    const discipline = splitDisciplinaLabels(row?.Disciplina || "");
+
+    if (discipline.length <= 1) return [row];
+
+    return discipline.map((disciplina) => ({
+      ...row,
+      Disciplina: disciplina,
+    }));
+  });
+}
+
+function storicoMapKey(disciplina: string, tr: string) {
+  const d = normalizeKey(disciplina);
+  const t = normalizeStoricoTR(tr);
+  return d && t ? `${d}__${t}` : t;
+}
+
+function getStoricoRilievo(
+  storicoRilieviMap: Record<string, StoricoRilievoRow>,
+  disciplina: string,
+  tr: string
+) {
+  const t = normalizeStoricoTR(tr);
+  if (!t) return null;
+
+  const directKey = storicoMapKey(disciplina, t);
+  if (directKey && storicoRilieviMap[directKey]) return storicoRilieviMap[directKey];
+
+  const disciplineKey = normalizeKey(disciplina);
+  const matches = Object.entries(storicoRilieviMap).filter(([key, row]) => {
+    if (row.codiceTR !== t) return false;
+    if (!key.includes("__")) return false;
+    if (!disciplineKey) return false;
+    return key.startsWith(`${disciplineKey}__`) || sameDisciplina(key.split("__")[0] || "", disciplina);
+  });
+
+  if (matches.length > 0) return matches[0][1];
+
+  const allMatches = Object.values(storicoRilieviMap).filter((row) => row.codiceTR === t);
+  if (allMatches.length === 1) return allMatches[0];
+
+  return storicoRilieviMap[t] || null;
+}
+
+function getStoricoRowsForDisciplina(
+  storicoRilieviMap: Record<string, StoricoRilievoRow>,
+  disciplina: string
+) {
+  const result: StoricoRilievoRow[] = [];
+  const seen = new Set<string>();
+  const disciplinaKey = normalizeKey(disciplina);
+
+  Object.entries(storicoRilieviMap).forEach(([key, row]) => {
+    if (!row?.codiceTR) return;
+    if (seen.has(row.codiceTR)) return;
+
+    const keyDisciplina = key.includes("__") ? key.split("__")[0] : "";
+    if (keyDisciplina && disciplinaKey && (keyDisciplina === disciplinaKey || sameDisciplina(keyDisciplina, disciplina))) {
+      seen.add(row.codiceTR);
+      result.push(row);
+    }
+  });
+
+  return result;
+}
+
+function disciplinaContextFromFileName(fileName: string) {
+  const base = String(fileName || "")
+    .replace(/\\/g, "/")
+    .split("/")
+    .pop() || "";
+
+  return base
+    .replace(/\.docx$/i, "")
+    .replace(/^[A-Z0-9]+(?:[-_][A-Z0-9]+){3,}[-_]\d+\s*_?/i, "")
+    .replace(/_\d+$/g, "")
+    .replace(/_/g, " ")
+    .trim();
+}
+
 function topicKey(title: string, description: string) {
   return `${normalizeKey(title)}__${normalizeKey(description).slice(0, 120)}`;
 }
@@ -1417,7 +1563,7 @@ function parseStoricoTipoProgressivo(value: string) {
   };
 }
 
-function buildStoricoRilieviMapFromDocumentXml(documentXml: string) {
+function buildStoricoRilieviMapFromDocumentXml(documentXml: string, disciplinaContext: string = "") {
   const storico: Record<string, StoricoRilievoRow> = {};
   const rows = documentXml.match(/<w:tr\b[^>]*>[\s\S]*?<\/w:tr>/g) || [];
   let ordineStorico = 0;
@@ -1434,7 +1580,7 @@ function buildStoricoRilieviMapFromDocumentXml(documentXml: string) {
 
     ordineStorico += 1;
 
-    storico[parsed.codiceTR] = {
+    const row: StoricoRilievoRow = {
       ...parsed,
       codice_elaborato: cells[1] || "",
       titolo_elaborato: cells[2] || "",
@@ -1442,6 +1588,16 @@ function buildStoricoRilieviMapFromDocumentXml(documentXml: string) {
       ispettore: cells[4] || "",
       ordineStorico,
     };
+
+    const disciplineKeys = splitDisciplinaLabels(disciplinaContext);
+    if (disciplineKeys.length > 0) {
+      disciplineKeys.forEach((disciplina) => {
+        const key = storicoMapKey(disciplina, parsed.codiceTR);
+        if (key && !storico[key]) storico[key] = row;
+      });
+    } else {
+      storico[parsed.codiceTR] = row;
+    }
   });
 
   return storico;
@@ -1458,13 +1614,13 @@ function mergeStoricoRilieviMap(
   });
 }
 
-async function buildStoricoRilieviMapFromDocxBuffer(buffer: Buffer) {
+async function buildStoricoRilieviMapFromDocxBuffer(buffer: Buffer, fileName: string = "") {
   const zip = await JSZip.loadAsync(buffer);
   const documentFile = zip.file("word/document.xml");
   if (!documentFile) return {};
 
   const documentXml = await documentFile.async("string");
-  return buildStoricoRilieviMapFromDocumentXml(documentXml);
+  return buildStoricoRilieviMapFromDocumentXml(documentXml, disciplinaContextFromFileName(fileName));
 }
 
 async function buildStoricoRilieviMapFromZipBuffer(buffer: Buffer) {
@@ -1477,7 +1633,7 @@ async function buildStoricoRilieviMapFromZipBuffer(buffer: Buffer) {
     if (!fileName.toLowerCase().endsWith(".docx")) continue;
 
     const docxBuffer = Buffer.from(await entry.async("nodebuffer"));
-    const fileMap = await buildStoricoRilieviMapFromDocxBuffer(docxBuffer);
+    const fileMap = await buildStoricoRilieviMapFromDocxBuffer(docxBuffer, fileName);
     mergeStoricoRilieviMap(storico, fileMap);
   }
 
@@ -1494,7 +1650,7 @@ async function buildStoricoRilieviMapFromDocxFiles(files: File[]) {
     const buffer = Buffer.from(await file.arrayBuffer());
 
     if (fileName.endsWith(".docx")) {
-      const fileMap = await buildStoricoRilieviMapFromDocxBuffer(buffer);
+      const fileMap = await buildStoricoRilieviMapFromDocxBuffer(buffer, file.name || "");
       mergeStoricoRilieviMap(storico, fileMap);
       continue;
     }
@@ -1547,11 +1703,11 @@ function collectStoricoFiles(formData: FormData) {
   return files;
 }
 
-function buildProgressiviStorici(rows: any[], storicoRilieviMap: Record<string, StoricoRilievoRow>) {
+function buildProgressiviStorici(rows: any[], storicoRilieviMap: Record<string, StoricoRilievoRow>, disciplina: string = "") {
   const progressivi: Record<string, number> = { NC: 0, OSS: 0 };
   const assegnati: Record<string, { tipoBase: string; progressivo: number; tipo_progressivo: string }> = {};
 
-  Object.values(storicoRilieviMap).forEach((row) => {
+  getStoricoRowsForDisciplina(storicoRilieviMap, disciplina).forEach((row) => {
     const tipo = row.tipoBase === "OSS" ? "OSS" : "NC";
     if (Number.isFinite(row.progressivo)) {
       progressivi[tipo] = Math.max(progressivi[tipo] || 0, row.progressivo);
@@ -1565,6 +1721,18 @@ function buildProgressiviStorici(rows: any[], storicoRilieviMap: Record<string, 
 
   rows.forEach((row) => {
     const tr = normalizeStoricoTR(row?.CodiceTR || row?.["Codice Rilievo"] || "") || "TR-ND";
+    const storico = getStoricoRilievo(storicoRilieviMap, row?.Disciplina || disciplina, tr);
+    if (storico) {
+      const tipoStorico = storico.tipoBase === "OSS" ? "OSS" : "NC";
+      assegnati[tr] = {
+        tipoBase: tipoStorico,
+        progressivo: storico.progressivo,
+        tipo_progressivo: storico.tipo_progressivo,
+      };
+      progressivi[tipoStorico] = Math.max(progressivi[tipoStorico] || 0, storico.progressivo || 0);
+      return;
+    }
+
     if (assegnati[tr]) return;
 
     const tipo = String(row?.TipoBase || "").includes("OSS") ? "OSS" : "NC";
@@ -1586,7 +1754,7 @@ function getProgressivoSortValue(
   progressiviStorici: Record<string, { tipoBase: string; progressivo: number; tipo_progressivo: string }>
 ) {
   const tr = normalizeStoricoTR(row?.CodiceTR || row?.["Codice Rilievo"] || "") || "TR-ND";
-  const storico = storicoRilieviMap[tr];
+  const storico = getStoricoRilievo(storicoRilieviMap, row?.Disciplina || "", tr);
   const progressivo = progressiviStorici[tr];
 
   // REGOLA CORRETTA PER EMISSIONI SUCCESSIVE:
@@ -2396,9 +2564,7 @@ export async function POST(req: Request) {
         const titoloTodo = findValue(todo, ["Title", "Titolo", "TITLE", "Topic", "Nome"]);
         const descrizioneTodo = findValue(todo, ["Description", "Descrizione"]);
 
-        const disciplina =
-          findValue(todo, ["Assignee(s) ", "Assignee(s)", "Disciplina"]) ||
-          disciplinaFromCodice(titoloTodo || descrizioneTodo);
+        const disciplina = primaryDisciplinaFromTodo(todo, titoloTodo, descrizioneTodo);
 
         const tipoBase = String(tags || "").toUpperCase().includes("OSS")
           ? "OSS"
@@ -2460,7 +2626,7 @@ export async function POST(req: Request) {
         );
 
         const trNormalizzato = normalizeStoricoTR(codiceTR);
-        const storicoRilievo = trNormalizzato ? storicoRilieviMap[trNormalizzato] : null;
+        const storicoRilievo: StoricoRilievoRow | null = null;
 
         return {
           Disciplina: disciplina,
@@ -2491,10 +2657,12 @@ export async function POST(req: Request) {
         };
       });
 
+    const finalRowsExpanded = expandRowsByDisciplina(finalRows);
+
     const outputZip = new JSZip();
 
     const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(finalRows);
+    const ws = XLSX.utils.json_to_sheet(finalRowsExpanded);
     XLSX.utils.book_append_sheet(wb, ws, "Schede_Ispettive");
     outputZip.file(
       "SCHEDE_ISPETTIVE_CONSOLIDATE.xlsx",
@@ -2570,7 +2738,7 @@ export async function POST(req: Request) {
           ...elencoRows.map((r: any) =>
             findValue(r, ["DISCIPLINA", "Disciplina", "Oggetto", "OGGETTO"])
           ),
-          ...finalRows.map((r: any) => r.Disciplina || ""),
+          ...finalRowsExpanded.map((r: any) => r.Disciplina || ""),
           ...elaboratiVerificatiAll.map((e: ElaboratoVerificatoRow) => e.disciplina || ""),
         ]
           .map((value) => String(value || "").trim())
@@ -2583,7 +2751,7 @@ export async function POST(req: Request) {
         continue;
       }
 
-      const rowsDisciplina = finalRows.filter((r) =>
+      const rowsDisciplina = finalRowsExpanded.filter((r) =>
         sameDisciplina(r.Disciplina || "", disciplina)
       );
 
@@ -2707,7 +2875,7 @@ export async function POST(req: Request) {
         );
       }
 
-      const progressiviStorici = buildProgressiviStorici(rowsDisciplina, storicoRilieviMap);
+      const progressiviStorici = buildProgressiviStorici(rowsDisciplina, storicoRilieviMap, disciplina);
       const rowsDisciplinaOrdinate = orderRowsByStoricoProgressivo(
         rowsDisciplina,
         storicoRilieviMap,
@@ -2716,7 +2884,7 @@ export async function POST(req: Request) {
 
       const rilievi = rowsDisciplinaOrdinate.map((r) => {
         const tr = normalizeStoricoTR(r.CodiceTR || r["Codice Rilievo"] || "") || "TR-ND";
-        const storico = storicoRilieviMap[tr];
+        const storico = getStoricoRilievo(storicoRilieviMap, r.Disciplina || disciplina, tr);
         const progressivo = progressiviStorici[tr];
         const tipoFallback = String(r.TipoBase || "NC").includes("OSS") ? "OSS" : "NC";
 
