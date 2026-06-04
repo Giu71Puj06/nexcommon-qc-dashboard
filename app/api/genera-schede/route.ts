@@ -1085,7 +1085,7 @@ function getStoricoRilievo(
   storicoRilieviMap: Record<string, StoricoRilievoRow>,
   disciplina: string,
   tr: string
-) {
+): StoricoRilievoRow | null {
   const t = normalizeStoricoTR(tr);
   if (!t) return null;
 
@@ -2626,7 +2626,7 @@ export async function POST(req: Request) {
         );
 
         const trNormalizzato = normalizeStoricoTR(codiceTR);
-        const storicoRilievo = getStoricoRilievo(
+        const storicoRilievo: StoricoRilievoRow | null = getStoricoRilievo(
           storicoRilieviMap,
           disciplina,
           trNormalizzato || codiceTR
