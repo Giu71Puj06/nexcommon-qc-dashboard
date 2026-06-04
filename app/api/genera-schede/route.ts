@@ -906,7 +906,11 @@ function disciplinaFromCodice(codice: string) {
   if (c.includes("_MEP_") || c.includes("-MEP-") || c.includes("MEP")) return "Impianti";
   if (c.includes("_IMP_") || c.includes("-IMP-") || c.includes("IMP")) return "Impianti";
   if (c.includes("_ECO_") || c.includes("-ECO-") || c.includes("ECO")) return "Documentazione economica";
-  if (c.includes("_SIC_") || c.includes("-SIC-") || c.includes("SIC")) return "Sicurezza Cantiere";
+  // Nei progetti stradali/cantierizzazione gli elaborati CNT e BOB devono
+  // comparire nel riepilogo della scheda Sicurezza cantierizzazione e BOB.
+  if (c.includes("_SIC_") || c.includes("-SIC-") || c.includes("SIC")) return "Sicurezza cantierizzazione e BOB";
+  if (c.includes("_CNT_") || c.includes("-CNT-") || c.includes("CNT")) return "Sicurezza cantierizzazione e BOB";
+  if (c.includes("_BOB_") || c.includes("-BOB-") || c.includes("BOB")) return "Sicurezza cantierizzazione e BOB";
   if (c.includes("_GEN_") || c.includes("-GEN-") || c.includes("GEN")) return "Documentazione generale";
   if (c.includes("_AMB_") || c.includes("-AMB-") || c.includes("AMB")) return "Documentazione generale";
 
@@ -2674,11 +2678,15 @@ export async function POST(req: Request) {
     );
 
     const templateBuffer = Buffer.from(await templateFile.arrayBuffer());
-    const elaboratiSource = reportRows.length ? reportRows : elencoRows;
+    // Il riepilogo finale deve contenere tutti gli elaborati della disciplina.
+    // Per questo non si sceglie piu solo Report_Completo oppure solo Elenco Elaborati:
+    // si usa l'unione dei due insiemi, poi le righe vengono deduplicate piu avanti.
+    const elaboratiSource = [...reportRows, ...elencoRows];
 
     const elaboratiVerificatiAll = elaboratiSource
       .map((e: any) => {
         const codiceCompleto =
+          findValue(e, ["Codice_SP", "Codice SP", "Codice Elaborato", "CODICE ELABORATO", "Codice elaborato"]) ||
           findValue(e, ["Codice elenco", "Codice Elenco", "CODICE ELENCO"]) ||
           findValue(e, ["Codice cartiglio", "Codice Cartiglio", "CODICE CARTIGLIO"]) ||
           findValue(e, ["Nome file PDF", "Nome File PDF", "NOME FILE PDF"]) ||
