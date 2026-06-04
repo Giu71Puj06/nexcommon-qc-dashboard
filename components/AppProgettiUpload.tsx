@@ -1,621 +1,737 @@
-"use client";
+import { NextResponse } from "next/server";
+import * as XLSX from "xlsx";
+import JSZip from "jszip";
+import { XMLParser } from "fast-xml-parser";
 
-import React, { useMemo, useState } from "react";
-
-function getElaboratoKey(r: any) {
-  return (
-    r.elaborato ||
-    r.codiceElaborato ||
-    r.codice_elaborato ||
-    r.codice ||
-    r.titolo ||
-    r.id ||
-    ""
-  );
+function arr<T>(v: T | T[] | undefined): T[] {
+  if (!v) return [];
+  return Array.isArray(v) ? v : [v];
 }
 
-function Card({ children, onClick, active = false }: any) {
-  return (
-    <div
-      onClick={onClick}
-      style={{
-        background: active ? "#e0f2fe" : "white",
-        borderRadius: 16,
-        padding: 16,
-        border: active ? "2px solid #0284c7" : "1px solid #e2e8f0",
-        cursor: onClick ? "pointer" : "default",
-        boxShadow: "0 6px 18px rgba(15,23,42,.06)",
-      }}
-    >
-      {children}
-    </div>
-  );
+function normalize(v = "") {
+  return String(v)
+    .toLowerCase()
+    .replace(/\.pdf/gi, "")
+    .replace(/[^a-z0-9àèéìòù]+/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-function KPI({ title, value, subtitle, onClick, active, colorValue }: any) {
-  return (
-    <Card onClick={onClick} active={active}>
-      <div style={{ fontSize: 13, color: "#64748b" }}>{title}</div>
-      <div style={{ fontSize: 34, fontWeight: 800, color: colorValue || "#0f172a" }}>
-        {value}
-      </div>
-      {subtitle && <div style={{ fontSize: 12, color: "#64748b" }}>{subtitle}</div>}
-    </Card>
-  );
+function getAny(obj: any, keys: string[]) {
+  if (!obj || typeof obj !== "object") return "";
+  for (const k of keys) {
+    if (obj[k] !== undefined && obj[k] !== null) return obj[k];
+  }
+  return "";
 }
 
-function BarList({ title, data, onClick, activeKey }: any) {
-  const max = Math.max(...data.map((d: any) => d.value), 1);
-
-  return (
-    <Card>
-      <h3 style={{ marginTop: 0 }}>{title}</h3>
-
-      {data.length === 0 && (
-        <div style={{ color: "#64748b", fontSize: 13 }}>Nessun dato disponibile</div>
-      )}
-
-      {data.map((d: any) => (
-        <div
-          key={d.label}
-          onClick={() => onClick(d.label)}
-          style={{
-            marginBottom: 12,
-            cursor: "pointer",
-            background: activeKey === d.label ? "#e0f2fe" : "transparent",
-            borderRadius: 10,
-            padding: 6,
-          }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-            <span>{d.label}</span>
-            <b>{d.value}</b>
-          </div>
-
-          {(d.nc !== undefined || d.oss !== undefined) && (
-            <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>
-              NC: {d.nc || 0} · OSS: {d.oss || 0}
-            </div>
-          )}
-
-          <div
-            style={{
-              height: 12,
-              background: "#e2e8f0",
-              borderRadius: 99,
-              overflow: "hidden",
-              marginTop: 4,
-            }}
-          >
-            <div
-              style={{
-                width: `${(d.value / max) * 100}%`,
-                height: 12,
-                background: "#0f172a",
-              }}
-            />
-          </div>
-        </div>
-      ))}
-    </Card>
-  );
+function getXmlText(value: any) {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number") return String(value);
+  if (typeof value === "object") {
+    return (
+      value["#text"] ||
+      value.text ||
+      value.Text ||
+      value.Value ||
+      value.value ||
+      ""
+    );
+  }
+  return String(value);
 }
 
-function ImportSummary({ importedFiles }: any) {
-  if (!importedFiles?.length) return null;
-
-  return (
-    <Card>
-      <h3 style={{ marginTop: 0 }}>File importati</h3>
-      <div style={{ display: "grid", gap: 8 }}>
-        {importedFiles.map((f: any, i: number) => (
-          <div key={`${f.fileName}-${i}`} style={{ fontSize: 13 }}>
-            <b>{f.fileName}</b>{" "}
-            <span style={{ color: "#64748b" }}>
-              {f.type === "xlsx" && `- Excel letto: ${f.rows || 0} righe`}
-              {f.type === "bcfzip" &&
-                `- BCF letto: ${f.markupCount || 0} topic, ${f.comments || 0} commenti`}
-            </span>
-          </div>
-        ))}
-      </div>
-    </Card>
-  );
+function roleFromText(text = "") {
+  const m = String(text).match(/\((ISP|PRG)\)/i);
+  return m ? m[1].toUpperCase() : "";
 }
 
-function DetailPanel({ rows, title, onReset }: any) {
-  if (!title) return null;
+function detectTipo(tags = "", description = "") {
+  const t = String(tags).toUpperCase();
+  const d = String(description).toUpperCase();
 
-  return (
-    <Card>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-        <h2 style={{ marginTop: 0 }}>Dettaglio selezione: {title}</h2>
-        <button
-          onClick={onReset}
-          style={{
-            border: "1px solid #cbd5e1",
-            background: "white",
-            borderRadius: 10,
-            padding: "8px 12px",
-            cursor: "pointer",
-            height: 38,
-          }}
-        >
-          Reset selezione
-        </button>
-      </div>
+  if (t.includes("DA NC A OSS") || t.includes("DA NC A OS")) return "Da NC a OSS";
 
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-          <thead>
-            <tr style={{ background: "#f1f5f9" }}>
-              <th style={th}>ID</th>
-              <th style={th}>Esito</th>
-              <th style={th}>Tipologia NC/OSS</th>
-              <th style={th}>Disciplina</th>
-              <th style={th}>Elaborato</th>
-              <th style={th}>Descrizione NC/OSS</th>
-              <th style={th}>Stato</th>
-              <th style={th}>Ispettore</th>
-              <th style={th}>PRG</th>
-              <th style={th}>ISP</th>
-              <th style={th}>Azione</th>
-              <th style={th}>Stato risoluzione</th>
-              <th style={th}>Ultimo commento</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {rows.map((r: any, i: number) => (
-              <tr key={`${r.id}-${i}`}>
-                <td style={td}>{r.id}</td>
-                <td style={td}>{r.tipo}</td>
-                <td style={td}>{r.tipologiaNcOss || r.tipologiaDocumento || ""}</td>
-                <td style={td}>{r.disciplina}</td>
-                <td style={td}>{getElaboratoKey(r)}</td>
-                <td style={td}>{r.descrizione}</td>
-                <td style={td}>{r.stato}</td>
-                <td style={td}>{r.ispettore || r.creatoDa || r.assegnatari}</td>
-                <td style={td}>{r.numeroCommentiPrg || 0}</td>
-                <td style={td}>{r.numeroCommentiIsp || 0}</td>
-                <td style={td}>{r.chiDeveAgire}</td>
-                <td style={td}>{r.statoRisoluzione}</td>
-                <td style={td}>{r.ultimoCommento}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </Card>
-  );
-}
-
-const th = {
-  border: "1px solid #e2e8f0",
-  padding: 8,
-  textAlign: "left" as const,
-};
-
-const td = {
-  border: "1px solid #e2e8f0",
-  padding: 8,
-  verticalAlign: "top" as const,
-};
-
-export default function AppProgettiUpload() {
-  React.useEffect(() => {
-    const isAuthenticated = localStorage.getItem("nexcommon_verify_auth");
-
-    if (isAuthenticated !== "true") {
-      window.location.href = "/login";
-    }
-  }, []);
-
-  const [files, setFiles] = useState<File[]>([]);
-  const [rows, setRows] = useState<any[]>([]);
-  const [selection, setSelection] = useState<any>(null);
-  const [importedFiles, setImportedFiles] = useState<any[]>([]);
-  const [error, setError] = useState("");
-
-  async function generaDashboard() {
-    setError("");
-
-    const fd = new FormData();
-    files.forEach((f) => fd.append("files", f));
-
-    const res = await fetch("/api/parse", {
-      method: "POST",
-      body: fd,
-    });
-
-    const data = await res.json();
-
-    if (!res.ok || data.ok === false) {
-      setError(data.error || "Errore durante la lettura dei file");
-      setRows([]);
-      setImportedFiles([]);
-      setSelection(null);
-      return;
-    }
-
-    setRows(data.rows || []);
-    setImportedFiles(data.importedFiles || []);
-    setSelection(null);
+  if (t.includes("NESSUN RILIEVO") || d.includes("NESSUN RILIEVO")) {
+    return "Nessun rilievo";
   }
 
-  const enrichedRows = useMemo(() => {
-    return rows.map((r) => ({
-      ...r,
-      tipologiaNcOss: r.tipologiaNcOss || r.tipologiaDocumento || "",
-      tipologia: r.tipologiaNcOss || r.tipologiaDocumento || "",
-      elaboratoKey: getElaboratoKey(r),
-    }));
-  }, [rows]);
+  if (t.includes("OSS")) return "OSS";
+  if (t.includes("NC")) return "NC";
 
-  const elaboratiTot = new Set(enrichedRows.map((r) => r.elaboratoKey).filter(Boolean)).size;
-  const elaboratiNC = new Set(enrichedRows.filter((r) => r.tipo === "NC").map((r) => r.elaboratoKey).filter(Boolean)).size;
-  const elaboratiOSS = new Set(enrichedRows.filter((r) => r.tipo === "OSS").map((r) => r.elaboratoKey).filter(Boolean)).size;
-  const elaboratiOK = new Set(enrichedRows.filter((r) => r.tipo === "Nessun rilievo").map((r) => r.elaboratoKey).filter(Boolean)).size;
+  return "Esito mancante";
+}
 
-  const totaleNC = enrichedRows.filter((r) => r.tipo === "NC").length;
-  const totaleOSS = enrichedRows.filter((r) => r.tipo === "OSS").length;
-  const totaleNCOSS = totaleNC + totaleOSS;
+function includesAny(text = "", words: string[]) {
+  const n = normalize(text);
+  return words.some((w) => n.includes(normalize(w)));
+}
 
-  const rilieviNCOSS = enrichedRows.filter(
-    (r) => r.tipo === "NC" || r.tipo === "OSS" || r.tipo === "Da NC a OSS"
+function detectTipologiaNcOss(
+  tags = "",
+  description = "",
+  title = "",
+  tipo = ""
+) {
+  // "Nessun rilievo" ed esiti mancanti NON devono comparire nelle Tipologie NC/OSS.
+  if (tipo === "Nessun rilievo" || tipo === "Esito mancante") return "";
+
+  const text = `${tags} ${description} ${title}`;
+
+  // 1. Normative
+  // Prioritaria perché spesso genera NC.
+  if (
+    includesAny(text, [
+      "normativa",
+      "normative",
+      "normativa vigente",
+      "conformità",
+      "conforme",
+      "non conforme",
+      "ntc",
+      "eurocodice",
+      "eurocodici",
+      "codice appalti",
+      "verifica normativa",
+      "verifiche obbligatorie",
+      "verifica obbligatoria",
+      "prescrizione normativa",
+      "classificazione opere",
+      "autorizzazione",
+      "autorizzativo",
+      "vincolo",
+      "vincoli",
+      "prescrizioni",
+      "prescrizione",
+    ])
+  ) {
+    return "1. Normative";
+  }
+
+  // 2. Incoerenze tra elaborati
+  if (
+    includesAny(text, [
+      "incoerenza",
+      "incoerenze",
+      "discordanza",
+      "discordanze",
+      "non coerente",
+      "non coerenti",
+      "differenza tra",
+      "difformità tra",
+      "non allineato",
+      "non allineati",
+      "disallineamento",
+      "contraddizione",
+      "contraddizioni",
+      "relazione e tavola",
+      "relazione tavola",
+      "elaborati non coerenti",
+      "tavole non coerenti",
+    ])
+  ) {
+    return "2. Incoerenze tra elaborati";
+  }
+
+  // 3. Informazioni mancanti / incomplete
+  if (
+    includesAny(text, [
+      "mancante",
+      "mancanti",
+      "manca",
+      "non presente",
+      "non presenti",
+      "non indicato",
+      "non indicati",
+      "non riportato",
+      "non riportati",
+      "assente",
+      "assenti",
+      "incompleto",
+      "incompleta",
+      "incompleti",
+      "incomplete",
+      "omesso",
+      "omessa",
+      "non risulta",
+      "necessario integrare",
+      "integrare",
+    ])
+  ) {
+    return "3. Informazioni mancanti / incomplete";
+  }
+
+  // 4. Richieste di chiarimento
+  if (
+    includesAny(text, [
+      "chiarire",
+      "si chiede",
+      "si richiede",
+      "richiesta di chiarimento",
+      "chiarimento",
+      "chiarimenti",
+      "specificare",
+      "precisare",
+      "verificare",
+      "si invita",
+      "dettagliare",
+      "approfondire",
+      "motivare",
+      "esplicitare",
+    ])
+  ) {
+    return "4. Richieste di chiarimento";
+  }
+
+  // 5. Elaborati e relazioni
+  if (
+    includesAny(text, [
+      "relazione",
+      "relazioni",
+      "documento",
+      "documentazione",
+      "elaborato",
+      "elaborati",
+      "relazione tecnica",
+      "relazione specialistica",
+      "rapporto",
+      "allegato",
+      "capitolo",
+      "paragrafo",
+      "pag",
+      "pagina",
+      "indice",
+      "testo",
+    ])
+  ) {
+    return "5. Elaborati e relazioni";
+  }
+
+  // 6. Errori dimensionali / quote
+  if (
+    includesAny(text, [
+      "quota",
+      "quote",
+      "dimensione",
+      "dimensioni",
+      "dimensionale",
+      "dimensionali",
+      "misura",
+      "misure",
+      "altezza",
+      "larghezza",
+      "spessore",
+      "diametro",
+      "sezione",
+      "scala",
+      "geometria",
+      "geometrico",
+      "geometrici",
+    ])
+  ) {
+    return "6. Errori dimensionali / quote";
+  }
+
+  // 7. Dettagli costruttivi insufficienti
+  if (
+    includesAny(text, [
+      "dettaglio",
+      "dettagli",
+      "particolare",
+      "particolari",
+      "nodo",
+      "nodi",
+      "sezione costruttiva",
+      "dettaglio costruttivo",
+      "particolare costruttivo",
+      "schema costruttivo",
+      "dettagli esecutivi",
+      "esecutivo",
+      "esecutivi",
+    ])
+  ) {
+    return "7. Dettagli costruttivi insufficienti";
+  }
+
+  // 8. Computi e quantità
+  if (
+    includesAny(text, [
+      "computo",
+      "computi",
+      "quantità",
+      "quantita",
+      "voce",
+      "voci",
+      "elenco prezzi",
+      "prezzario",
+      "prezzari",
+      "prezzo",
+      "prezzi",
+      "stima",
+      "stime",
+      "stima economica",
+      "quadro economico",
+      "importo",
+      "contabilità",
+      "contabilita",
+      "misurazione",
+    ])
+  ) {
+    return "8. Computi e quantità";
+  }
+
+  // 9. Costruttibilità / fattibilità
+  if (
+    includesAny(text, [
+      "cantiere",
+      "realizzazione",
+      "realizzabile",
+      "non realizzabile",
+      "esecuzione",
+      "esecutabilità",
+      "esecutabilita",
+      "costruttibilità",
+      "costruttibilita",
+      "fattibilità",
+      "fattibilita",
+      "posa",
+      "montaggio",
+      "lavorazione",
+      "manutenzione",
+      "manutenibilità",
+      "manutenibilita",
+      "accessibilità manutentiva",
+      "accessibilita manutentiva",
+    ])
+  ) {
+    return "9. Costruttibilità / fattibilità";
+  }
+
+  // 10. Interferenze / clash
+  if (
+    includesAny(text, [
+      "interferenza",
+      "interferenze",
+      "clash",
+      "sovrapposizione",
+      "sovrapposizioni",
+      "conflitto",
+      "conflitti",
+      "interferisce",
+      "interferiscono",
+      "collisione",
+      "collisioni",
+      "coordinamento interdisciplinare",
+      "coordinamento bim",
+      "bim",
+    ])
+  ) {
+    return "10. Interferenze / clash";
+  }
+
+  // Solo vere NC/OSS che non rientrano in nessuna delle tipologie/categorie sopra.
+  return "Altre";
+}
+
+function similarity(a = "", b = "") {
+  const aa = normalize(a);
+  const bb = normalize(b);
+
+  if (!aa || !bb) return 0;
+  if (aa === bb) return 1;
+  if (aa.includes(bb) || bb.includes(aa)) return 0.9;
+
+  const aWords = new Set(aa.split(" "));
+  const bWords = new Set(bb.split(" "));
+  const intersection = [...aWords].filter((w) => bWords.has(w)).length;
+  const union = new Set([...aWords, ...bWords]).size;
+
+  return union ? intersection / union : 0;
+}
+
+function findBestComments(todo: any, commentsByTopic: Map<string, any[]>) {
+  const candidates = [
+    todo.Label,
+    todo.ID,
+    todo.Guid,
+    todo.GUID,
+    todo.Title,
+    String(todo.Title || "").replace(/\.pdf/gi, ""),
+  ].filter(Boolean);
+
+  for (const c of candidates) {
+    const key = normalize(c);
+    if (commentsByTopic.has(key)) return commentsByTopic.get(key) || [];
+  }
+
+  let bestScore = 0;
+  let bestComments: any[] = [];
+
+  for (const [topic, comments] of commentsByTopic.entries()) {
+    const score = Math.max(...candidates.map((c) => similarity(c, topic)));
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestComments = comments;
+    }
+  }
+
+  return bestScore >= 0.35 ? bestComments : [];
+}
+
+function extractMarkup(parsed: any) {
+  return (
+    parsed?.Markup ||
+    parsed?.markup ||
+    parsed?.bcf?.Markup ||
+    parsed?.Bcf?.Markup ||
+    parsed
   );
+}
 
-  const daVerificareISP = enrichedRows.filter((r) => r.chiDeveAgire === "ISP").length;
-  const daRisponderePRG = enrichedRows.filter((r) => r.chiDeveAgire === "PRG").length;
+function extractTopic(markup: any, fallbackGuid: string) {
+  const topic = getAny(markup, ["Topic", "topic"]) || {};
 
-  const filteredRows = useMemo(() => {
-    if (!selection) return [];
+  const title = getXmlText(getAny(topic, ["Title", "title", "TopicTitle", "Name"]));
+  const description = getXmlText(getAny(topic, ["Description", "description"]));
+  const labelsRaw = getAny(topic, ["Labels", "labels", "Label", "label"]);
+  const labels = Array.isArray(labelsRaw)
+    ? labelsRaw.map((x) => getXmlText(x)).join(" ")
+    : getXmlText(labelsRaw);
 
-    if (selection.type === "kpi") {
-      if (selection.value === "totali") return enrichedRows;
-      if (selection.value === "nc") return enrichedRows.filter((r) => r.tipo === "NC");
-      if (selection.value === "oss") return enrichedRows.filter((r) => r.tipo === "OSS");
-      if (selection.value === "nessun") return enrichedRows.filter((r) => r.tipo === "Nessun rilievo");
-      if (selection.value === "risoluzione-prg") return rilieviNCOSS.filter((r) => r.hasPrgComment);
-      if (selection.value === "da-verificare-isp") return enrichedRows.filter((r) => r.chiDeveAgire === "ISP");
-      if (selection.value === "da-rispondere-prg") return enrichedRows.filter((r) => r.chiDeveAgire === "PRG");
-    }
+  const guid =
+    getXmlText(getAny(topic, ["Guid", "guid", "GUID"])) ||
+    topic.Guid ||
+    topic.guid ||
+    fallbackGuid;
 
-    if (selection.type === "tipo") return enrichedRows.filter((r) => r.tipo === selection.value);
-    if (selection.type === "disciplina") return enrichedRows.filter((r) => r.disciplina === selection.value);
-    if (selection.type === "elaborato") return enrichedRows.filter((r) => r.elaboratoKey === selection.value);
+  return {
+    topic,
+    topicTitle: title,
+    topicDescription: description,
+    topicLabels: labels,
+    topicGuid: String(guid || fallbackGuid),
+    topicStatus:
+      getXmlText(getAny(topic, ["TopicStatus", "Status", "status"])) ||
+      topic.TopicStatus ||
+      "",
+    topicPriority: getXmlText(getAny(topic, ["Priority", "priority"])),
+    topicCreationDate: getXmlText(getAny(topic, ["CreationDate", "creationDate"])),
+    topicCreationAuthor: getXmlText(getAny(topic, ["CreationAuthor", "creationAuthor"])),
+    topicModifiedDate: getXmlText(getAny(topic, ["ModifiedDate", "modifiedDate"])),
+    topicModifiedAuthor: getXmlText(getAny(topic, ["ModifiedAuthor", "modifiedAuthor"])),
+    topicAssignedTo: getXmlText(getAny(topic, ["AssignedTo", "assignedTo"])),
+  };
+}
 
-    if (selection.type === "tipologia") {
-      return enrichedRows.filter(
-        (r) =>
-          (r.tipo === "NC" || r.tipo === "OSS" || r.tipo === "Da NC a OSS") &&
-          (r.tipologiaNcOss || r.tipologiaDocumento) === selection.value
-      );
-    }
+function extractComments(markup: any) {
+  const raw =
+    getAny(markup, ["Comment", "comment", "Comments", "comments"]) ||
+    getAny(markup?.Comments, ["Comment", "comment"]) ||
+    getAny(markup?.comments, ["Comment", "comment"]);
 
-    return [];
-  }, [enrichedRows, selection, rilieviNCOSS]);
+  if (Array.isArray(raw)) return raw;
 
-  const discipline: any = {};
-  const tipologie: any = {};
-  const esiti: any = {};
-  const rilieviPerElaborato: any = {};
+  if (raw?.Comment) return arr(raw.Comment);
+  if (raw?.comment) return arr(raw.comment);
 
-  enrichedRows.forEach((r) => {
-    const d = r.disciplina || "Non assegnata";
-    discipline[d] = (discipline[d] || 0) + 1;
+  return arr(raw);
+}
 
-    if (r.tipo === "NC" || r.tipo === "OSS" || r.tipo === "Da NC a OSS") {
-      const t = r.tipologiaNcOss || r.tipologiaDocumento || "Altre";
-      tipologie[t] = (tipologie[t] || 0) + 1;
-    }
+async function readBcfZip(file: File, buffer: Buffer) {
+  const bcfComments: any[] = [];
+  const bcfTopics: any[] = [];
 
-    const e = r.tipo || "Esito mancante";
-    esiti[e] = (esiti[e] || 0) + 1;
-
-    const elaborato = r.elaboratoKey || "Elaborato non identificato";
-
-    if (!rilieviPerElaborato[elaborato]) {
-      rilieviPerElaborato[elaborato] = {
-        label: elaborato,
-        value: 0,
-        nc: 0,
-        oss: 0,
-      };
-    }
-
-    if (r.tipo === "NC") {
-      rilieviPerElaborato[elaborato].value += 1;
-      rilieviPerElaborato[elaborato].nc += 1;
-    }
-
-    if (r.tipo === "OSS") {
-      rilieviPerElaborato[elaborato].value += 1;
-      rilieviPerElaborato[elaborato].oss += 1;
-    }
+  const zip = await JSZip.loadAsync(buffer);
+  const parser = new XMLParser({
+    ignoreAttributes: false,
+    attributeNamePrefix: "",
+    textNodeName: "#text",
+    trimValues: true,
   });
 
-  const disciplineData = Object.entries(discipline)
-    .map(([label, value]) => ({ label, value }))
-    .sort((a: any, b: any) => b.value - a.value);
+  const markupPaths = Object.keys(zip.files).filter((path) =>
+    path.toLowerCase().endsWith("markup.bcf")
+  );
 
-  const tipologieData = Object.entries(tipologie)
-    .map(([label, value]) => ({ label, value }))
-    .sort((a: any, b: any) => {
-      const getOrder = (label: string) => {
-        const match = String(label).match(/^(\d+)\./);
-        if (match) return Number(match[1]);
-        if (label === "Altre") return 999;
-        return 998;
-      };
+  for (const path of markupPaths) {
+    const xml = await zip.files[path].async("text");
+    const parsed = parser.parse(xml);
+    const markup = extractMarkup(parsed);
 
-      return getOrder(a.label) - getOrder(b.label);
+    const folderGuid = path.split("/")[0] || "";
+    const topicData = extractTopic(markup, folderGuid);
+
+    bcfTopics.push({
+      sourceFile: file.name,
+      markupPath: path,
+      Label: topicData.topicGuid,
+      ID: topicData.topicGuid,
+      Guid: topicData.topicGuid,
+      Title: topicData.topicTitle,
+      Description: topicData.topicDescription,
+      Tags: topicData.topicLabels,
+      Status: topicData.topicStatus,
+      Priority: topicData.topicPriority,
+      "Created by": topicData.topicCreationAuthor,
+      "Created on": topicData.topicCreationDate,
+      "Last modified by": topicData.topicModifiedAuthor,
+      "Last modified on": topicData.topicModifiedDate,
+      "Assignee(s)": topicData.topicAssignedTo,
+      Groups: "",
+      Type: "BCF Topic",
+      __source: "bcfzip",
     });
 
-  const esitiData = Object.entries(esiti)
-    .map(([label, value]) => ({ label, value }))
-    .sort((a: any, b: any) => b.value - a.value);
+    const comments = extractComments(markup);
 
-  const rilieviPerElaboratoData = Object.values(rilieviPerElaborato)
-    .filter((d: any) => d.value > 0)
-    .sort((a: any, b: any) => b.value - a.value);
+    for (const c of comments) {
+      const text = getXmlText(getAny(c, ["Comment", "comment", "Text", "text"]));
+      const role = roleFromText(text);
 
-  const selectionTitle = selection
-    ? `${selection.label}: ${selection.valueLabel || selection.value}`
-    : "";
+      bcfComments.push({
+        sourceFile: file.name,
+        markupPath: path,
+        topicGuid: topicData.topicGuid,
+        topicTitle: topicData.topicTitle,
+        topicKey: normalize(topicData.topicTitle),
+        author: getXmlText(getAny(c, ["Author", "author", "ModifiedAuthor"])) || "",
+        date: getXmlText(getAny(c, ["Date", "date", "ModifiedDate"])) || "",
+        role,
+        comment: text,
+      });
+    }
+  }
 
-  return (
-    <main
-      style={{
-        padding: 30,
-        background: "#f1f5f9",
-        minHeight: "100vh",
-        fontFamily: "Arial, sans-serif",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: 20,
-          alignItems: "flex-start",
-        }}
-      >
-        <div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <img src="/logo_nexcommon.png" alt="Nexcommon" style={{ height: 34, objectFit: "contain" }} />
-            <div style={{ fontSize: 13, color: "#64748b" }}>
-              Piattaforma creata da Nexcommon S.r.l.
-            </div>
-          </div>
+  return {
+    bcfTopics,
+    bcfComments,
+    markupCount: markupPaths.length,
+  };
+}
 
-          <div style={{ marginTop: 22, display: "flex", alignItems: "center", gap: 18 }}>
-            <img
-              src="/logo_its.png"
-              alt="ITS Controlli Tecnici S.p.A."
-              style={{
-                height: 58,
-                objectFit: "contain",
-                background: "#0f172a",
-                padding: 8,
-                borderRadius: 8,
-              }}
-            />
+export async function POST(req: Request) {
+  try {
+    const formData = await req.formData();
+    const files = formData.getAll("files") as File[];
 
-            <div>
-              <h1 style={{ margin: 0, fontSize: 30 }}>
-                ITS Controlli Tecnici S.p.A.
-              </h1>
-              <div style={{ color: "#64748b", fontSize: 14 }}>
-                Dashboard verifiche elaborati / NC / OSS
-              </div>
-            </div>
-          </div>
-        </div>
+    let excelRows: any[] = [];
+    const bcfTopicRows: any[] = [];
+    const bcfComments: any[] = [];
+    const importedFiles: any[] = [];
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <button
-            onClick={() => {
-              localStorage.removeItem("nexcommon_verify_auth");
-              window.location.href = "/login";
-            }}
-            style={{
-              alignSelf: "flex-end",
-              background: "#dc2626",
-              color: "white",
-              border: "none",
-              borderRadius: 10,
-              padding: "10px 14px",
-              fontWeight: 700,
-              cursor: "pointer",
-            }}
-          >
-            Logout
-          </button>
+    for (const file of files) {
+      const buffer = Buffer.from(await file.arrayBuffer());
+      const name = file.name.toLowerCase();
 
-          <Card>
-            <input
-              type="file"
-              multiple
-              accept=".xlsx,.xls,.bcfzip,.zip,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
-              onChange={(e) => setFiles(Array.from(e.target.files || []))}
-            />
-            <button
-              onClick={generaDashboard}
-              disabled={!files.length}
-              style={{
-                marginTop: 10,
-                width: "100%",
-                padding: 10,
-                background: "#0f172a",
-                color: "white",
-                borderRadius: 10,
-                border: "none",
-                cursor: files.length ? "pointer" : "not-allowed",
-              }}
-            >
-              Leggi XLSX + BCFZIP
-            </button>
+      if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
+        const workbook = XLSX.read(buffer, { type: "buffer" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
 
-            {files.length > 0 && (
-              <div style={{ marginTop: 10, color: "#64748b", fontSize: 12 }}>
-                File selezionati: {files.map((f) => f.name).join(", ")}
-              </div>
-            )}
-          </Card>
-        </div>
-      </div>
+        excelRows = [...excelRows, ...rows];
 
-      {error && (
-        <div
-          style={{
-            marginTop: 16,
-            background: "#fee2e2",
-            color: "#991b1b",
-            border: "1px solid #fecaca",
-            borderRadius: 12,
-            padding: 12,
-          }}
-        >
-          {error}
-        </div>
-      )}
+        importedFiles.push({
+          fileName: file.name,
+          type: "xlsx",
+          rows: rows.length,
+        });
+      }
 
-      <div style={{ marginTop: 16 }}>
-        <ImportSummary importedFiles={importedFiles} />
-      </div>
+      if (name.endsWith(".bcfzip") || name.endsWith(".zip")) {
+        const result = await readBcfZip(file, buffer);
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(7, 1fr)",
-          gap: 12,
-          marginTop: 24,
-          marginBottom: 24,
-        }}
-      >
-        {[
-          {
-            title: "Nota di Ricezione Elaborati",
-            subtitle: "Modulo operativo attivo",
-            url: "https://verifica-elaborati-production.up.railway.app",
-            active: true,
-            external: true,
-          },
-          {
-            title: "Verifiche preliminari",
-            subtitle: "Modulo operativo attivo",
-            url: "/verifiche-preliminari",
-            active: true,
-            external: false,
-          },
-          {
-            title: "Schede ispettive",
-            subtitle: "Modulo operativo attivo",
-            url: "/schede-ispettive",
-            active: true,
-            external: false,
-          },
-          {
-            title: "Controllo ToDo ispettori",
-            subtitle: "Verifica Title, Tags, disciplina e codici",
-            url: "/controllo-todo-ispettori",
-            active: true,
-            external: false,
-          },
-         {
-  title: "Rapporto intermedio",
-  subtitle: "Coming soon",
-  url: "",
-  active: false,
-  external: false,
-},
-{
-  title: "Rapporto conclusivo",
-  subtitle: "Coming soon",
-  url: "",
-  active: false,
-  external: false,
-},
-{
-  title: "Dashboard PM",
-  subtitle: "Modulo operativo attivo",
-  url: "/dashboard-pm",
-  active: true,
-  external: false,
-  },
-        ].map((m) => (
-          <Card
-            key={m.title}
-            active={m.active}
-            onClick={() => {
-              if (!m.active || !m.url) return;
-              if (m.external) {
-                window.open(m.url, "_blank", "noopener,noreferrer");
-                return;
-              }
-              window.location.href = m.url;
-            }}
-          >
-            <b>{m.title}</b>
-            <div style={{ marginTop: 6, color: "#64748b", fontSize: 13 }}>
-              {m.subtitle}
-            </div>
+        bcfTopicRows.push(...result.bcfTopics);
+        bcfComments.push(...result.bcfComments);
 
-            {m.active && (
-              <div style={{ marginTop: 12, fontSize: 12, fontWeight: 700, color: "#0284c7" }}>
-                Apri modulo →
-              </div>
-            )}
-          </Card>
-        ))}
-      </div>
+        importedFiles.push({
+          fileName: file.name,
+          type: "bcfzip",
+          markupCount: result.markupCount,
+          topics: result.bcfTopics.length,
+          comments: result.bcfComments.length,
+        });
+      }
+    }
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12, marginBottom: 12 }}>
-        <KPI title="Elaborati totali" value={elaboratiTot} onClick={() => setSelection({ type: "kpi", value: "totali", label: "KPI", valueLabel: "Elaborati totali" })} />
-        <KPI title="Elaborati con NC" value={elaboratiNC} onClick={() => setSelection({ type: "kpi", value: "nc", label: "KPI", valueLabel: "Elaborati con NC" })} />
-        <KPI title="Elaborati con OSS" value={elaboratiOSS} onClick={() => setSelection({ type: "kpi", value: "oss", label: "KPI", valueLabel: "Elaborati con OSS" })} />
-        <KPI title="Elaborati senza rilievi" value={elaboratiOK} onClick={() => setSelection({ type: "kpi", value: "nessun", label: "KPI", valueLabel: "Elaborati senza rilievi" })} />
-        <KPI title="Totale NC" value={totaleNC} onClick={() => setSelection({ type: "tipo", value: "NC", label: "Esito" })} />
-        <KPI title="Totale OSS" value={totaleOSS} onClick={() => setSelection({ type: "tipo", value: "OSS", label: "Esito" })} />
-      </div>
+    const commentsByTopic = new Map<string, any[]>();
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 24 }}>
-        <KPI title="Totale NC + OSS" value={totaleNCOSS} onClick={() => setSelection({ type: "kpi", value: "totali", label: "KPI", valueLabel: "Tutti i rilievi" })} />
-        <KPI title="In attesa di riscontro dell'ispettore" value={daVerificareISP} subtitle="Ultimo commento PRG" onClick={() => setSelection({ type: "kpi", value: "da-verificare-isp", label: "KPI", valueLabel: "Da verificare ISP" })} />
-        <KPI title="In attesa di risposta del progettista" value={daRisponderePRG} subtitle="Nessun PRG o ultimo ISP" onClick={() => setSelection({ type: "kpi", value: "da-rispondere-prg", label: "KPI", valueLabel: "Da rispondere PRG" })} />
-      </div>
+    for (const c of bcfComments) {
+      const keys = [
+        normalize(c.topicTitle),
+        normalize(c.topicGuid),
+        normalize(String(c.topicTitle || "").replace(/\.pdf/gi, "")),
+      ].filter(Boolean);
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 16 }}>
-        <BarList title="Elaborati per disciplina" data={disciplineData} activeKey={selection?.type === "disciplina" ? selection.value : ""} onClick={(value: string) => setSelection({ type: "disciplina", value, label: "Disciplina" })} />
-        <BarList title="NC / OSS / Nessun rilievo" data={esitiData} activeKey={selection?.type === "tipo" ? selection.value : ""} onClick={(value: string) => setSelection({ type: "tipo", value, label: "Esito" })} />
-        <BarList title="Tipologie NC / OSS" data={tipologieData} activeKey={selection?.type === "tipologia" ? selection.value : ""} onClick={(value: string) => setSelection({ type: "tipologia", value, label: "Tipologia" })} />
-        <BarList title="NC / OSS per elaborato" data={rilieviPerElaboratoData} activeKey={selection?.type === "elaborato" ? selection.value : ""} onClick={(value: string) => setSelection({ type: "elaborato", value, label: "Elaborato" })} />
-      </div>
+      for (const key of keys) {
+        if (!commentsByTopic.has(key)) commentsByTopic.set(key, []);
+        commentsByTopic.get(key)!.push(c);
+      }
+    }
 
-      <div style={{ marginTop: 24 }}>
-        <DetailPanel title={selectionTitle} rows={filteredRows} onReset={() => setSelection(null)} />
-      </div>
+    // Se è presente l'Excel, l'Excel resta la base principale.
+    // Se non è presente l'Excel, i Topic BCF diventano direttamente le righe dashboard.
+    const todoRows = excelRows.length > 0 ? excelRows : bcfTopicRows;
 
-      <div
-        style={{
-          marginTop: 40,
-          padding: 20,
-          background: "#0f172a",
-          color: "white",
-          borderRadius: 12,
-          textAlign: "center",
-          fontSize: 12,
-        }}
-      >
-        <div style={{ fontWeight: 600 }}>Nexcommon S.r.l.</div>
-        <div style={{ opacity: 0.8 }}>
-          © {new Date().getFullYear()} – Tutti i diritti riservati
-        </div>
-        <div style={{ marginTop: 6, opacity: 0.7 }}>
-          Piattaforma Quality Control per ITS Controlli Tecnici S.p.A.
-        </div>
-      </div>
-    </main>
-  );
+    const rows = todoRows.map((todo: any, index: number) => {
+      const label = todo.Label || todo.ID || todo.Guid || todo.GUID || "";
+      const title = todo.Title || "";
+      const description = todo.Description || "";
+      const tags = todo.Tags || todo.Labels || "";
+      const tipo = detectTipo(tags, description);
+
+      const tipologiaNcOss = detectTipologiaNcOss(
+        tags,
+        description,
+        title,
+        tipo
+      );
+
+      const disciplina =
+        todo["Assignee(s) "] ||
+        todo["Assignee(s)"] ||
+        todo.Groups ||
+        todo.Group ||
+        "";
+
+      const ispettore =
+        todo["Created by"] ||
+        todo["Last modified by"] ||
+        todo.Owner ||
+        "";
+
+      const comments = findBestComments(todo, commentsByTopic).sort((a, b) =>
+        String(a.date).localeCompare(String(b.date))
+      );
+
+      const prgComments = comments.filter((c) => c.role === "PRG");
+      const ispComments = comments.filter((c) => c.role === "ISP");
+      const last = comments[comments.length - 1];
+
+      const hasPrgComment = prgComments.length > 0;
+      const hasIspComment = ispComments.length > 0;
+      const ultimoRuolo = last?.role || "";
+
+      let chiDeveAgire = "";
+      let statoRisoluzione = "Non applicabile";
+
+      if (tipo === "NC" || tipo === "OSS" || tipo === "Da NC a OSS") {
+        if (!hasPrgComment) {
+          chiDeveAgire = "PRG";
+          statoRisoluzione = "In attesa riscontro progettista";
+        } else if (ultimoRuolo === "PRG") {
+          chiDeveAgire = "ISP";
+          statoRisoluzione = "Risposto da progettista - da verificare ISP";
+        } else if (ultimoRuolo === "ISP") {
+          chiDeveAgire = "PRG";
+          statoRisoluzione = "Riscontrato da ispettore - eventuale azione PRG";
+        } else {
+          chiDeveAgire = "PRG";
+          statoRisoluzione = "Da riscontrare";
+        }
+      }
+
+      const esitoCompilato =
+        tipo === "NC" ||
+        tipo === "OSS" ||
+        tipo === "Nessun rilievo" ||
+        tipo === "Da NC a OSS";
+
+      const titleCompilato = Boolean(String(title).trim());
+      const disciplinaCompilata = Boolean(String(disciplina).trim());
+
+      const campiMancantiControllo: string[] = [];
+
+      if (!esitoCompilato) {
+        campiMancantiControllo.push("Tags / Esito verifica mancante o non coerente");
+      }
+
+      if (!titleCompilato) {
+        campiMancantiControllo.push("Title / Codice elaborato mancante");
+      }
+
+      if (!disciplinaCompilata) {
+        campiMancantiControllo.push("Gruppo / Disciplina mancante");
+      }
+
+      const controlloIspettoreCompleto =
+        esitoCompilato &&
+        titleCompilato &&
+        disciplinaCompilata;
+
+      return {
+        idRecord: `IMPORT-${index + 1}`,
+        id: label,
+        idTodo: label,
+
+        elaborato: title,
+        titolo: title,
+        descrizione: description,
+
+        tipo,
+        tipoOriginale: todo.Type || "",
+        tags,
+
+        tipologiaNcOss,
+        tipologiaDocumento: tipologiaNcOss,
+        tipologia: tipologiaNcOss,
+
+        disciplina: disciplina || "Non assegnata",
+        gruppoTrimble: disciplina || "",
+        assegnatari: disciplina || "",
+
+        stato: todo.Status || "",
+        priorita: todo.Priority || "",
+        completamento: todo.Completion || "",
+        scadenza: todo["Due date"] || "",
+
+        ispettore,
+        creatoDa: todo["Created by"] || "",
+        creatoIl: todo["Created on"] || "",
+        modificatoDa: todo["Last modified by"] || "",
+        modificatoIl: todo["Last modified on"] || "",
+
+        controlloIspettoreCompleto,
+        campiMancantiControllo,
+        statoCompilazioneIspettore: controlloIspettoreCompleto
+          ? "Completo"
+          : "Incompleto",
+
+        hasPrgComment,
+        hasIspComment,
+        numeroCommentiPrg: prgComments.length,
+        numeroCommentiIsp: ispComments.length,
+
+        ultimoRuolo,
+        ultimoCommento: last?.comment || "",
+        ultimoAutore: last?.author || "",
+        ultimaDataCommento: last?.date || "",
+
+        chiDeveAgire,
+        statoRisoluzione,
+        nCommenti: comments.length,
+        comments,
+      };
+    });
+
+    return NextResponse.json({
+      ok: true,
+      importedFiles,
+      excelRowCount: excelRows.length,
+      bcfTopicCount: bcfTopicRows.length,
+      todoCount: todoRows.length,
+      bcfCommentCount: bcfComments.length,
+      rows,
+      comments: bcfComments,
+    });
+  } catch (error: any) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: error?.message || "Errore durante la lettura dei file",
+      },
+      { status: 500 }
+    );
+  }
 }
