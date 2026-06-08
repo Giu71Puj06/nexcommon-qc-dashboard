@@ -195,7 +195,6 @@ function DetailPanel({ rows, title, onReset }: any) {
               <th style={th}>Elaborato</th>
               <th style={th}>Descrizione</th>
               <th style={th}>Stato</th>
-              <th style={th}>Chi deve agire</th>
               <th style={th}>Storico commenti</th>
             </tr>
           </thead>
@@ -212,7 +211,6 @@ function DetailPanel({ rows, title, onReset }: any) {
                   <td style={td}>{getElaboratoKey(r)}</td>
                   <td style={td}>{r.descrizione}</td>
                   <td style={td}>{translateStatus(r.stato)}</td>
-                  <td style={td}>{r.chiDeveAgire || "-"}</td>
                   <td style={td}>
                     <CommentList comments={allComments} emptyText="Nessun commento" />
                   </td>
@@ -248,15 +246,7 @@ const defaultDashboardModules = [
     external: true,
     sort_order: 1,
   },
-  {
-    title: "Dashboard NC / OSS",
-    subtitle: "Analisi ToDo, BCF e BCFZIP",
-    url: "/dashboard-pm",
-    active: true,
-    visible: true,
-    external: false,
-    sort_order: 7,
-  },
+
 ];
 
 export default function AppProgettiUpload() {
@@ -547,6 +537,7 @@ export default function AppProgettiUpload() {
       >
         {dashboardModules
           .filter((m) => m.visible)
+          .filter((m) => m.code !== "dashboard-nc-oss" && m.url !== "/dashboard-pm")
           .map((m) => (
             <Card
               key={m.code || m.title}
