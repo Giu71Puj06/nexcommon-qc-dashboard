@@ -661,62 +661,6 @@ export default function AppProgettiUpload() {
           </div>
         </Card>
       )}
-
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "flex-end",
-          gap: 10,
-          marginTop: 24,
-          marginBottom: 12,
-          flexWrap: "wrap",
-        }}
-      >
-        <ExportButton
-          onClick={() =>
-            exportExcel(
-              "Dashboard_NC_OSS_completa",
-              toDashboardExportRows(enrichedRows)
-            )
-          }
-        >
-          Export Dashboard Excel
-        </ExportButton>
-
-        <ExportButton
-          onClick={() =>
-            exportExcel(
-              "Rilievi_per_disciplina",
-              toChartExportRows(disciplineData)
-            )
-          }
-        >
-          Export Rilievi per disciplina
-        </ExportButton>
-
-        <ExportButton
-          onClick={() =>
-            exportExcel(
-              "Rilievi",
-              toChartExportRows(esitiData)
-            )
-          }
-        >
-          Export Rilievi
-        </ExportButton>
-
-        <ExportButton
-          onClick={() =>
-            exportExcel(
-              "NC_OSS_per_elaborato",
-              toChartExportRows(rilieviPerElaboratoData)
-            )
-          }
-        >
-          Export NC/OSS per elaborato
-        </ExportButton>
-      </div>
-
       <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12, marginTop: 24, marginBottom: 12 }}>
         <KPI title="Elaborati totali" value={elaboratiTot} onClick={() => setSelection({ type: "kpi", value: "totali", label: "KPI", valueLabel: "Elaborati totali" })} />
         <KPI title="Elaborati con NC" value={elaboratiNC} onClick={() => setSelection({ type: "kpi", value: "nc", label: "KPI", valueLabel: "Elaborati con NC" })} />
