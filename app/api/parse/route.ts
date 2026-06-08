@@ -380,6 +380,76 @@ function findBestComments(todo: any, commentsByTopic: Map<string, any[]>) {
   return bestScore >= 0.35 ? bestComments : [];
 }
 
+function translateStatus(status = "") {
+  const s = String(status || "").trim();
+
+  if (/^closed$/i.test(s)) return "Chiusa";
+  if (/^new$/i.test(s)) return "Aperta";
+  if (/^waiting$/i.test(s)) return "In attesa";
+  if (/^unknown$/i.test(s)) return "Non definito";
+
+  return s;
+}
+
+function getFirstColumnValue(row: any) {
+  if (!row || typeof row !== "object") return "";
+  const firstKey = Object.keys(row)[0];
+  return firstKey ? row[firstKey] : "";
+}
+
+function getTodoLabel(todo: any) {
+  return (
+    todo.Label ||
+    getFirstColumnValue(todo) ||
+    todo.ID ||
+    todo.Guid ||
+    todo.GUID ||
+    ""
+  );
+}
+
+function getTodoAssignees(todo: any) {
+  return (
+    todo["Assignee(s)"] ||
+    todo["Assignee(s) "] ||
+    todo.Assignees ||
+    todo.Assignee ||
+    todo.AssignedTo ||
+    todo["Assigned to"] ||
+    ""
+  );
+}
+
+function findBestBcfTopic(todo: any, topicsByKey: Map<string, any>) {
+  const candidates = [
+    getTodoLabel(todo),
+    todo.ID,
+    todo.Guid,
+    todo.GUID,
+    todo.Title,
+    String(todo.Title || "").replace(/\.pdf/gi, ""),
+  ].filter(Boolean);
+
+  for (const c of candidates) {
+    const key = normalize(c);
+    if (topicsByKey.has(key)) return topicsByKey.get(key);
+  }
+
+  let bestScore = 0;
+  let bestTopic: any = null;
+
+  for (const [topicKey, topic] of topicsByKey.entries()) {
+    const score = Math.max(...candidates.map((c) => similarity(c, topicKey)));
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestTopic = topic;
+    }
+  }
+
+  return bestScore >= 0.35 ? bestTopic : null;
+}
+
 function extractMarkup(parsed: any) {
   return (
     parsed?.Markup ||
@@ -570,15 +640,51 @@ export async function POST(req: Request) {
       }
     }
 
+    const topicsByKey = new Map<string, any>();
+
+    for (const topic of bcfTopicRows) {
+      const keys = [
+        normalize(topic.Label),
+        normalize(topic.ID),
+        normalize(topic.Guid),
+        normalize(topic.Title),
+        normalize(String(topic.Title || "").replace(/\.pdf/gi, "")),
+      ].filter(Boolean);
+
+      for (const key of keys) {
+        if (!topicsByKey.has(key)) topicsByKey.set(key, topic);
+      }
+    }
+
     // Se è presente l'Excel, l'Excel resta la base principale.
     // Se non è presente l'Excel, i Topic BCF diventano direttamente le righe dashboard.
     const todoRows = excelRows.length > 0 ? excelRows : bcfTopicRows;
 
     const rows = todoRows.map((todo: any, index: number) => {
-      const label = todo.Label || todo.ID || todo.Guid || todo.GUID || "";
-      const title = todo.Title || "";
-      const description = todo.Description || "";
-      const tags = todo.Tags || todo.Labels || "";
+      const matchedBcfTopic = findBestBcfTopic(todo, topicsByKey);
+
+      // ID dashboard: prioritariamente il Label Trimble, cioè la prima colonna del ToDo.
+      const label = getTodoLabel(todo);
+
+      const title =
+        todo.Title ||
+        matchedBcfTopic?.Title ||
+        "";
+
+      const todoDescription = todo.Description || "";
+      const bcfDescription = matchedBcfTopic?.Description || "";
+
+      // Descrizione: prima il BCF, se presente; altrimenti la colonna Description del ToDo.
+      const description = String(bcfDescription || "").trim()
+        ? bcfDescription
+        : todoDescription;
+
+      const tags =
+        todo.Tags ||
+        todo.Labels ||
+        matchedBcfTopic?.Tags ||
+        "";
+
       const tipo = detectTipo(tags, description);
 
       const tipologiaNcOss = detectTipologiaNcOss(
@@ -588,12 +694,19 @@ export async function POST(req: Request) {
         tipo
       );
 
+      // Disciplina: deriva dalla colonna Assignee(s) del ToDo.
+      // Se manca l'Excel e la riga deriva dal BCF, viene usato l'AssignedTo del BCF come fallback.
       const disciplina =
-        todo["Assignee(s) "] ||
-        todo["Assignee(s)"] ||
-        todo.Groups ||
-        todo.Group ||
+        getTodoAssignees(todo) ||
+        matchedBcfTopic?.["Assignee(s)"] ||
         "";
+
+      const statoOriginale =
+        matchedBcfTopic?.Status ||
+        todo.Status ||
+        "";
+
+      const statoTradotto = translateStatus(statoOriginale);
 
       const ispettore =
         todo["Created by"] ||
@@ -681,7 +794,8 @@ export async function POST(req: Request) {
         gruppoTrimble: disciplina || "",
         assegnatari: disciplina || "",
 
-        stato: todo.Status || "",
+        stato: statoTradotto,
+        statoOriginale,
         priorita: todo.Priority || "",
         completamento: todo.Completion || "",
         scadenza: todo["Due date"] || "",
