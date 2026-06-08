@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
 
 function getElaboratoKey(r: any) {
   return (
@@ -12,6 +13,16 @@ function getElaboratoKey(r: any) {
     r.id ||
     ""
   );
+}
+
+function translateStatus(status = "") {
+  const value = String(status || "").trim();
+
+  if (value === "Closed") return "Chiusa";
+  if (value === "New") return "Aperta";
+  if (value === "Waiting") return "In attesa";
+
+  return value || "Non definito";
 }
 
 function Card({ children, onClick, active = false }: any) {
@@ -129,7 +140,7 @@ function CommentList({ comments, emptyText = "" }: any) {
   }
 
   return (
-    <div style={{ minWidth: 260 }}>
+    <div style={{ minWidth: 320 }}>
       {comments.map((c: any, idx: number) => (
         <div
           key={`${c.date || "data"}-${c.author || "autore"}-${idx}`}
@@ -141,7 +152,8 @@ function CommentList({ comments, emptyText = "" }: any) {
           }}
         >
           <div style={{ fontWeight: 700 }}>
-            {c.role ? `[${c.role}] ` : ""}{c.author || "Autore non indicato"}
+            {c.role ? `[${c.role}] ` : ""}
+            {c.author || "Autore non indicato"}
           </div>
           {c.date && <div style={{ color: "#64748b", fontSize: 12 }}>{c.date}</div>}
           <div style={{ marginTop: 4 }}>{c.comment || ""}</div>
@@ -178,20 +190,12 @@ function DetailPanel({ rows, title, onReset }: any) {
           <thead>
             <tr style={{ background: "#f1f5f9" }}>
               <th style={th}>ID</th>
-              <th style={th}>Esito</th>
-              <th style={th}>Tipologia NC/OSS</th>
+              <th style={th}>Rilievi</th>
               <th style={th}>Disciplina</th>
               <th style={th}>Elaborato</th>
-              <th style={th}>Descrizione NC/OSS</th>
+              <th style={th}>Descrizione</th>
               <th style={th}>Stato</th>
-              <th style={th}>Ispettore</th>
-              <th style={th}>PRG</th>
-              <th style={th}>ISP</th>
-              <th style={th}>Azione</th>
-              <th style={th}>Stato risoluzione</th>
-              <th style={th}>Ultimo commento</th>
-              <th style={th}>Commenti progettista</th>
-              <th style={th}>Commenti ispettore</th>
+              <th style={th}>Chi deve agire</th>
               <th style={th}>Storico commenti</th>
             </tr>
           </thead>
@@ -199,27 +203,19 @@ function DetailPanel({ rows, title, onReset }: any) {
           <tbody>
             {rows.map((r: any, i: number) => {
               const allComments = Array.isArray(r.comments) ? r.comments : [];
-              const prgComments = allComments.filter((c: any) => c.role === "PRG");
-              const ispComments = allComments.filter((c: any) => c.role === "ISP");
 
               return (
                 <tr key={`${r.id}-${i}`}>
                   <td style={td}>{r.id}</td>
                   <td style={td}>{r.tipo}</td>
-                  <td style={td}>{r.tipologiaNcOss || r.tipologiaDocumento || ""}</td>
                   <td style={td}>{r.disciplina}</td>
                   <td style={td}>{getElaboratoKey(r)}</td>
                   <td style={td}>{r.descrizione}</td>
-                  <td style={td}>{r.stato}</td>
-                  <td style={td}>{r.ispettore || r.creatoDa || r.assegnatari}</td>
-                  <td style={td}>{r.numeroCommentiPrg || 0}</td>
-                  <td style={td}>{r.numeroCommentiIsp || 0}</td>
-                  <td style={td}>{r.chiDeveAgire}</td>
-                  <td style={td}>{r.statoRisoluzione}</td>
-                  <td style={td}>{r.ultimoCommento}</td>
-                  <td style={td}><CommentList comments={prgComments} emptyText="Nessun commento PRG" /></td>
-                  <td style={td}><CommentList comments={ispComments} emptyText="Nessun commento ISP" /></td>
-                  <td style={td}><CommentList comments={allComments} emptyText="Nessun commento" /></td>
+                  <td style={td}>{translateStatus(r.stato)}</td>
+                  <td style={td}>{r.chiDeveAgire || "-"}</td>
+                  <td style={td}>
+                    <CommentList comments={allComments} emptyText="Nessun commento" />
+                  </td>
                 </tr>
               );
             })}
@@ -242,6 +238,27 @@ const td = {
   verticalAlign: "top" as const,
 };
 
+const defaultDashboardModules = [
+  {
+    title: "Nota di Ricezione Elaborati",
+    subtitle: "Modulo operativo attivo",
+    url: "https://verifica-elaborati-production.up.railway.app",
+    active: true,
+    visible: true,
+    external: true,
+    sort_order: 1,
+  },
+  {
+    title: "Dashboard NC / OSS",
+    subtitle: "Analisi ToDo, BCF e BCFZIP",
+    url: "/dashboard-pm",
+    active: true,
+    visible: true,
+    external: false,
+    sort_order: 7,
+  },
+];
+
 export default function AppProgettiUpload() {
   React.useEffect(() => {
     const isAuthenticated = localStorage.getItem("nexcommon_verify_auth");
@@ -255,7 +272,27 @@ export default function AppProgettiUpload() {
   const [rows, setRows] = useState<any[]>([]);
   const [selection, setSelection] = useState<any>(null);
   const [importedFiles, setImportedFiles] = useState<any[]>([]);
+  const [dashboardModules, setDashboardModules] = useState<any[]>(defaultDashboardModules);
   const [error, setError] = useState("");
+
+  React.useEffect(() => {
+    async function loadDashboardModules() {
+      const { data, error } = await supabase
+        .from("dashboard_modules")
+        .select("*")
+        .eq("visible", true)
+        .order("sort_order", { ascending: true });
+
+      if (error) {
+        console.error("Errore caricamento moduli dashboard:", error);
+        return;
+      }
+
+      setDashboardModules(data && data.length > 0 ? data : defaultDashboardModules);
+    }
+
+    loadDashboardModules();
+  }, []);
 
   async function generaDashboard() {
     setError("");
@@ -289,6 +326,7 @@ export default function AppProgettiUpload() {
       tipologiaNcOss: r.tipologiaNcOss || r.tipologiaDocumento || "",
       tipologia: r.tipologiaNcOss || r.tipologiaDocumento || "",
       elaboratoKey: getElaboratoKey(r),
+      stato: translateStatus(r.stato),
     }));
   }, [rows]);
 
@@ -325,19 +363,10 @@ export default function AppProgettiUpload() {
     if (selection.type === "disciplina") return enrichedRows.filter((r) => r.disciplina === selection.value);
     if (selection.type === "elaborato") return enrichedRows.filter((r) => r.elaboratoKey === selection.value);
 
-    if (selection.type === "tipologia") {
-      return enrichedRows.filter(
-        (r) =>
-          (r.tipo === "NC" || r.tipo === "OSS" || r.tipo === "Da NC a OSS") &&
-          (r.tipologiaNcOss || r.tipologiaDocumento) === selection.value
-      );
-    }
-
     return [];
   }, [enrichedRows, selection, rilieviNCOSS]);
 
   const discipline: any = {};
-  const tipologie: any = {};
   const esiti: any = {};
   const rilieviPerElaborato: any = {};
 
@@ -345,12 +374,7 @@ export default function AppProgettiUpload() {
     const d = r.disciplina || "Non assegnata";
     discipline[d] = (discipline[d] || 0) + 1;
 
-    if (r.tipo === "NC" || r.tipo === "OSS" || r.tipo === "Da NC a OSS") {
-      const t = r.tipologiaNcOss || r.tipologiaDocumento || "Altre";
-      tipologie[t] = (tipologie[t] || 0) + 1;
-    }
-
-    const e = r.tipo || "Esito mancante";
+    const e = r.tipo || "Rilievo mancante";
     esiti[e] = (esiti[e] || 0) + 1;
 
     const elaborato = r.elaboratoKey || "Elaborato non identificato";
@@ -378,19 +402,6 @@ export default function AppProgettiUpload() {
   const disciplineData = Object.entries(discipline)
     .map(([label, value]) => ({ label, value }))
     .sort((a: any, b: any) => b.value - a.value);
-
-  const tipologieData = Object.entries(tipologie)
-    .map(([label, value]) => ({ label, value }))
-    .sort((a: any, b: any) => {
-      const getOrder = (label: string) => {
-        const match = String(label).match(/^(\d+)\./);
-        if (match) return Number(match[1]);
-        if (label === "Altre") return 999;
-        return 998;
-      };
-
-      return getOrder(a.label) - getOrder(b.label);
-    });
 
   const esitiData = Object.entries(esiti)
     .map(([label, value]) => ({ label, value }))
@@ -494,7 +505,7 @@ export default function AppProgettiUpload() {
                 cursor: files.length ? "pointer" : "not-allowed",
               }}
             >
-              Leggi XLSX + BCFZIP
+              Analizza ToDo / BCF / BCFZIP
             </button>
 
             {files.length > 0 && (
@@ -528,96 +539,64 @@ export default function AppProgettiUpload() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(7, 1fr)",
+          gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
           gap: 12,
           marginTop: 24,
           marginBottom: 24,
         }}
       >
-        {[
-          {
-            title: "Nota di Ricezione Elaborati",
-            subtitle: "Modulo operativo attivo",
-            url: "https://verifica-elaborati-production.up.railway.app",
-            active: true,
-            external: true,
-          },
-          {
-            title: "Verifiche preliminari",
-            subtitle: "Modulo operativo attivo",
-            url: "/verifiche-preliminari",
-            active: true,
-            external: false,
-          },
-          {
-            title: "Schede ispettive",
-            subtitle: "Modulo operativo attivo",
-            url: "/schede-ispettive",
-            active: true,
-            external: false,
-          },
-          {
-            title: "Controllo ToDo ispettori",
-            subtitle: "Verifica Title, Tags, disciplina e codici",
-            url: "/controllo-todo-ispettori",
-            active: true,
-            external: false,
-          },
-          {
-            title: "Rapporto intermedio",
-            subtitle: "Coming soon",
-            url: "",
-            active: false,
-            external: false,
-          },
-          {
-            title: "Rapporto conclusivo",
-            subtitle: "Coming soon",
-            url: "",
-            active: false,
-            external: false,
-          },
-          {
-            title: "Dashboard PM",
-            subtitle: "Modulo operativo attivo",
-            url: "/dashboard-pm",
-            active: true,
-            external: false,
-          },
-        ].map((m) => (
-          <Card
-            key={m.title}
-            active={m.active}
-            onClick={() => {
-              if (!m.active || !m.url) return;
-              if (m.external) {
-                window.open(m.url, "_blank", "noopener,noreferrer");
-                return;
-              }
-              window.location.href = m.url;
-            }}
-          >
-            <b>{m.title}</b>
-            <div style={{ marginTop: 6, color: "#64748b", fontSize: 13 }}>
-              {m.subtitle}
-            </div>
+        {dashboardModules
+          .filter((m) => m.visible)
+          .map((m) => (
+            <Card
+              key={m.code || m.title}
+              active={m.active}
+              onClick={() => {
+                if (!m.active || !m.url) return;
 
-            {m.active && (
-              <div style={{ marginTop: 12, fontSize: 12, fontWeight: 700, color: "#0284c7" }}>
-                Apri modulo →
+                if (m.external) {
+                  window.open(m.url, "_blank", "noopener,noreferrer");
+                  return;
+                }
+
+                window.location.href = m.url;
+              }}
+            >
+              <b>{m.title}</b>
+              <div style={{ marginTop: 6, color: "#64748b", fontSize: 13 }}>
+                {m.subtitle}
               </div>
-            )}
-          </Card>
-        ))}
+
+              {m.active ? (
+                <div style={{ marginTop: 12, fontSize: 12, fontWeight: 700, color: "#0284c7" }}>
+                  Apri modulo →
+                </div>
+              ) : (
+                <div style={{ marginTop: 12, fontSize: 12, fontWeight: 700, color: "#94a3b8" }}>
+                  Modulo in standby
+                </div>
+              )}
+            </Card>
+          ))}
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12, marginBottom: 12 }}>
+      {rows.length === 0 && (
+        <Card>
+          <div style={{ fontWeight: 700 }}>Nessun dato caricato</div>
+          <div style={{ marginTop: 6, color: "#64748b", fontSize: 13 }}>
+            Carica uno o più file ToDo .xlsx, .bcf o .bcfzip esportati da Trimble Connect
+            per generare la sintesi NC/OSS.
+          </div>
+        </Card>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12, marginTop: 24, marginBottom: 12 }}>
         <KPI title="Elaborati totali" value={elaboratiTot} onClick={() => setSelection({ type: "kpi", value: "totali", label: "KPI", valueLabel: "Elaborati totali" })} />
         <KPI title="Elaborati con NC" value={elaboratiNC} onClick={() => setSelection({ type: "kpi", value: "nc", label: "KPI", valueLabel: "Elaborati con NC" })} />
         <KPI title="Elaborati con OSS" value={elaboratiOSS} onClick={() => setSelection({ type: "kpi", value: "oss", label: "KPI", valueLabel: "Elaborati con OSS" })} />
         <KPI title="Elaborati senza rilievi" value={elaboratiOK} onClick={() => setSelection({ type: "kpi", value: "nessun", label: "KPI", valueLabel: "Elaborati senza rilievi" })} />
-        <KPI title="Totale NC" value={totaleNC} onClick={() => setSelection({ type: "tipo", value: "NC", label: "Esito" })} />
-        <KPI title="Totale OSS" value={totaleOSS} onClick={() => setSelection({ type: "tipo", value: "OSS", label: "Esito" })} />
+        <KPI title="Totale NC" value={totaleNC} onClick={() => setSelection({ type: "tipo", value: "NC", label: "Rilievi" })} />
+        <KPI title="Totale OSS" value={totaleOSS} onClick={() => setSelection({ type: "tipo", value: "OSS", label: "Rilievi" })} />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 24 }}>
@@ -626,10 +605,9 @@ export default function AppProgettiUpload() {
         <KPI title="In attesa di risposta del progettista" value={daRisponderePRG} subtitle="Nessun PRG o ultimo ISP" onClick={() => setSelection({ type: "kpi", value: "da-rispondere-prg", label: "KPI", valueLabel: "Da rispondere PRG" })} />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
         <BarList title="Elaborati per disciplina" data={disciplineData} activeKey={selection?.type === "disciplina" ? selection.value : ""} onClick={(value: string) => setSelection({ type: "disciplina", value, label: "Disciplina" })} />
-        <BarList title="NC / OSS / Nessun rilievo" data={esitiData} activeKey={selection?.type === "tipo" ? selection.value : ""} onClick={(value: string) => setSelection({ type: "tipo", value, label: "Esito" })} />
-        <BarList title="Tipologie NC / OSS" data={tipologieData} activeKey={selection?.type === "tipologia" ? selection.value : ""} onClick={(value: string) => setSelection({ type: "tipologia", value, label: "Tipologia" })} />
+        <BarList title="Rilievi" data={esitiData} activeKey={selection?.type === "tipo" ? selection.value : ""} onClick={(value: string) => setSelection({ type: "tipo", value, label: "Rilievi" })} />
         <BarList title="NC / OSS per elaborato" data={rilieviPerElaboratoData} activeKey={selection?.type === "elaborato" ? selection.value : ""} onClick={(value: string) => setSelection({ type: "elaborato", value, label: "Elaborato" })} />
       </div>
 
