@@ -373,14 +373,36 @@ function uniqueComments(comments: any[] = []) {
   return result;
 }
 
-function findBestComments(todo: any, commentsByTopic: Map<string, any[]>) {
+function findBestComments(
+  todo: any,
+  commentsByTopic: Map<string, any[]>,
+  matchedBcfTopic?: any
+) {
+  // Regola fondamentale:
+  // i commenti NON devono mai essere presi tramite il solo Title/elaborato,
+  // perché più NC/OSS possono appartenere allo stesso elaborato.
+  // Se il ToDo è stato abbinato a un Topic BCF, usiamo esclusivamente
+  // il GUID di quel Topic, che è la chiave univoca corretta.
+  const matchedGuid = normalize(
+    matchedBcfTopic?.Guid ||
+      matchedBcfTopic?.GUID ||
+      matchedBcfTopic?.ID ||
+      matchedBcfTopic?.Label ||
+      ""
+  );
+
+  if (matchedGuid && commentsByTopic.has(matchedGuid)) {
+    return uniqueComments(commentsByTopic.get(matchedGuid) || []);
+  }
+
+  // Fallback sicuro: solo Label / ID / GUID del ToDo.
+  // Non usiamo Title qui per evitare di sommare i commenti di tutte le issue
+  // presenti sullo stesso elaborato.
   const candidates = [
     todo.Label,
     todo.ID,
     todo.Guid,
     todo.GUID,
-    todo.Title,
-    String(todo.Title || "").replace(/\.pdf/gi, ""),
   ].filter(Boolean);
 
   const collected: any[] = [];
@@ -397,10 +419,6 @@ function findBestComments(todo: any, commentsByTopic: Map<string, any[]>) {
     }
   }
 
-  // Regola importante:
-  // i commenti devono essere associati solo con corrispondenza diretta
-  // tra ToDo/BCF e Topic BCF. Non usiamo più il fuzzy matching perché
-  // generava commenti errati su elaborati con "Nessun rilievo".
   return uniqueComments(collected);
 }
 
@@ -804,9 +822,9 @@ export async function POST(req: Request) {
         todo.Owner ||
         "";
 
-      const comments = uniqueComments(findBestComments(todo, commentsByTopic)).sort((a, b) =>
-        String(a.date).localeCompare(String(b.date))
-      );
+      const comments = uniqueComments(
+        findBestComments(todo, commentsByTopic, matchedBcfTopic)
+      ).sort((a, b) => String(a.date).localeCompare(String(b.date)));
 
       const prgComments = comments.filter((c) => c.role === "PRG");
       const ispComments = comments.filter((c) => c.role === "ISP");
