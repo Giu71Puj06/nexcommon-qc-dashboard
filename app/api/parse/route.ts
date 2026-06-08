@@ -383,24 +383,25 @@ function findBestComments(todo: any, commentsByTopic: Map<string, any[]>) {
     String(todo.Title || "").replace(/\.pdf/gi, ""),
   ].filter(Boolean);
 
+  const collected: any[] = [];
+  const usedKeys = new Set<string>();
+
   for (const c of candidates) {
     const key = normalize(c);
-    if (commentsByTopic.has(key)) return uniqueComments(commentsByTopic.get(key) || []);
-  }
+    if (!key || usedKeys.has(key)) continue;
 
-  let bestScore = 0;
-  let bestComments: any[] = [];
+    usedKeys.add(key);
 
-  for (const [topic, comments] of commentsByTopic.entries()) {
-    const score = Math.max(...candidates.map((c) => similarity(c, topic)));
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestComments = comments;
+    if (commentsByTopic.has(key)) {
+      collected.push(...(commentsByTopic.get(key) || []));
     }
   }
 
-  return bestScore >= 0.35 ? uniqueComments(bestComments) : [];
+  // Regola importante:
+  // i commenti devono essere associati solo con corrispondenza diretta
+  // tra ToDo/BCF e Topic BCF. Non usiamo più il fuzzy matching perché
+  // generava commenti errati su elaborati con "Nessun rilievo".
+  return uniqueComments(collected);
 }
 
 function translateStatus(status = "") {
