@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import { supabase } from ".../lib/supabaseClient";
 
 function getElaboratoKey(r: any) {
   return (
