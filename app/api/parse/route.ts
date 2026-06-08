@@ -350,6 +350,29 @@ function similarity(a = "", b = "") {
   return union ? intersection / union : 0;
 }
 
+function normalizeCommentKey(comment: any) {
+  return [
+    normalize(comment?.role || ""),
+    normalize(comment?.author || ""),
+    normalize(comment?.date || ""),
+    normalize(comment?.comment || ""),
+  ].join("|");
+}
+
+function uniqueComments(comments: any[] = []) {
+  const seen = new Set<string>();
+  const result: any[] = [];
+
+  for (const c of comments || []) {
+    const key = normalizeCommentKey(c);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(c);
+  }
+
+  return result;
+}
+
 function findBestComments(todo: any, commentsByTopic: Map<string, any[]>) {
   const candidates = [
     todo.Label,
@@ -362,7 +385,7 @@ function findBestComments(todo: any, commentsByTopic: Map<string, any[]>) {
 
   for (const c of candidates) {
     const key = normalize(c);
-    if (commentsByTopic.has(key)) return commentsByTopic.get(key) || [];
+    if (commentsByTopic.has(key)) return uniqueComments(commentsByTopic.get(key) || []);
   }
 
   let bestScore = 0;
@@ -377,7 +400,7 @@ function findBestComments(todo: any, commentsByTopic: Map<string, any[]>) {
     }
   }
 
-  return bestScore >= 0.35 ? bestComments : [];
+  return bestScore >= 0.35 ? uniqueComments(bestComments) : [];
 }
 
 function translateStatus(status = "") {
@@ -625,14 +648,16 @@ export async function POST(req: Request) {
       }
     }
 
+    const uniqueBcfComments = uniqueComments(bcfComments);
+
     const commentsByTopic = new Map<string, any[]>();
 
-    for (const c of bcfComments) {
-      const keys = [
+    for (const c of uniqueBcfComments) {
+      const keys = Array.from(new Set([
         normalize(c.topicTitle),
         normalize(c.topicGuid),
         normalize(String(c.topicTitle || "").replace(/\.pdf/gi, "")),
-      ].filter(Boolean);
+      ].filter(Boolean)));
 
       for (const key of keys) {
         if (!commentsByTopic.has(key)) commentsByTopic.set(key, []);
@@ -643,13 +668,13 @@ export async function POST(req: Request) {
     const topicsByKey = new Map<string, any>();
 
     for (const topic of bcfTopicRows) {
-      const keys = [
+      const keys = Array.from(new Set([
         normalize(topic.Label),
         normalize(topic.ID),
         normalize(topic.Guid),
         normalize(topic.Title),
         normalize(String(topic.Title || "").replace(/\.pdf/gi, "")),
-      ].filter(Boolean);
+      ].filter(Boolean)));
 
       for (const key of keys) {
         if (!topicsByKey.has(key)) topicsByKey.set(key, topic);
@@ -714,7 +739,7 @@ export async function POST(req: Request) {
         todo.Owner ||
         "";
 
-      const comments = findBestComments(todo, commentsByTopic).sort((a, b) =>
+      const comments = uniqueComments(findBestComments(todo, commentsByTopic)).sort((a, b) =>
         String(a.date).localeCompare(String(b.date))
       );
 
@@ -835,9 +860,9 @@ export async function POST(req: Request) {
       excelRowCount: excelRows.length,
       bcfTopicCount: bcfTopicRows.length,
       todoCount: todoRows.length,
-      bcfCommentCount: bcfComments.length,
+      bcfCommentCount: uniqueBcfComments.length,
       rows,
-      comments: bcfComments,
+      comments: uniqueBcfComments,
     });
   } catch (error: any) {
     return NextResponse.json(
