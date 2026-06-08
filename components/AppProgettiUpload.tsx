@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import * as XLSX from "xlsx";
 import { supabase } from "../lib/supabase";
 
 function getElaboratoKey(r: any) {
@@ -23,6 +24,72 @@ function translateStatus(status = "") {
   if (value === "Waiting") return "In attesa";
 
   return value || "Non definito";
+}
+
+
+function commentsToText(comments: any[]) {
+  if (!Array.isArray(comments) || comments.length === 0) return "";
+
+  return comments
+    .map((c: any) => {
+      const role = c.role ? `[${c.role}] ` : "";
+      const author = c.author || "Autore non indicato";
+      const date = c.date ? ` - ${c.date}` : "";
+      const comment = c.comment || "";
+      return `${role}${author}${date}\n${comment}`;
+    })
+    .join("\n\n");
+}
+
+function exportExcel(nomeFile: string, dati: any[]) {
+  if (!dati || dati.length === 0) return;
+
+  const ws = XLSX.utils.json_to_sheet(dati);
+  const wb = XLSX.utils.book_new();
+
+  XLSX.utils.book_append_sheet(wb, ws, "Export");
+  XLSX.writeFile(wb, `${nomeFile}.xlsx`);
+}
+
+function toDashboardExportRows(rows: any[]) {
+  return rows.map((r: any) => ({
+    ID: r.id || "",
+    Rilievi: r.tipo || "",
+    Disciplina: r.disciplina || "",
+    Elaborato: getElaboratoKey(r),
+    Descrizione: r.descrizione || "",
+    Stato: translateStatus(r.stato),
+    "Storico commenti": commentsToText(Array.isArray(r.comments) ? r.comments : []),
+  }));
+}
+
+function toChartExportRows(rows: any[]) {
+  return rows.map((r: any) => ({
+    Voce: r.label,
+    Totale: r.value,
+    NC: r.nc ?? "",
+    OSS: r.oss ?? "",
+  }));
+}
+
+function ExportButton({ children, onClick }: any) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        background: "#0f172a",
+        color: "white",
+        border: "none",
+        borderRadius: 10,
+        padding: "8px 12px",
+        cursor: "pointer",
+        fontWeight: 700,
+        fontSize: 12,
+      }}
+    >
+      {children}
+    </button>
+  );
 }
 
 function Card({ children, onClick, active = false }: any) {
@@ -55,12 +122,15 @@ function KPI({ title, value, subtitle, onClick, active, colorValue }: any) {
   );
 }
 
-function BarList({ title, data, onClick, activeKey }: any) {
+function BarList({ title, data, onClick, activeKey, onExport }: any) {
   const max = Math.max(...data.map((d: any) => d.value), 1);
 
   return (
     <Card>
-      <h3 style={{ marginTop: 0 }}>{title}</h3>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+        <h3 style={{ marginTop: 0 }}>{title}</h3>
+        {onExport && <ExportButton onClick={onExport}>Export Excel</ExportButton>}
+      </div>
 
       {data.length === 0 && (
         <div style={{ color: "#64748b", fontSize: 13 }}>Nessun dato disponibile</div>
@@ -168,10 +238,21 @@ function DetailPanel({ rows, title, onReset }: any) {
 
   return (
     <Card>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
         <h2 style={{ marginTop: 0 }}>Dettaglio selezione: {title}</h2>
-        <button
-          onClick={onReset}
+        <div style={{ display: "flex", gap: 10 }}>
+          <ExportButton
+            onClick={() =>
+              exportExcel(
+                "Dettaglio_selezione",
+                toDashboardExportRows(rows)
+              )
+            }
+          >
+            Export Excel
+          </ExportButton>
+          <button
+            onClick={onReset}
           style={{
             border: "1px solid #cbd5e1",
             background: "white",
@@ -180,9 +261,10 @@ function DetailPanel({ rows, title, onReset }: any) {
             cursor: "pointer",
             height: 38,
           }}
-        >
-          Reset selezione
-        </button>
+          >
+            Reset selezione
+          </button>
+        </div>
       </div>
 
       <div style={{ overflowX: "auto" }}>
@@ -581,6 +663,61 @@ export default function AppProgettiUpload() {
         </Card>
       )}
 
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "flex-end",
+          gap: 10,
+          marginTop: 24,
+          marginBottom: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <ExportButton
+          onClick={() =>
+            exportExcel(
+              "Dashboard_NC_OSS_completa",
+              toDashboardExportRows(enrichedRows)
+            )
+          }
+        >
+          Export Dashboard Excel
+        </ExportButton>
+
+        <ExportButton
+          onClick={() =>
+            exportExcel(
+              "Rilievi_per_disciplina",
+              toChartExportRows(disciplineData)
+            )
+          }
+        >
+          Export Rilievi per disciplina
+        </ExportButton>
+
+        <ExportButton
+          onClick={() =>
+            exportExcel(
+              "Rilievi",
+              toChartExportRows(esitiData)
+            )
+          }
+        >
+          Export Rilievi
+        </ExportButton>
+
+        <ExportButton
+          onClick={() =>
+            exportExcel(
+              "NC_OSS_per_elaborato",
+              toChartExportRows(rilieviPerElaboratoData)
+            )
+          }
+        >
+          Export NC/OSS per elaborato
+        </ExportButton>
+      </div>
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12, marginTop: 24, marginBottom: 12 }}>
         <KPI title="Elaborati totali" value={elaboratiTot} onClick={() => setSelection({ type: "kpi", value: "totali", label: "KPI", valueLabel: "Elaborati totali" })} />
         <KPI title="Elaborati con NC" value={elaboratiNC} onClick={() => setSelection({ type: "kpi", value: "nc", label: "KPI", valueLabel: "Elaborati con NC" })} />
@@ -597,9 +734,9 @@ export default function AppProgettiUpload() {
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
-        <BarList title="Elaborati per disciplina" data={disciplineData} activeKey={selection?.type === "disciplina" ? selection.value : ""} onClick={(value: string) => setSelection({ type: "disciplina", value, label: "Disciplina" })} />
-        <BarList title="Rilievi" data={esitiData} activeKey={selection?.type === "tipo" ? selection.value : ""} onClick={(value: string) => setSelection({ type: "tipo", value, label: "Rilievi" })} />
-        <BarList title="NC / OSS per elaborato" data={rilieviPerElaboratoData} activeKey={selection?.type === "elaborato" ? selection.value : ""} onClick={(value: string) => setSelection({ type: "elaborato", value, label: "Elaborato" })} />
+        <BarList title="Rilievi per disciplina" data={disciplineData} activeKey={selection?.type === "disciplina" ? selection.value : ""} onClick={(value: string) => setSelection({ type: "disciplina", value, label: "Disciplina" })} onExport={() => exportExcel("Rilievi_per_disciplina", toChartExportRows(disciplineData))} />
+        <BarList title="Rilievi" data={esitiData} activeKey={selection?.type === "tipo" ? selection.value : ""} onClick={(value: string) => setSelection({ type: "tipo", value, label: "Rilievi" })} onExport={() => exportExcel("Rilievi", toChartExportRows(esitiData))} />
+        <BarList title="NC / OSS per elaborato" data={rilieviPerElaboratoData} activeKey={selection?.type === "elaborato" ? selection.value : ""} onClick={(value: string) => setSelection({ type: "elaborato", value, label: "Elaborato" })} onExport={() => exportExcel("NC_OSS_per_elaborato", toChartExportRows(rilieviPerElaboratoData))} />
       </div>
 
       <div style={{ marginTop: 24 }}>
