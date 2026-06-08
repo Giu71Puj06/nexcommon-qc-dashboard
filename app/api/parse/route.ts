@@ -444,34 +444,98 @@ function getTodoAssignees(todo: any) {
   );
 }
 
-function findBestBcfTopic(todo: any, topicsByKey: Map<string, any>) {
-  const candidates = [
-    getTodoLabel(todo),
-    todo.ID,
-    todo.Guid,
-    todo.GUID,
-    todo.Title,
-    String(todo.Title || "").replace(/\.pdf/gi, ""),
-  ].filter(Boolean);
+function findBestBcfTopic(todo: any, topicsByKey: Map<string, any>, allTopics: any[]) {
+  const labelKey = normalize(getTodoLabel(todo));
+  const idKey = normalize(todo.ID);
+  const guidKey = normalize(todo.Guid || todo.GUID);
+  const titleKey = normalize(todo.Title);
+  const descriptionKey = normalize(todo.Description);
 
-  for (const c of candidates) {
-    const key = normalize(c);
+  // 1. Corrispondenza forte: Label / ID / GUID.
+  // Questa è sicura perché identifica il topic, quando disponibile.
+  for (const key of [labelKey, idKey, guidKey].filter(Boolean)) {
     if (topicsByKey.has(key)) return topicsByKey.get(key);
   }
 
-  let bestScore = 0;
-  let bestTopic: any = null;
+  // 2. Se il Title è uguale ma ci sono più topic sullo stesso elaborato,
+  // NON basta il Title: bisogna scegliere tramite Description.
+  const sameTitleTopics = allTopics.filter(
+    (topic) => normalize(topic.Title) === titleKey
+  );
 
-  for (const [topicKey, topic] of topicsByKey.entries()) {
-    const score = Math.max(...candidates.map((c) => similarity(c, topicKey)));
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestTopic = topic;
-    }
+  if (sameTitleTopics.length === 1) {
+    return sameTitleTopics[0];
   }
 
-  return bestScore >= 0.35 ? bestTopic : null;
+  if (sameTitleTopics.length > 1 && descriptionKey) {
+    let bestScore = 0;
+    let bestTopic: any = null;
+
+    for (const topic of sameTitleTopics) {
+      const score = similarity(todo.Description, topic.Description);
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestTopic = topic;
+      }
+    }
+
+    // Soglia alta: evita di agganciare commenti di un'altra NC sullo stesso elaborato.
+    if (bestScore >= 0.75) return bestTopic;
+
+    // Ulteriore fallback controllato: stesso INT_XX nella descrizione.
+    const todoInt = String(todo.Description || "").match(/\bINT[_\s-]*\d+/i)?.[0];
+    if (todoInt) {
+      const normalizedTodoInt = normalize(todoInt);
+      const byInt = sameTitleTopics.find((topic) =>
+        normalize(topic.Description).includes(normalizedTodoInt)
+      );
+
+      if (byInt) return byInt;
+    }
+
+    return null;
+  }
+
+  // 3. Se non c'è un Title affidabile, prova una Description quasi identica.
+  if (descriptionKey) {
+    let bestScore = 0;
+    let bestTopic: any = null;
+
+    for (const topic of allTopics) {
+      const score = similarity(todo.Description, topic.Description);
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestTopic = topic;
+      }
+    }
+
+    if (bestScore >= 0.9) return bestTopic;
+  }
+
+  return null;
+}
+
+function dedupeComments(comments: any[]) {
+  const seen = new Set<string>();
+  const result: any[] = [];
+
+  for (const c of comments || []) {
+    const key = [
+      normalize(c.role),
+      normalize(c.author),
+      normalize(c.date),
+      normalize(c.comment),
+    ].join("|");
+
+    if (!key.trim() || seen.has(key)) continue;
+
+    seen.add(key);
+    result.push(c);
+  }
+
+  return result;
 }
 
 function extractMarkup(parsed: any) {
@@ -687,7 +751,7 @@ export async function POST(req: Request) {
     const todoRows = excelRows.length > 0 ? excelRows : bcfTopicRows;
 
     const rows = todoRows.map((todo: any, index: number) => {
-      const matchedBcfTopic = findBestBcfTopic(todo, topicsByKey);
+      const matchedBcfTopic = findBestBcfTopic(todo, topicsByKey, bcfTopicRows);
 
       // ID dashboard: prioritariamente il Label Trimble, cioè la prima colonna del ToDo.
       const label = getTodoLabel(todo);
