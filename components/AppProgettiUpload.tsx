@@ -271,6 +271,7 @@ function DetailPanel({ rows, title, onReset }: any) {
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ background: "#f1f5f9" }}>
+              <th style={th}>N.</th>
               <th style={th}>ID_Rilievo</th>
               <th style={th}>Tipologia rilievo</th>
               <th style={th}>Disciplina</th>
@@ -287,6 +288,7 @@ function DetailPanel({ rows, title, onReset }: any) {
 
               return (
                 <tr key={`${r.id}-${i}`}>
+                  <td style={{ ...td, textAlign: "center", fontWeight: 700 }}>{i + 1}</td>
                   <td style={td}>{r.id}</td>
                   <td style={td}>{r.tipo}</td>
                   <td style={td}>{r.disciplina}</td>
