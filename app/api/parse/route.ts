@@ -449,6 +449,23 @@ function findRiepilogoTable(tables: string[][][]) {
   });
 }
 
+
+function getElaboratoUnivocoKey(row: any) {
+  const value =
+    row?.codiceElaborato ||
+    row?.elaborato ||
+    row?.titolo ||
+    row?.Title ||
+    "";
+
+  const key = normalize(value);
+
+  if (!key) return "";
+  if (key.includes("codice elaborato")) return "";
+
+  return key;
+}
+
 async function readDocxInspection(fileName: string, buffer: Buffer) {
   const zip = await JSZip.loadAsync(buffer);
   const documentXml = await zip.files["word/document.xml"]?.async("text");
@@ -833,13 +850,25 @@ export async function POST(req: Request) {
 
     const rows = [...rowsFromTodoOrBcf, ...docxRows];
 
+    const elaboratiEsaminatiKeys = new Set<string>();
+
+    for (const row of rows) {
+      const key = getElaboratoUnivocoKey(row);
+      if (key) elaboratiEsaminatiKeys.add(key);
+    }
+
+    const elaboratiEsaminatiCount = elaboratiEsaminatiKeys.size;
+
     return NextResponse.json({
       ok: true,
       importedFiles,
       excelRowCount: excelRows.length,
       bcfTopicCount: bcfTopicRows.length,
       docxRowCount: docxRows.length,
-      todoCount: todoRows.length,
+      todoCount: elaboratiEsaminatiCount,
+      todoRawCount: todoRows.length,
+      elaboratiEsaminatiCount,
+      elaboratiEsaminatiUnivoci: elaboratiEsaminatiCount,
       bcfCommentCount: uniqueBcfComments.length,
       rows,
       comments: uniqueBcfComments,
