@@ -60,38 +60,92 @@ function cleanPdfText(value: any) {
     .trim();
 }
 
-function exportDetailPdf(rows: any[], title = "") {
+type PdfHeaderData = {
+  committente?: string;
+  oggetto?: string;
+  codiceCommessa?: string;
+  ispettore?: string;
+  firma?: string;
+  notaRicezione?: string;
+  dataRicezione?: string;
+};
+
+function headerValue(value: any) {
+  const cleaned = cleanPdfText(value);
+  return cleaned || "____________________________";
+}
+
+function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}) {
   if (!rows || rows.length === 0) return;
 
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const generatedAt = new Date().toLocaleString("it-IT");
   const reportTitle = title ? `Dettaglio selezione - ${title}` : "Dettaglio selezione";
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const marginX = 10;
+  const headerY = 8;
+  const headerW = pageWidth - marginX * 2;
+
+  // Testata solo sulla prima pagina, ispirata al template Scheda di Ispezione.
+  // I dati non ricavabili automaticamente vengono compilati manualmente dall'utente
+  // nei campi "Dati testata PDF" presenti sopra la tabella.
+  doc.setDrawColor(15, 23, 42);
+  doc.setLineWidth(0.25);
+  doc.rect(marginX, headerY, headerW, 42);
 
   doc.setFillColor(15, 23, 42);
-  doc.rect(10, 8, 277, 24, "F");
-
+  doc.rect(marginX, headerY, 46, 14, "F");
   doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
-  doc.text("ITS Controlli Tecnici S.p.A.", 14, 17);
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.text("Piattaforma Nexcommon QC - Export dettaglio NC / OSS", 14, 25);
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.text("Nexcommon S.r.l.", 252, 17, { align: "right" });
+  doc.setFontSize(10);
+  doc.text("ITS CONTROLLI", marginX + 4, headerY + 6);
+  doc.text("TECNICI S.p.A.", marginX + 4, headerY + 11);
 
   doc.setTextColor(15, 23, 42);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(13);
-  doc.text(reportTitle.slice(0, 120), 10, 42);
+  doc.setFontSize(14);
+  doc.text("SCHEDA DI ISPEZIONE", pageWidth / 2, headerY + 9, { align: "center" });
 
   doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.text("Piattaforma Nexcommon QC - Export dettaglio NC / OSS", pageWidth / 2, headerY + 15, { align: "center" });
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  doc.text("Nexcommon S.r.l.", pageWidth - marginX - 4, headerY + 8, { align: "right" });
+
+  doc.setDrawColor(203, 213, 225);
+  doc.line(marginX, headerY + 18, pageWidth - marginX, headerY + 18);
+  doc.line(marginX + 94, headerY + 18, marginX + 94, headerY + 42);
+  doc.line(marginX + 188, headerY + 18, marginX + 188, headerY + 42);
+  doc.line(marginX, headerY + 30, pageWidth - marginX, headerY + 30);
+
+  doc.setTextColor(15, 23, 42);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(7);
+  doc.text("Committente / Stazione Appaltante:", marginX + 3, headerY + 23);
+  doc.text("Codice commessa ITS:", marginX + 97, headerY + 23);
+  doc.text("Nota di Ricezione Elaborati:", marginX + 191, headerY + 23);
+  doc.text("Oggetto del Contratto / Accordo Quadro:", marginX + 3, headerY + 35);
+  doc.text("Nome ispettore redattore:", marginX + 97, headerY + 35);
+  doc.text("Data Ricezione / Firma:", marginX + 191, headerY + 35);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7);
+  doc.text(headerValue(headerData.committente).slice(0, 58), marginX + 3, headerY + 27);
+  doc.text(headerValue(headerData.codiceCommessa).slice(0, 58), marginX + 97, headerY + 27);
+  doc.text(headerValue(headerData.notaRicezione).slice(0, 58), marginX + 191, headerY + 27);
+  doc.text(headerValue(headerData.oggetto).slice(0, 70), marginX + 3, headerY + 39);
+  doc.text(headerValue(headerData.ispettore).slice(0, 58), marginX + 97, headerY + 39);
+  doc.text(`${headerValue(headerData.dataRicezione).slice(0, 22)} / ${headerValue(headerData.firma).slice(0, 28)}`, marginX + 191, headerY + 39);
+
+  doc.setFont("helvetica", "bold");
   doc.setFontSize(9);
-  doc.text(`Data esportazione: ${generatedAt}`, 10, 49);
-  doc.text(`Numero righe: ${rows.length}`, 105, 49);
+  doc.text(reportTitle.slice(0, 120), marginX, 58);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.text(`Data esportazione: ${generatedAt}`, marginX, 63);
+  doc.text(`Numero righe: ${rows.length}`, marginX + 82, 63);
 
   const tableRows = rows.map((r: any, i: number) => {
     const allComments = Array.isArray(r.comments) ? r.comments : [];
@@ -108,7 +162,7 @@ function exportDetailPdf(rows: any[], title = "") {
   });
 
   autoTable(doc, {
-    startY: 56,
+    startY: 68,
     head: [["N.", "ID rilievo", "Tipologia", "Disciplina", "Elaborato", "Descrizione", "Gestione rilievo", "Stato"]],
     body: tableRows,
     theme: "grid",
@@ -138,11 +192,11 @@ function exportDetailPdf(rows: any[], title = "") {
     margin: { left: 10, right: 10, top: 10, bottom: 12 },
     didDrawPage: () => {
       const pageCount = doc.getNumberOfPages();
-      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageWidthCurrent = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
       doc.setFontSize(8);
       doc.setTextColor(100);
-      doc.text(`Pagina ${pageCount}`, pageWidth - 10, pageHeight - 6, { align: "right" });
+      doc.text(`Pagina ${pageCount}`, pageWidthCurrent - 10, pageHeight - 6, { align: "right" });
     },
   });
 
@@ -332,7 +386,30 @@ function CommentList({ comments, emptyText = "" }: any) {
 }
 
 function DetailPanel({ rows, title, onReset }: any) {
+  const [pdfHeader, setPdfHeader] = useState<PdfHeaderData>({});
+
   if (!title) return null;
+
+  function updatePdfHeader(field: keyof PdfHeaderData, value: string) {
+    setPdfHeader((prev) => ({ ...prev, [field]: value }));
+  }
+
+  const inputStyle = {
+    width: "100%",
+    border: "1px solid #cbd5e1",
+    borderRadius: 8,
+    padding: "8px 10px",
+    fontSize: 12,
+    background: "white",
+  };
+
+  const labelStyle = {
+    display: "block",
+    fontSize: 11,
+    color: "#475569",
+    fontWeight: 700,
+    marginBottom: 4,
+  };
 
   return (
     <Card>
@@ -349,7 +426,7 @@ function DetailPanel({ rows, title, onReset }: any) {
           >
             Export Excel
           </ExportButton>
-          <ExportButton onClick={() => exportDetailPdf(rows, title)}>
+          <ExportButton onClick={() => exportDetailPdf(rows, title, pdfHeader)}>
             Export PDF
           </ExportButton>
           <button
@@ -365,6 +442,85 @@ function DetailPanel({ rows, title, onReset }: any) {
           >
             Reset selezione
           </button>
+        </div>
+      </div>
+
+      <div
+        style={{
+          marginTop: 12,
+          marginBottom: 14,
+          padding: 12,
+          border: "1px solid #e2e8f0",
+          borderRadius: 12,
+          background: "#f8fafc",
+        }}
+      >
+        <div style={{ fontWeight: 800, marginBottom: 8, color: "#0f172a" }}>
+          Dati testata PDF - compilazione opzionale
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+          <div>
+            <label style={labelStyle}>Committente / Stazione Appaltante</label>
+            <input
+              style={inputStyle}
+              value={pdfHeader.committente || ""}
+              onChange={(e) => updatePdfHeader("committente", e.target.value)}
+              placeholder="es. RPR - Risorse per Roma S.p.A."
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Codice commessa ITS</label>
+            <input
+              style={inputStyle}
+              value={pdfHeader.codiceCommessa || ""}
+              onChange={(e) => updatePdfHeader("codiceCommessa", e.target.value)}
+              placeholder="es. IT25063"
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Nota di Ricezione Elaborati</label>
+            <input
+              style={inputStyle}
+              value={pdfHeader.notaRicezione || ""}
+              onChange={(e) => updatePdfHeader("notaRicezione", e.target.value)}
+              placeholder="es. 25063AR-PE1-RE-0001"
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Oggetto del Contratto / Accordo Quadro</label>
+            <input
+              style={inputStyle}
+              value={pdfHeader.oggetto || ""}
+              onChange={(e) => updatePdfHeader("oggetto", e.target.value)}
+              placeholder="Descrizione sintetica della commessa"
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Nome ispettore redattore</label>
+            <input
+              style={inputStyle}
+              value={pdfHeader.ispettore || ""}
+              onChange={(e) => updatePdfHeader("ispettore", e.target.value)}
+              placeholder="es. Ing. Mario Rossi"
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Data Ricezione / Firma</label>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <input
+                style={inputStyle}
+                value={pdfHeader.dataRicezione || ""}
+                onChange={(e) => updatePdfHeader("dataRicezione", e.target.value)}
+                placeholder="es. 15/06/2026"
+              />
+              <input
+                style={inputStyle}
+                value={pdfHeader.firma || ""}
+                onChange={(e) => updatePdfHeader("firma", e.target.value)}
+                placeholder="Firma"
+              />
+            </div>
+          </div>
         </div>
       </div>
 
