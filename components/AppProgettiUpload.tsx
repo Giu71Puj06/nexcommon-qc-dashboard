@@ -53,13 +53,13 @@ function exportExcel(nomeFile: string, dati: any[]) {
 
 function toDashboardExportRows(rows: any[]) {
   return rows.map((r: any) => ({
-    ID: r.id || "",
-    Rilievi: r.tipo || "",
+    ID_Rilievo: r.id || "",
+    "Tipologia rilievo": r.tipo || "",
     Disciplina: r.disciplina || "",
     Elaborato: getElaboratoKey(r),
     Descrizione: r.descrizione || "",
+    "Gestione rilievo": commentsToText(Array.isArray(r.comments) ? r.comments : []),
     Stato: translateStatus(r.stato),
-    "Storico commenti": commentsToText(Array.isArray(r.comments) ? r.comments : []),
   }));
 }
 
@@ -271,13 +271,13 @@ function DetailPanel({ rows, title, onReset }: any) {
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ background: "#f1f5f9" }}>
-              <th style={th}>ID</th>
-              <th style={th}>Rilievi</th>
+              <th style={th}>ID_Rilievo</th>
+              <th style={th}>Tipologia rilievo</th>
               <th style={th}>Disciplina</th>
               <th style={th}>Elaborato</th>
               <th style={th}>Descrizione</th>
+              <th style={th}>Gestione rilievo</th>
               <th style={th}>Stato</th>
-              <th style={th}>Storico commenti</th>
             </tr>
           </thead>
 
@@ -292,10 +292,10 @@ function DetailPanel({ rows, title, onReset }: any) {
                   <td style={td}>{r.disciplina}</td>
                   <td style={td}>{getElaboratoKey(r)}</td>
                   <td style={td}>{r.descrizione}</td>
-                  <td style={td}>{translateStatus(r.stato)}</td>
                   <td style={td}>
                     <CommentList comments={allComments} emptyText="Nessun commento" />
                   </td>
+                  <td style={td}>{translateStatus(r.stato)}</td>
                 </tr>
               );
             })}
