@@ -17,6 +17,13 @@ function normalize(v = "") {
     .trim();
 }
 
+function normalizeElaboratoCode(v = "") {
+  return String(v || "")
+    .toUpperCase()
+    .replace(/\.PDF$/i, "")
+    .replace(/[^A-Z0-9]/g, "");
+}
+
 function cleanText(v: any) {
   return String(v ?? "")
     .replace(/\r/g, "")
@@ -458,12 +465,11 @@ function getElaboratoUnivocoKey(row: any) {
     row?.Title ||
     "";
 
-  const key = normalize(value);
+  const normalizedText = normalize(value);
+  if (!normalizedText) return "";
+  if (normalizedText.includes("codice elaborato")) return "";
 
-  if (!key) return "";
-  if (key.includes("codice elaborato")) return "";
-
-  return key;
+  return normalizeElaboratoCode(value);
 }
 
 async function readDocxInspection(fileName: string, buffer: Buffer) {
