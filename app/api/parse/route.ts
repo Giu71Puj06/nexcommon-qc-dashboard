@@ -17,6 +17,25 @@ function normalize(v = "") {
     .trim();
 }
 
+function cleanText(v: any) {
+  return String(v ?? "")
+    .replace(/\r/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function xmlDecode(value = "") {
+  return String(value || "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
 function getAny(obj: any, keys: string[]) {
   if (!obj || typeof obj !== "object") return "";
   for (const k of keys) {
@@ -68,269 +87,22 @@ function includesAny(text = "", words: string[]) {
   return words.some((w) => n.includes(normalize(w)));
 }
 
-function detectTipologiaNcOss(
-  tags = "",
-  description = "",
-  title = "",
-  tipo = ""
-) {
-  // "Nessun rilievo" ed esiti mancanti NON devono comparire nelle Tipologie NC/OSS.
+function detectTipologiaNcOss(tags = "", description = "", title = "", tipo = "") {
   if (tipo === "Nessun rilievo" || tipo === "Esito mancante") return "";
 
   const text = `${tags} ${description} ${title}`;
 
-  // 1. Normative
-  // Prioritaria perché spesso genera NC.
-  if (
-    includesAny(text, [
-      "normativa",
-      "normative",
-      "normativa vigente",
-      "conformità",
-      "conforme",
-      "non conforme",
-      "ntc",
-      "eurocodice",
-      "eurocodici",
-      "codice appalti",
-      "verifica normativa",
-      "verifiche obbligatorie",
-      "verifica obbligatoria",
-      "prescrizione normativa",
-      "classificazione opere",
-      "autorizzazione",
-      "autorizzativo",
-      "vincolo",
-      "vincoli",
-      "prescrizioni",
-      "prescrizione",
-    ])
-  ) {
-    return "1. Normative";
-  }
+  if (includesAny(text, ["normativa", "normative", "normativa vigente", "conformità", "conforme", "non conforme", "ntc", "eurocodice", "eurocodici", "codice appalti", "verifica normativa", "verifiche obbligatorie", "verifica obbligatoria", "prescrizione normativa", "classificazione opere", "autorizzazione", "autorizzativo", "vincolo", "vincoli", "prescrizioni", "prescrizione"])) return "1. Normative";
+  if (includesAny(text, ["incoerenza", "incoerenze", "discordanza", "discordanze", "non coerente", "non coerenti", "differenza tra", "difformità tra", "non allineato", "non allineati", "disallineamento", "contraddizione", "contraddizioni", "relazione e tavola", "relazione tavola", "elaborati non coerenti", "tavole non coerenti"])) return "2. Incoerenze tra elaborati";
+  if (includesAny(text, ["mancante", "mancanti", "manca", "non presente", "non presenti", "non indicato", "non indicati", "non riportato", "non riportati", "assente", "assenti", "incompleto", "incompleta", "incompleti", "incomplete", "omesso", "omessa", "non risulta", "necessario integrare", "integrare"])) return "3. Informazioni mancanti / incomplete";
+  if (includesAny(text, ["chiarire", "si chiede", "si richiede", "richiesta di chiarimento", "chiarimento", "chiarimenti", "specificare", "precisare", "verificare", "si invita", "dettagliare", "approfondire", "motivare", "esplicitare"])) return "4. Richieste di chiarimento";
+  if (includesAny(text, ["relazione", "relazioni", "documento", "documentazione", "elaborato", "elaborati", "relazione tecnica", "relazione specialistica", "rapporto", "allegato", "capitolo", "paragrafo", "pag", "pagina", "indice", "testo"])) return "5. Elaborati e relazioni";
+  if (includesAny(text, ["quota", "quote", "dimensione", "dimensioni", "dimensionale", "dimensionali", "misura", "misure", "altezza", "larghezza", "spessore", "diametro", "sezione", "scala", "geometria", "geometrico", "geometrici"])) return "6. Errori dimensionali / quote";
+  if (includesAny(text, ["dettaglio", "dettagli", "particolare", "particolari", "nodo", "nodi", "sezione costruttiva", "dettaglio costruttivo", "particolare costruttivo", "schema costruttivo", "dettagli esecutivi", "esecutivo", "esecutivi"])) return "7. Dettagli costruttivi insufficienti";
+  if (includesAny(text, ["computo", "computi", "quantità", "quantita", "voce", "voci", "elenco prezzi", "prezzario", "prezzari", "prezzo", "prezzi", "stima", "stime", "stima economica", "quadro economico", "importo", "contabilità", "contabilita", "misurazione"])) return "8. Computi e quantità";
+  if (includesAny(text, ["cantiere", "realizzazione", "realizzabile", "non realizzabile", "esecuzione", "esecutabilità", "esecutabilita", "costruttibilità", "costruttibilita", "fattibilità", "fattibilita", "posa", "montaggio", "lavorazione", "manutenzione", "manutenibilità", "manutenibilita", "accessibilità manutentiva", "accessibilita manutentiva"])) return "9. Costruttibilità / fattibilità";
+  if (includesAny(text, ["interferenza", "interferenze", "clash", "sovrapposizione", "sovrapposizioni", "conflitto", "conflitti", "interferisce", "interferiscono", "collisione", "collisioni", "coordinamento interdisciplinare", "coordinamento bim", "bim"])) return "10. Interferenze / clash";
 
-  // 2. Incoerenze tra elaborati
-  if (
-    includesAny(text, [
-      "incoerenza",
-      "incoerenze",
-      "discordanza",
-      "discordanze",
-      "non coerente",
-      "non coerenti",
-      "differenza tra",
-      "difformità tra",
-      "non allineato",
-      "non allineati",
-      "disallineamento",
-      "contraddizione",
-      "contraddizioni",
-      "relazione e tavola",
-      "relazione tavola",
-      "elaborati non coerenti",
-      "tavole non coerenti",
-    ])
-  ) {
-    return "2. Incoerenze tra elaborati";
-  }
-
-  // 3. Informazioni mancanti / incomplete
-  if (
-    includesAny(text, [
-      "mancante",
-      "mancanti",
-      "manca",
-      "non presente",
-      "non presenti",
-      "non indicato",
-      "non indicati",
-      "non riportato",
-      "non riportati",
-      "assente",
-      "assenti",
-      "incompleto",
-      "incompleta",
-      "incompleti",
-      "incomplete",
-      "omesso",
-      "omessa",
-      "non risulta",
-      "necessario integrare",
-      "integrare",
-    ])
-  ) {
-    return "3. Informazioni mancanti / incomplete";
-  }
-
-  // 4. Richieste di chiarimento
-  if (
-    includesAny(text, [
-      "chiarire",
-      "si chiede",
-      "si richiede",
-      "richiesta di chiarimento",
-      "chiarimento",
-      "chiarimenti",
-      "specificare",
-      "precisare",
-      "verificare",
-      "si invita",
-      "dettagliare",
-      "approfondire",
-      "motivare",
-      "esplicitare",
-    ])
-  ) {
-    return "4. Richieste di chiarimento";
-  }
-
-  // 5. Elaborati e relazioni
-  if (
-    includesAny(text, [
-      "relazione",
-      "relazioni",
-      "documento",
-      "documentazione",
-      "elaborato",
-      "elaborati",
-      "relazione tecnica",
-      "relazione specialistica",
-      "rapporto",
-      "allegato",
-      "capitolo",
-      "paragrafo",
-      "pag",
-      "pagina",
-      "indice",
-      "testo",
-    ])
-  ) {
-    return "5. Elaborati e relazioni";
-  }
-
-  // 6. Errori dimensionali / quote
-  if (
-    includesAny(text, [
-      "quota",
-      "quote",
-      "dimensione",
-      "dimensioni",
-      "dimensionale",
-      "dimensionali",
-      "misura",
-      "misure",
-      "altezza",
-      "larghezza",
-      "spessore",
-      "diametro",
-      "sezione",
-      "scala",
-      "geometria",
-      "geometrico",
-      "geometrici",
-    ])
-  ) {
-    return "6. Errori dimensionali / quote";
-  }
-
-  // 7. Dettagli costruttivi insufficienti
-  if (
-    includesAny(text, [
-      "dettaglio",
-      "dettagli",
-      "particolare",
-      "particolari",
-      "nodo",
-      "nodi",
-      "sezione costruttiva",
-      "dettaglio costruttivo",
-      "particolare costruttivo",
-      "schema costruttivo",
-      "dettagli esecutivi",
-      "esecutivo",
-      "esecutivi",
-    ])
-  ) {
-    return "7. Dettagli costruttivi insufficienti";
-  }
-
-  // 8. Computi e quantità
-  if (
-    includesAny(text, [
-      "computo",
-      "computi",
-      "quantità",
-      "quantita",
-      "voce",
-      "voci",
-      "elenco prezzi",
-      "prezzario",
-      "prezzari",
-      "prezzo",
-      "prezzi",
-      "stima",
-      "stime",
-      "stima economica",
-      "quadro economico",
-      "importo",
-      "contabilità",
-      "contabilita",
-      "misurazione",
-    ])
-  ) {
-    return "8. Computi e quantità";
-  }
-
-  // 9. Costruttibilità / fattibilità
-  if (
-    includesAny(text, [
-      "cantiere",
-      "realizzazione",
-      "realizzabile",
-      "non realizzabile",
-      "esecuzione",
-      "esecutabilità",
-      "esecutabilita",
-      "costruttibilità",
-      "costruttibilita",
-      "fattibilità",
-      "fattibilita",
-      "posa",
-      "montaggio",
-      "lavorazione",
-      "manutenzione",
-      "manutenibilità",
-      "manutenibilita",
-      "accessibilità manutentiva",
-      "accessibilita manutentiva",
-    ])
-  ) {
-    return "9. Costruttibilità / fattibilità";
-  }
-
-  // 10. Interferenze / clash
-  if (
-    includesAny(text, [
-      "interferenza",
-      "interferenze",
-      "clash",
-      "sovrapposizione",
-      "sovrapposizioni",
-      "conflitto",
-      "conflitti",
-      "interferisce",
-      "interferiscono",
-      "collisione",
-      "collisioni",
-      "coordinamento interdisciplinare",
-      "coordinamento bim",
-      "bim",
-    ])
-  ) {
-    return "10. Interferenze / clash";
-  }
-
-  // Solo vere NC/OSS che non rientrano in nessuna delle tipologie/categorie sopra.
   return "Altre";
 }
 
@@ -351,12 +123,7 @@ function similarity(a = "", b = "") {
 }
 
 function normalizeCommentKey(comment: any) {
-  return [
-    normalize(comment?.role || ""),
-    normalize(comment?.author || ""),
-    normalize(comment?.date || ""),
-    normalize(comment?.comment || ""),
-  ].join("|");
+  return [normalize(comment?.role || ""), normalize(comment?.author || ""), normalize(comment?.date || ""), normalize(comment?.comment || "")].join("|");
 }
 
 function uniqueComments(comments: any[] = []) {
@@ -373,45 +140,20 @@ function uniqueComments(comments: any[] = []) {
   return result;
 }
 
-function findBestComments(
-  todo: any,
-  commentsByTopic: Map<string, any[]>,
-  matchedBcfTopic?: any
-) {
-  // Regola fondamentale:
-  // i commenti NON devono mai essere presi tramite il solo Title/elaborato,
-  // perché più NC/OSS possono appartenere allo stesso elaborato.
-  // Se il ToDo è stato abbinato a un Topic BCF, usiamo esclusivamente
-  // il GUID di quel Topic, che è la chiave univoca corretta.
-  const matchedGuid = normalize(
-    matchedBcfTopic?.Guid ||
-      matchedBcfTopic?.GUID ||
-      matchedBcfTopic?.ID ||
-      matchedBcfTopic?.Label ||
-      ""
-  );
+function findBestComments(todo: any, commentsByTopic: Map<string, any[]>, matchedBcfTopic?: any) {
+  const matchedGuid = normalize(matchedBcfTopic?.Guid || matchedBcfTopic?.GUID || matchedBcfTopic?.ID || matchedBcfTopic?.Label || "");
 
   if (matchedGuid && commentsByTopic.has(matchedGuid)) {
     return uniqueComments(commentsByTopic.get(matchedGuid) || []);
   }
 
-  // Fallback sicuro: solo Label / ID / GUID del ToDo.
-  // Non usiamo Title qui per evitare di sommare i commenti di tutte le issue
-  // presenti sullo stesso elaborato.
-  const candidates = [
-    todo.Label,
-    todo.ID,
-    todo.Guid,
-    todo.GUID,
-  ].filter(Boolean);
-
+  const candidates = [todo.Label, todo.ID, todo.Guid, todo.GUID].filter(Boolean);
   const collected: any[] = [];
   const usedKeys = new Set<string>();
 
   for (const c of candidates) {
     const key = normalize(c);
     if (!key || usedKeys.has(key)) continue;
-
     usedKeys.add(key);
 
     if (commentsByTopic.has(key)) {
@@ -429,6 +171,10 @@ function translateStatus(status = "") {
   if (/^new$/i.test(s)) return "Aperta";
   if (/^waiting$/i.test(s)) return "In attesa";
   if (/^unknown$/i.test(s)) return "Non definito";
+  if (/^chiuso$/i.test(s)) return "Chiusa";
+  if (/^chiusa$/i.test(s)) return "Chiusa";
+  if (/^aperto$/i.test(s)) return "Aperta";
+  if (/^aperta$/i.test(s)) return "Aperta";
 
   return s;
 }
@@ -440,26 +186,11 @@ function getFirstColumnValue(row: any) {
 }
 
 function getTodoLabel(todo: any) {
-  return (
-    todo.Label ||
-    getFirstColumnValue(todo) ||
-    todo.ID ||
-    todo.Guid ||
-    todo.GUID ||
-    ""
-  );
+  return todo.Label || getFirstColumnValue(todo) || todo.ID || todo.Guid || todo.GUID || "";
 }
 
 function getTodoAssignees(todo: any) {
-  return (
-    todo["Assignee(s)"] ||
-    todo["Assignee(s) "] ||
-    todo.Assignees ||
-    todo.Assignee ||
-    todo.AssignedTo ||
-    todo["Assigned to"] ||
-    ""
-  );
+  return todo["Assignee(s)"] || todo["Assignee(s) "] || todo.Assignees || todo.Assignee || todo.AssignedTo || todo["Assigned to"] || "";
 }
 
 function findBestBcfTopic(todo: any, topicsByKey: Map<string, any>, allTopics: any[]) {
@@ -469,21 +200,13 @@ function findBestBcfTopic(todo: any, topicsByKey: Map<string, any>, allTopics: a
   const titleKey = normalize(todo.Title);
   const descriptionKey = normalize(todo.Description);
 
-  // 1. Corrispondenza forte: Label / ID / GUID.
-  // Questa è sicura perché identifica il topic, quando disponibile.
   for (const key of [labelKey, idKey, guidKey].filter(Boolean)) {
     if (topicsByKey.has(key)) return topicsByKey.get(key);
   }
 
-  // 2. Se il Title è uguale ma ci sono più topic sullo stesso elaborato,
-  // NON basta il Title: bisogna scegliere tramite Description.
-  const sameTitleTopics = allTopics.filter(
-    (topic) => normalize(topic.Title) === titleKey
-  );
+  const sameTitleTopics = allTopics.filter((topic) => normalize(topic.Title) === titleKey);
 
-  if (sameTitleTopics.length === 1) {
-    return sameTitleTopics[0];
-  }
+  if (sameTitleTopics.length === 1) return sameTitleTopics[0];
 
   if (sameTitleTopics.length > 1 && descriptionKey) {
     let bestScore = 0;
@@ -491,38 +214,30 @@ function findBestBcfTopic(todo: any, topicsByKey: Map<string, any>, allTopics: a
 
     for (const topic of sameTitleTopics) {
       const score = similarity(todo.Description, topic.Description);
-
       if (score > bestScore) {
         bestScore = score;
         bestTopic = topic;
       }
     }
 
-    // Soglia alta: evita di agganciare commenti di un'altra NC sullo stesso elaborato.
     if (bestScore >= 0.75) return bestTopic;
 
-    // Ulteriore fallback controllato: stesso INT_XX nella descrizione.
     const todoInt = String(todo.Description || "").match(/\bINT[_\s-]*\d+/i)?.[0];
     if (todoInt) {
       const normalizedTodoInt = normalize(todoInt);
-      const byInt = sameTitleTopics.find((topic) =>
-        normalize(topic.Description).includes(normalizedTodoInt)
-      );
-
+      const byInt = sameTitleTopics.find((topic) => normalize(topic.Description).includes(normalizedTodoInt));
       if (byInt) return byInt;
     }
 
     return null;
   }
 
-  // 3. Se non c'è un Title affidabile, prova una Description quasi identica.
   if (descriptionKey) {
     let bestScore = 0;
     let bestTopic: any = null;
 
     for (const topic of allTopics) {
       const score = similarity(todo.Description, topic.Description);
-
       if (score > bestScore) {
         bestScore = score;
         bestTopic = topic;
@@ -535,35 +250,8 @@ function findBestBcfTopic(todo: any, topicsByKey: Map<string, any>, allTopics: a
   return null;
 }
 
-function dedupeComments(comments: any[]) {
-  const seen = new Set<string>();
-  const result: any[] = [];
-
-  for (const c of comments || []) {
-    const key = [
-      normalize(c.role),
-      normalize(c.author),
-      normalize(c.date),
-      normalize(c.comment),
-    ].join("|");
-
-    if (!key.trim() || seen.has(key)) continue;
-
-    seen.add(key);
-    result.push(c);
-  }
-
-  return result;
-}
-
 function extractMarkup(parsed: any) {
-  return (
-    parsed?.Markup ||
-    parsed?.markup ||
-    parsed?.bcf?.Markup ||
-    parsed?.Bcf?.Markup ||
-    parsed
-  );
+  return parsed?.Markup || parsed?.markup || parsed?.bcf?.Markup || parsed?.Bcf?.Markup || parsed;
 }
 
 function extractTopic(markup: any, fallbackGuid: string) {
@@ -572,15 +260,9 @@ function extractTopic(markup: any, fallbackGuid: string) {
   const title = getXmlText(getAny(topic, ["Title", "title", "TopicTitle", "Name"]));
   const description = getXmlText(getAny(topic, ["Description", "description"]));
   const labelsRaw = getAny(topic, ["Labels", "labels", "Label", "label"]);
-  const labels = Array.isArray(labelsRaw)
-    ? labelsRaw.map((x) => getXmlText(x)).join(" ")
-    : getXmlText(labelsRaw);
+  const labels = Array.isArray(labelsRaw) ? labelsRaw.map((x) => getXmlText(x)).join(" ") : getXmlText(labelsRaw);
 
-  const guid =
-    getXmlText(getAny(topic, ["Guid", "guid", "GUID"])) ||
-    topic.Guid ||
-    topic.guid ||
-    fallbackGuid;
+  const guid = getXmlText(getAny(topic, ["Guid", "guid", "GUID"])) || topic.Guid || topic.guid || fallbackGuid;
 
   return {
     topic,
@@ -588,10 +270,7 @@ function extractTopic(markup: any, fallbackGuid: string) {
     topicDescription: description,
     topicLabels: labels,
     topicGuid: String(guid || fallbackGuid),
-    topicStatus:
-      getXmlText(getAny(topic, ["TopicStatus", "Status", "status"])) ||
-      topic.TopicStatus ||
-      "",
+    topicStatus: getXmlText(getAny(topic, ["TopicStatus", "Status", "status"])) || topic.TopicStatus || "",
     topicPriority: getXmlText(getAny(topic, ["Priority", "priority"])),
     topicCreationDate: getXmlText(getAny(topic, ["CreationDate", "creationDate"])),
     topicCreationAuthor: getXmlText(getAny(topic, ["CreationAuthor", "creationAuthor"])),
@@ -602,34 +281,22 @@ function extractTopic(markup: any, fallbackGuid: string) {
 }
 
 function extractComments(markup: any) {
-  const raw =
-    getAny(markup, ["Comment", "comment", "Comments", "comments"]) ||
-    getAny(markup?.Comments, ["Comment", "comment"]) ||
-    getAny(markup?.comments, ["Comment", "comment"]);
+  const raw = getAny(markup, ["Comment", "comment", "Comments", "comments"]) || getAny(markup?.Comments, ["Comment", "comment"]) || getAny(markup?.comments, ["Comment", "comment"]);
 
   if (Array.isArray(raw)) return raw;
-
   if (raw?.Comment) return arr(raw.Comment);
   if (raw?.comment) return arr(raw.comment);
-
   return arr(raw);
 }
 
-async function readBcfZip(file: File, buffer: Buffer) {
+async function readBcfZip(fileName: string, buffer: Buffer) {
   const bcfComments: any[] = [];
   const bcfTopics: any[] = [];
 
   const zip = await JSZip.loadAsync(buffer);
-  const parser = new XMLParser({
-    ignoreAttributes: false,
-    attributeNamePrefix: "",
-    textNodeName: "#text",
-    trimValues: true,
-  });
+  const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "", textNodeName: "#text", trimValues: true });
 
-  const markupPaths = Object.keys(zip.files).filter((path) =>
-    path.toLowerCase().endsWith("markup.bcf")
-  );
+  const markupPaths = Object.keys(zip.files).filter((path) => path.toLowerCase().endsWith("markup.bcf"));
 
   for (const path of markupPaths) {
     const xml = await zip.files[path].async("text");
@@ -640,7 +307,7 @@ async function readBcfZip(file: File, buffer: Buffer) {
     const topicData = extractTopic(markup, folderGuid);
 
     bcfTopics.push({
-      sourceFile: file.name,
+      sourceFile: fileName,
       markupPath: path,
       Label: topicData.topicGuid,
       ID: topicData.topicGuid,
@@ -667,7 +334,7 @@ async function readBcfZip(file: File, buffer: Buffer) {
       const role = roleFromText(text);
 
       bcfComments.push({
-        sourceFile: file.name,
+        sourceFile: fileName,
         markupPath: path,
         topicGuid: topicData.topicGuid,
         topicTitle: topicData.topicTitle,
@@ -680,10 +347,308 @@ async function readBcfZip(file: File, buffer: Buffer) {
     }
   }
 
+  return { bcfTopics, bcfComments, markupCount: markupPaths.length };
+}
+
+function extractDocxTables(documentXml: string) {
+  const tables: string[][][] = [];
+  const tableRegex = /<w:tbl[\s\S]*?<\/w:tbl>/g;
+  const rowRegex = /<w:tr[\s\S]*?<\/w:tr>/g;
+  const cellRegex = /<w:tc[\s\S]*?<\/w:tc>/g;
+
+  const tableBlocks = documentXml.match(tableRegex) || [];
+
+  for (const tableBlock of tableBlocks) {
+    const rows: string[][] = [];
+    const rowBlocks = tableBlock.match(rowRegex) || [];
+
+    for (const rowBlock of rowBlocks) {
+      const cells: string[] = [];
+      const cellBlocks = rowBlock.match(cellRegex) || [];
+
+      for (const cellBlock of cellBlocks) {
+        const withBreaks = cellBlock
+          .replace(/<w:br\s*\/>/g, "\n")
+          .replace(/<w:tab\s*\/>/g, " ")
+          .replace(/<\/w:p>/g, "\n");
+
+        const texts = [...withBreaks.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g)].map((m) => xmlDecode(m[1] || ""));
+        cells.push(cleanText(texts.join("")));
+      }
+
+      if (cells.some((c) => cleanText(c))) rows.push(cells);
+    }
+
+    if (rows.length > 0) tables.push(rows);
+  }
+
+  return tables;
+}
+
+function extractTextFromDocxTables(tables: string[][][]) {
+  return tables.flat(2).map((x) => cleanText(x)).filter(Boolean).join("\n");
+}
+
+function detectDisciplineFromDocx(fileName: string, tables: string[][][]) {
+  for (const table of tables) {
+    for (let i = 0; i < table.length; i++) {
+      const row = table[i];
+      const idx = row.findIndex((cell) => normalize(cell) === "oggetto");
+      if (idx >= 0) {
+        const sameRowValue = cleanText(row[idx + 1] || "");
+        if (sameRowValue && !/nota ricezione/i.test(sameRowValue)) return sameRowValue;
+        const nextRowValue = cleanText(table[i + 1]?.[idx] || table[i + 1]?.[idx + 1] || "");
+        if (nextRowValue) return nextRowValue;
+      }
+    }
+  }
+
+  const base = fileName.replace(/\.docx$/i, "").split("_").pop() || "";
+  return cleanText(base.replace(/[-_]+/g, " ")) || "Non assegnata";
+}
+
+function detectWordIssueTipo(idCell: string, riscontro = "") {
+  const id = normalize(idCell).toUpperCase();
+  const r = normalize(riscontro);
+
+  if (id.includes("NESSUN RILIEVO")) return "Nessun rilievo";
+  if (r.includes("declassa ad osservazione") || r.includes("declassata ad osservazione") || r.includes("declassato ad osservazione")) return "Da NC a OSS";
+  if (/\bOSS\s*\d+/i.test(idCell)) return "OSS";
+  if (/\bNC\s*\d+/i.test(idCell)) return "NC";
+
+  return "Esito mancante";
+}
+
+function extractTrFromId(idCell: string) {
+  const match = String(idCell || "").match(/\(\s*TR\s*[-_]?\s*0*(\d+[A-Z]?)\s*\)/i);
+  return match ? `TR-${match[1]}` : "";
+}
+
+function normalizeIssueId(idCell: string) {
+  const first = cleanText(idCell).split("\n").map((x) => x.trim()).filter(Boolean)[0] || "";
+  const tr = extractTrFromId(idCell);
+  return [first, tr ? `(${tr})` : ""].filter(Boolean).join(" ");
+}
+
+function rowLooksLikeIssue(row: string[]) {
+  const first = cleanText(row[0] || "");
+  return /\b(NC|OSS)\s*\d+/i.test(first) || /\(\s*TR\s*[-_]?\s*\d+/i.test(first);
+}
+
+function findRilieviTable(tables: string[][][]) {
+  return tables.find((table) => {
+    const text = normalize(table.slice(0, 6).flat().join(" "));
+    return text.includes("codice elaborato") && text.includes("rilievi odi") && text.includes("risposta del progettista") && text.includes("stato");
+  });
+}
+
+function findRiepilogoTable(tables: string[][][]) {
+  return tables.find((table) => {
+    const text = normalize(table.slice(0, 6).flat().join(" "));
+    return text.includes("codice elaborato") && text.includes("revisione") && text.includes("presenza di nc") && text.includes("assenza nc oss");
+  });
+}
+
+async function readDocxInspection(fileName: string, buffer: Buffer) {
+  const zip = await JSZip.loadAsync(buffer);
+  const documentXml = await zip.files["word/document.xml"]?.async("text");
+
+  if (!documentXml) {
+    return { rows: [], importedFile: { fileName, type: "docx", rows: 0, error: "word/document.xml non trovato" } };
+  }
+
+  const tables = extractDocxTables(documentXml);
+  const allText = extractTextFromDocxTables(tables);
+  const disciplina = detectDisciplineFromDocx(fileName, tables);
+  const rilieviTable = findRilieviTable(tables);
+  const riepilogoTable = findRiepilogoTable(tables);
+  const rows: any[] = [];
+  const issueCodes = new Set<string>();
+
+  if (rilieviTable) {
+    for (const row of rilieviTable) {
+      if (!rowLooksLikeIssue(row)) continue;
+
+      const padded = [...row];
+      while (padded.length < 8) padded.push("");
+
+      const idCell = cleanText(padded[0]);
+      const codiceElaborato = cleanText(padded[1]);
+      const titoloElaborato = cleanText(padded[2]);
+      const rilievoOdi = cleanText(padded[3]);
+      const ispettore = cleanText(padded[4]);
+      const rispostaProgettista = cleanText(padded[5]);
+      const riscontroIts = cleanText(padded[6]);
+      const stato = translateStatus(cleanText(padded[7]));
+      const tipo = detectWordIssueTipo(idCell, riscontroIts);
+      const id = normalizeIssueId(idCell);
+      const tr = extractTrFromId(idCell);
+      const comments = uniqueComments([
+        rispostaProgettista
+          ? { sourceFile: fileName, role: "PRG", author: "Progettista", date: "", comment: rispostaProgettista }
+          : null,
+        riscontroIts
+          ? { sourceFile: fileName, role: "ISP", author: ispettore || "ITS", date: "", comment: riscontroIts }
+          : null,
+      ].filter(Boolean) as any[]);
+
+      issueCodes.add(normalize(codiceElaborato));
+
+      const tipologiaNcOss = detectTipologiaNcOss(tipo, rilievoOdi, titoloElaborato, tipo);
+
+      const hasPrgComment = comments.some((c) => c.role === "PRG");
+      const hasIspComment = comments.some((c) => c.role === "ISP");
+      const last = comments[comments.length - 1];
+      const ultimoRuolo = last?.role || "";
+      const isRilievo = tipo === "NC" || tipo === "OSS" || tipo === "Da NC a OSS";
+
+      let chiDeveAgire = "";
+      let statoRisoluzione = "Non applicabile";
+
+      if (isRilievo) {
+        if (stato === "Chiusa") {
+          chiDeveAgire = "";
+          statoRisoluzione = "Chiusa";
+        } else if (!hasPrgComment) {
+          chiDeveAgire = "PRG";
+          statoRisoluzione = "In attesa riscontro progettista";
+        } else if (ultimoRuolo === "PRG") {
+          chiDeveAgire = "ISP";
+          statoRisoluzione = "Risposto da progettista - da verificare ISP";
+        } else if (ultimoRuolo === "ISP") {
+          chiDeveAgire = "PRG";
+          statoRisoluzione = "Riscontrato da ispettore - eventuale azione PRG";
+        } else {
+          chiDeveAgire = "PRG";
+          statoRisoluzione = "Da riscontrare";
+        }
+      }
+
+      rows.push({
+        idRecord: `DOCX-${fileName}-${rows.length + 1}`,
+        id,
+        idTodo: id,
+        tr,
+        elaborato: codiceElaborato,
+        codiceElaborato,
+        titolo: codiceElaborato,
+        titoloElaborato,
+        descrizione: rilievoOdi,
+        tipo,
+        tipoOriginale: "Scheda Word ITS",
+        tags: tipo,
+        tipologiaNcOss,
+        tipologiaDocumento: tipologiaNcOss,
+        tipologia: tipologiaNcOss,
+        disciplina: disciplina || "Non assegnata",
+        gruppoTrimble: disciplina || "",
+        assegnatari: disciplina || "",
+        stato,
+        statoOriginale: stato,
+        priorita: "",
+        completamento: "",
+        scadenza: "",
+        ispettore,
+        creatoDa: ispettore,
+        creatoIl: "",
+        modificatoDa: "",
+        modificatoIl: "",
+        controlloIspettoreCompleto: Boolean(id && codiceElaborato && tipo && disciplina),
+        campiMancantiControllo: [],
+        statoCompilazioneIspettore: "Completo",
+        hasPrgComment,
+        hasIspComment,
+        numeroCommentiPrg: comments.filter((c) => c.role === "PRG").length,
+        numeroCommentiIsp: comments.filter((c) => c.role === "ISP").length,
+        ultimoRuolo,
+        ultimoCommento: last?.comment || "",
+        ultimoAutore: last?.author || "",
+        ultimaDataCommento: last?.date || "",
+        chiDeveAgire,
+        statoRisoluzione,
+        nCommenti: comments.length,
+        comments,
+        sourceFile: fileName,
+        sourceType: "docx",
+      });
+    }
+  }
+
+  if (riepilogoTable) {
+    for (const row of riepilogoTable) {
+      const codiceElaborato = cleanText(row[0] || "");
+      const revisione = cleanText(row[1] || "");
+      const titoloElaborato = cleanText(row[2] || "");
+      const presenzaNc = cleanText(row[3] || "");
+      const presenzaOss = cleanText(row[4] || "");
+      const assenza = cleanText(row[5] || "");
+
+      if (!codiceElaborato || normalize(codiceElaborato).includes("codice elaborato")) continue;
+      if (issueCodes.has(normalize(codiceElaborato))) continue;
+      if (!assenza && (presenzaNc || presenzaOss)) continue;
+
+      rows.push({
+        idRecord: `DOCX-${fileName}-ELAB-${rows.length + 1}`,
+        id: `NESSUN RILIEVO - ${codiceElaborato}`,
+        idTodo: `NESSUN RILIEVO - ${codiceElaborato}`,
+        elaborato: codiceElaborato,
+        codiceElaborato,
+        titolo: codiceElaborato,
+        titoloElaborato,
+        descrizione: titoloElaborato || "Nessun rilievo",
+        tipo: "Nessun rilievo",
+        tipoOriginale: "Scheda Word ITS - riepilogo elaborati",
+        tags: "Nessun rilievo",
+        tipologiaNcOss: "",
+        tipologiaDocumento: "",
+        tipologia: "",
+        disciplina: disciplina || "Non assegnata",
+        gruppoTrimble: disciplina || "",
+        assegnatari: disciplina || "",
+        stato: "Chiusa",
+        statoOriginale: "Chiusa",
+        revisione,
+        priorita: "",
+        completamento: "",
+        scadenza: "",
+        ispettore: "",
+        creatoDa: "",
+        creatoIl: "",
+        modificatoDa: "",
+        modificatoIl: "",
+        controlloIspettoreCompleto: true,
+        campiMancantiControllo: [],
+        statoCompilazioneIspettore: "Completo",
+        hasPrgComment: false,
+        hasIspComment: false,
+        numeroCommentiPrg: 0,
+        numeroCommentiIsp: 0,
+        ultimoRuolo: "",
+        ultimoCommento: "",
+        ultimoAutore: "",
+        ultimaDataCommento: "",
+        chiDeveAgire: "",
+        statoRisoluzione: "Non applicabile",
+        nCommenti: 0,
+        comments: [],
+        sourceFile: fileName,
+        sourceType: "docx",
+      });
+    }
+  }
+
   return {
-    bcfTopics,
-    bcfComments,
-    markupCount: markupPaths.length,
+    rows,
+    importedFile: {
+      fileName,
+      type: "docx",
+      rows: rows.length,
+      rilievi: rows.filter((r) => r.tipo === "NC" || r.tipo === "OSS" || r.tipo === "Da NC a OSS").length,
+      elaboratiSenzaRilievi: rows.filter((r) => r.tipo === "Nessun rilievo").length,
+      disciplina,
+      tables: tables.length,
+      textLength: allText.length,
+    },
   };
 }
 
@@ -695,6 +660,7 @@ export async function POST(req: Request) {
     let excelRows: any[] = [];
     const bcfTopicRows: any[] = [];
     const bcfComments: any[] = [];
+    const docxRows: any[] = [];
     const importedFiles: any[] = [];
 
     for (const file of files) {
@@ -708,39 +674,48 @@ export async function POST(req: Request) {
 
         excelRows = [...excelRows, ...rows];
 
-        importedFiles.push({
-          fileName: file.name,
-          type: "xlsx",
-          rows: rows.length,
-        });
+        importedFiles.push({ fileName: file.name, type: "xlsx", rows: rows.length });
+        continue;
+      }
+
+      if (name.endsWith(".docx")) {
+        const result = await readDocxInspection(file.name, buffer);
+        docxRows.push(...result.rows);
+        importedFiles.push(result.importedFile);
+        continue;
       }
 
       if (name.endsWith(".bcfzip") || name.endsWith(".zip")) {
-        const result = await readBcfZip(file, buffer);
+        const zip = await JSZip.loadAsync(buffer);
+        const docxEntries = Object.values(zip.files).filter((entry) => !entry.dir && entry.name.toLowerCase().endsWith(".docx"));
 
+        for (const entry of docxEntries) {
+          const docxBuffer = await entry.async("nodebuffer");
+          const result = await readDocxInspection(entry.name.split("/").pop() || entry.name, docxBuffer);
+          docxRows.push(...result.rows);
+          importedFiles.push({ ...result.importedFile, fileName: `${file.name}/${entry.name}` });
+        }
+
+        const result = await readBcfZip(file.name, buffer);
         bcfTopicRows.push(...result.bcfTopics);
         bcfComments.push(...result.bcfComments);
 
         importedFiles.push({
           fileName: file.name,
-          type: "bcfzip",
+          type: name.endsWith(".bcfzip") ? "bcfzip" : "zip",
           markupCount: result.markupCount,
           topics: result.bcfTopics.length,
           comments: result.bcfComments.length,
+          docx: docxEntries.length,
         });
       }
     }
 
     const uniqueBcfComments = uniqueComments(bcfComments);
-
     const commentsByTopic = new Map<string, any[]>();
 
     for (const c of uniqueBcfComments) {
-      const keys = Array.from(new Set([
-        normalize(c.topicTitle),
-        normalize(c.topicGuid),
-        normalize(String(c.topicTitle || "").replace(/\.pdf/gi, "")),
-      ].filter(Boolean)));
+      const keys = Array.from(new Set([normalize(c.topicTitle), normalize(c.topicGuid), normalize(String(c.topicTitle || "").replace(/\.pdf/gi, ""))].filter(Boolean)));
 
       for (const key of keys) {
         if (!commentsByTopic.has(key)) commentsByTopic.set(key, []);
@@ -751,85 +726,33 @@ export async function POST(req: Request) {
     const topicsByKey = new Map<string, any>();
 
     for (const topic of bcfTopicRows) {
-      const keys = Array.from(new Set([
-        normalize(topic.Label),
-        normalize(topic.ID),
-        normalize(topic.Guid),
-        normalize(topic.Title),
-        normalize(String(topic.Title || "").replace(/\.pdf/gi, "")),
-      ].filter(Boolean)));
+      const keys = Array.from(new Set([normalize(topic.Label), normalize(topic.ID), normalize(topic.Guid), normalize(topic.Title), normalize(String(topic.Title || "").replace(/\.pdf/gi, ""))].filter(Boolean)));
 
       for (const key of keys) {
         if (!topicsByKey.has(key)) topicsByKey.set(key, topic);
       }
     }
 
-    // Se è presente l'Excel, l'Excel resta la base principale.
-    // Se non è presente l'Excel, i Topic BCF diventano direttamente le righe dashboard.
     const todoRows = excelRows.length > 0 ? excelRows : bcfTopicRows;
 
-    const rows = todoRows.map((todo: any, index: number) => {
+    const rowsFromTodoOrBcf = todoRows.map((todo: any, index: number) => {
       const matchedBcfTopic = findBestBcfTopic(todo, topicsByKey, bcfTopicRows);
-
-      // ID dashboard: prioritariamente il Label Trimble, cioè la prima colonna del ToDo.
       const label = getTodoLabel(todo);
-
-      const title =
-        todo.Title ||
-        matchedBcfTopic?.Title ||
-        "";
-
+      const title = todo.Title || matchedBcfTopic?.Title || "";
       const todoDescription = todo.Description || "";
       const bcfDescription = matchedBcfTopic?.Description || "";
-
-      // Descrizione: prima il BCF, se presente; altrimenti la colonna Description del ToDo.
-      const description = String(bcfDescription || "").trim()
-        ? bcfDescription
-        : todoDescription;
-
-      const tags =
-        todo.Tags ||
-        todo.Labels ||
-        matchedBcfTopic?.Tags ||
-        "";
-
+      const description = String(bcfDescription || "").trim() ? bcfDescription : todoDescription;
+      const tags = todo.Tags || todo.Labels || matchedBcfTopic?.Tags || "";
       const tipo = detectTipo(tags, description);
-
-      const tipologiaNcOss = detectTipologiaNcOss(
-        tags,
-        description,
-        title,
-        tipo
-      );
-
-      // Disciplina: deriva dalla colonna Assignee(s) del ToDo.
-      // Se manca l'Excel e la riga deriva dal BCF, viene usato l'AssignedTo del BCF come fallback.
-      const disciplina =
-        getTodoAssignees(todo) ||
-        matchedBcfTopic?.["Assignee(s)"] ||
-        "";
-
-      const statoOriginale =
-        matchedBcfTopic?.Status ||
-        todo.Status ||
-        "";
-
+      const tipologiaNcOss = detectTipologiaNcOss(tags, description, title, tipo);
+      const disciplina = getTodoAssignees(todo) || matchedBcfTopic?.["Assignee(s)"] || "";
+      const statoOriginale = matchedBcfTopic?.Status || todo.Status || "";
       const statoTradotto = translateStatus(statoOriginale);
-
-      const ispettore =
-        todo["Created by"] ||
-        todo["Last modified by"] ||
-        todo.Owner ||
-        "";
-
-      const comments = uniqueComments(
-        findBestComments(todo, commentsByTopic, matchedBcfTopic)
-      ).sort((a, b) => String(a.date).localeCompare(String(b.date)));
-
+      const ispettore = todo["Created by"] || todo["Last modified by"] || todo.Owner || "";
+      const comments = uniqueComments(findBestComments(todo, commentsByTopic, matchedBcfTopic)).sort((a, b) => String(a.date).localeCompare(String(b.date)));
       const prgComments = comments.filter((c) => c.role === "PRG");
       const ispComments = comments.filter((c) => c.role === "ISP");
       const last = comments[comments.length - 1];
-
       const hasPrgComment = prgComments.length > 0;
       const hasIspComment = ispComments.length > 0;
       const ultimoRuolo = last?.role || "";
@@ -853,83 +776,54 @@ export async function POST(req: Request) {
         }
       }
 
-      const esitoCompilato =
-        tipo === "NC" ||
-        tipo === "OSS" ||
-        tipo === "Nessun rilievo" ||
-        tipo === "Da NC a OSS";
-
+      const esitoCompilato = tipo === "NC" || tipo === "OSS" || tipo === "Nessun rilievo" || tipo === "Da NC a OSS";
       const titleCompilato = Boolean(String(title).trim());
       const disciplinaCompilata = Boolean(String(disciplina).trim());
-
       const campiMancantiControllo: string[] = [];
 
-      if (!esitoCompilato) {
-        campiMancantiControllo.push("Tags / Esito verifica mancante o non coerente");
-      }
+      if (!esitoCompilato) campiMancantiControllo.push("Tags / Esito verifica mancante o non coerente");
+      if (!titleCompilato) campiMancantiControllo.push("Title / Codice elaborato mancante");
+      if (!disciplinaCompilata) campiMancantiControllo.push("Gruppo / Disciplina mancante");
 
-      if (!titleCompilato) {
-        campiMancantiControllo.push("Title / Codice elaborato mancante");
-      }
-
-      if (!disciplinaCompilata) {
-        campiMancantiControllo.push("Gruppo / Disciplina mancante");
-      }
-
-      const controlloIspettoreCompleto =
-        esitoCompilato &&
-        titleCompilato &&
-        disciplinaCompilata;
+      const controlloIspettoreCompleto = esitoCompilato && titleCompilato && disciplinaCompilata;
 
       return {
         idRecord: `IMPORT-${index + 1}`,
         id: label,
         idTodo: label,
-
         elaborato: title,
         titolo: title,
         descrizione: description,
-
         tipo,
         tipoOriginale: todo.Type || "",
         tags,
-
         tipologiaNcOss,
         tipologiaDocumento: tipologiaNcOss,
         tipologia: tipologiaNcOss,
-
         disciplina: disciplina || "Non assegnata",
         gruppoTrimble: disciplina || "",
         assegnatari: disciplina || "",
-
         stato: statoTradotto,
         statoOriginale,
         priorita: todo.Priority || "",
         completamento: todo.Completion || "",
         scadenza: todo["Due date"] || "",
-
         ispettore,
         creatoDa: todo["Created by"] || "",
         creatoIl: todo["Created on"] || "",
         modificatoDa: todo["Last modified by"] || "",
         modificatoIl: todo["Last modified on"] || "",
-
         controlloIspettoreCompleto,
         campiMancantiControllo,
-        statoCompilazioneIspettore: controlloIspettoreCompleto
-          ? "Completo"
-          : "Incompleto",
-
+        statoCompilazioneIspettore: controlloIspettoreCompleto ? "Completo" : "Incompleto",
         hasPrgComment,
         hasIspComment,
         numeroCommentiPrg: prgComments.length,
         numeroCommentiIsp: ispComments.length,
-
         ultimoRuolo,
         ultimoCommento: last?.comment || "",
         ultimoAutore: last?.author || "",
         ultimaDataCommento: last?.date || "",
-
         chiDeveAgire,
         statoRisoluzione,
         nCommenti: comments.length,
@@ -937,23 +831,20 @@ export async function POST(req: Request) {
       };
     });
 
+    const rows = [...rowsFromTodoOrBcf, ...docxRows];
+
     return NextResponse.json({
       ok: true,
       importedFiles,
       excelRowCount: excelRows.length,
       bcfTopicCount: bcfTopicRows.length,
+      docxRowCount: docxRows.length,
       todoCount: todoRows.length,
       bcfCommentCount: uniqueBcfComments.length,
       rows,
       comments: uniqueBcfComments,
     });
   } catch (error: any) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: error?.message || "Errore durante la lettura dei file",
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: error?.message || "Errore durante la lettura dei file" }, { status: 500 });
   }
 }
