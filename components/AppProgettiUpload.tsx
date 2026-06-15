@@ -2,6 +2,8 @@
 
 import React, { useMemo, useState } from "react";
 import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import { supabase } from "../lib/supabase";
 
 function getElaboratoKey(r: any) {
@@ -49,6 +51,102 @@ function exportExcel(nomeFile: string, dati: any[]) {
 
   XLSX.utils.book_append_sheet(wb, ws, "Export");
   XLSX.writeFile(wb, `${nomeFile}.xlsx`);
+}
+
+function cleanPdfText(value: any) {
+  return String(value ?? "")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function exportDetailPdf(rows: any[], title = "") {
+  if (!rows || rows.length === 0) return;
+
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  const generatedAt = new Date().toLocaleString("it-IT");
+  const reportTitle = title ? `Dettaglio selezione - ${title}` : "Dettaglio selezione";
+
+  doc.setFillColor(15, 23, 42);
+  doc.rect(10, 8, 277, 24, "F");
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.text("ITS Controlli Tecnici S.p.A.", 14, 17);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.text("Piattaforma Nexcommon QC - Export dettaglio NC / OSS", 14, 25);
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text("Nexcommon S.r.l.", 252, 17, { align: "right" });
+
+  doc.setTextColor(15, 23, 42);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13);
+  doc.text(reportTitle.slice(0, 120), 10, 42);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text(`Data esportazione: ${generatedAt}`, 10, 49);
+  doc.text(`Numero righe: ${rows.length}`, 105, 49);
+
+  const tableRows = rows.map((r: any, i: number) => {
+    const allComments = Array.isArray(r.comments) ? r.comments : [];
+    return [
+      String(i + 1),
+      cleanPdfText(r.id),
+      cleanPdfText(r.tipo),
+      cleanPdfText(r.disciplina),
+      cleanPdfText(getElaboratoKey(r)),
+      cleanPdfText(r.descrizione),
+      cleanPdfText(commentsToText(allComments)),
+      cleanPdfText(translateStatus(r.stato)),
+    ];
+  });
+
+  autoTable(doc, {
+    startY: 56,
+    head: [["N.", "ID rilievo", "Tipologia", "Disciplina", "Elaborato", "Descrizione", "Gestione rilievo", "Stato"]],
+    body: tableRows,
+    theme: "grid",
+    styles: {
+      font: "helvetica",
+      fontSize: 7,
+      cellPadding: 1.8,
+      overflow: "linebreak",
+      valign: "top",
+    },
+    headStyles: {
+      fillColor: [15, 23, 42],
+      textColor: [255, 255, 255],
+      fontStyle: "bold",
+    },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    columnStyles: {
+      0: { cellWidth: 9, halign: "center" },
+      1: { cellWidth: 22 },
+      2: { cellWidth: 22 },
+      3: { cellWidth: 25 },
+      4: { cellWidth: 38 },
+      5: { cellWidth: 55 },
+      6: { cellWidth: 82 },
+      7: { cellWidth: 20 },
+    },
+    margin: { left: 10, right: 10, top: 10, bottom: 12 },
+    didDrawPage: () => {
+      const pageCount = doc.getNumberOfPages();
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      doc.setFontSize(8);
+      doc.setTextColor(100);
+      doc.text(`Pagina ${pageCount}`, pageWidth - 10, pageHeight - 6, { align: "right" });
+    },
+  });
+
+  doc.save("Dettaglio_selezione.pdf");
 }
 
 function toDashboardExportRows(rows: any[]) {
@@ -250,6 +348,9 @@ function DetailPanel({ rows, title, onReset }: any) {
             }
           >
             Export Excel
+          </ExportButton>
+          <ExportButton onClick={() => exportDetailPdf(rows, title)}>
+            Export PDF
           </ExportButton>
           <button
             onClick={onReset}
