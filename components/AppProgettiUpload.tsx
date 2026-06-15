@@ -506,8 +506,10 @@ function ImportSummary({ importedFiles }: any) {
             <b>{f.fileName}</b>{" "}
             <span style={{ color: "#64748b" }}>
               {f.type === "xlsx" && `- Excel letto: ${f.rows || 0} righe`}
-              {f.type === "bcfzip" &&
-                `- BCF letto: ${f.markupCount || 0} topic, ${f.comments || 0} commenti`}
+              {(f.type === "bcfzip" || f.type === "zip") &&
+                `- BCF letto: ${f.markupCount || 0} topic, ${f.comments || 0} commenti${f.docx ? `, ${f.docx} schede Word` : ""}`}
+              {f.type === "docx" &&
+                `- Scheda Word letta: ${f.rilievi || 0} rilievi, ${f.elaboratiSenzaRilievi || 0} elaborati senza rilievi${f.disciplina ? ` - ${f.disciplina}` : ""}`}
             </span>
           </div>
         ))}
@@ -978,7 +980,7 @@ export default function AppProgettiUpload() {
             <input
               type="file"
               multiple
-              accept=".xlsx,.xls,.bcfzip,.zip,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+              accept=".xlsx,.xls,.bcfzip,.zip,.docx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
               onChange={(e) => setFiles(Array.from(e.target.files || []))}
             />
             <button
@@ -995,7 +997,7 @@ export default function AppProgettiUpload() {
                 cursor: files.length ? "pointer" : "not-allowed",
               }}
             >
-              Analizza ToDo / BCF / BCFZIP
+              Analizza ToDo / BCF / BCFZIP / SCHEDE WORD
             </button>
 
             {files.length > 0 && (
@@ -1075,7 +1077,7 @@ export default function AppProgettiUpload() {
         <Card>
           <div style={{ fontWeight: 700 }}>Nessun dato caricato</div>
           <div style={{ marginTop: 6, color: "#64748b", fontSize: 13 }}>
-            Carica uno o più file ToDo .xlsx, .bcf o .bcfzip esportati da Trimble Connect
+            Carica uno o più file ToDo .xlsx, .bcf, .bcfzip o schede ispettive .docx
             per generare la sintesi NC/OSS.
           </div>
         </Card>
