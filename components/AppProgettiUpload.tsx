@@ -60,6 +60,45 @@ function cleanPdfText(value: any) {
     .trim();
 }
 
+
+function buildElaboratiDisciplinaSummary(rows: any[]) {
+  const grouped: Record<string, { elaborato: string; nc: number; oss: number }> = {};
+
+  rows.forEach((r: any) => {
+    const elaborato = cleanPdfText(getElaboratoKey(r)) || "Elaborato non identificato";
+    const tipo = cleanPdfText(r.tipo).toUpperCase();
+
+    if (!grouped[elaborato]) {
+      grouped[elaborato] = { elaborato, nc: 0, oss: 0 };
+    }
+
+    if (tipo === "NC") {
+      grouped[elaborato].nc += 1;
+    }
+
+    // Le righe "Da NC a OSS" vanno conteggiate come OSS.
+    if (tipo === "OSS" || tipo === "DA NC A OSS") {
+      grouped[elaborato].oss += 1;
+    }
+  });
+
+  return Object.values(grouped)
+    .sort((a, b) => a.elaborato.localeCompare(b.elaborato, "it"))
+    .map((item, index) => {
+      const esito = item.nc === 0 && item.oss === 0
+        ? "Nessuna NC/OSS"
+        : `NC: ${item.nc} - OSS: ${item.oss}`;
+
+      return [
+        String(index + 1),
+        item.elaborato,
+        String(item.nc),
+        String(item.oss),
+        esito,
+      ];
+    });
+}
+
 type PdfHeaderData = {
   committente?: string;
   oggetto?: string;
@@ -257,6 +296,59 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
       5: { cellWidth: 55 },
       6: { cellWidth: 82 },
       7: { cellWidth: 20 },
+    },
+    margin: { left: 10, right: 10, top: 10, bottom: 12 },
+    didDrawPage: () => {
+      const pageCount = doc.getNumberOfPages();
+      const pageWidthCurrent = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      doc.setFontSize(8);
+      doc.setTextColor(100);
+      doc.text(`Pagina ${pageCount}`, pageWidthCurrent - 10, pageHeight - 6, { align: "right" });
+    },
+  });
+
+
+  const summaryRows = buildElaboratiDisciplinaSummary(rows);
+  const lastAutoTable = (doc as any).lastAutoTable;
+  let summaryStartY = (lastAutoTable?.finalY || 20) + 10;
+
+  if (summaryStartY > doc.internal.pageSize.getHeight() - 50) {
+    doc.addPage();
+    summaryStartY = 18;
+  }
+
+  doc.setTextColor(ITS_BLUE[0], ITS_BLUE[1], ITS_BLUE[2]);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.text("ELENCO ELABORATI DELLA DISCIPLINA E CONTEGGIO NC/OSS", 10, summaryStartY);
+
+  autoTable(doc, {
+    startY: summaryStartY + 4,
+    head: [["N.", "Elaborato", "NC", "OSS", "Esito"]],
+    body: summaryRows,
+    theme: "grid",
+    styles: {
+      font: "helvetica",
+      fontSize: 7.5,
+      cellPadding: 2,
+      overflow: "linebreak",
+      valign: "top",
+      lineColor: [200, 200, 200],
+      lineWidth: 0.1,
+    },
+    headStyles: {
+      fillColor: ITS_DARK_BLUE,
+      textColor: [255, 255, 255],
+      fontStyle: "bold",
+    },
+    alternateRowStyles: { fillColor: ITS_TABLE_LIGHT },
+    columnStyles: {
+      0: { cellWidth: 10, halign: "center" },
+      1: { cellWidth: 95 },
+      2: { cellWidth: 16, halign: "center" },
+      3: { cellWidth: 16, halign: "center" },
+      4: { cellWidth: 55 },
     },
     margin: { left: 10, right: 10, top: 10, bottom: 12 },
     didDrawPage: () => {
