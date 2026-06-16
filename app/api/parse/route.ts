@@ -296,6 +296,58 @@ function extractComments(markup: any) {
   return arr(raw);
 }
 
+function getMimeTypeFromPath(path = "") {
+  const p = String(path || "").toLowerCase();
+
+  if (p.endsWith(".jpg") || p.endsWith(".jpeg")) return "image/jpeg";
+  if (p.endsWith(".webp")) return "image/webp";
+  return "image/png";
+}
+
+function getFolderFromPath(path = "") {
+  const parts = String(path || "").split("/");
+  parts.pop();
+  return parts.join("/");
+}
+
+async function extractSnapshotDataUrl(zip: JSZip, markupPath: string) {
+  const folder = getFolderFromPath(markupPath);
+  const files = Object.keys(zip.files);
+
+  const imagePath = files.find((path) => {
+    const lower = path.toLowerCase();
+    if (zip.files[path].dir) return false;
+    if (!lower.endsWith(".png") && !lower.endsWith(".jpg") && !lower.endsWith(".jpeg") && !lower.endsWith(".webp")) return false;
+    if (folder && !path.startsWith(`${folder}/`)) return false;
+    return lower.includes("snapshot") || lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".webp");
+  });
+
+  if (!imagePath) {
+    return {
+      snapshotPath: "",
+      snapshotDataUrl: "",
+    };
+  }
+
+  const base64 = await zip.files[imagePath].async("base64");
+
+  return {
+    snapshotPath: imagePath,
+    snapshotDataUrl: `data:${getMimeTypeFromPath(imagePath)};base64,${base64}`,
+  };
+}
+
+function normalizeBcfTopicStatus(status = "") {
+  const s = String(status || "").trim();
+
+  if (/^open$/i.test(s)) return "New";
+  if (/^closed$/i.test(s)) return "Closed";
+  if (/^active$/i.test(s)) return "New";
+  if (/^resolved$/i.test(s)) return "Closed";
+
+  return s;
+}
+
 async function readBcfZip(fileName: string, buffer: Buffer) {
   const bcfComments: any[] = [];
   const bcfTopics: any[] = [];
@@ -312,17 +364,20 @@ async function readBcfZip(fileName: string, buffer: Buffer) {
 
     const folderGuid = path.split("/")[0] || "";
     const topicData = extractTopic(markup, folderGuid);
+    const snapshot = await extractSnapshotDataUrl(zip, path);
 
     bcfTopics.push({
       sourceFile: fileName,
       markupPath: path,
+      snapshotPath: snapshot.snapshotPath,
+      snapshotDataUrl: snapshot.snapshotDataUrl,
       Label: topicData.topicGuid,
       ID: topicData.topicGuid,
       Guid: topicData.topicGuid,
       Title: topicData.topicTitle,
       Description: topicData.topicDescription,
       Tags: topicData.topicLabels,
-      Status: topicData.topicStatus,
+      Status: normalizeBcfTopicStatus(topicData.topicStatus),
       Priority: topicData.topicPriority,
       "Created by": topicData.topicCreationAuthor,
       "Created on": topicData.topicCreationDate,
@@ -331,7 +386,7 @@ async function readBcfZip(fileName: string, buffer: Buffer) {
       "Assignee(s)": topicData.topicAssignedTo,
       Groups: "",
       Type: "BCF Topic",
-      __source: "bcfzip",
+      __source: fileName.toLowerCase().endsWith(".bcf") ? "bcf" : "bcfzip",
     });
 
     const comments = extractComments(markup);
@@ -708,7 +763,7 @@ export async function POST(req: Request) {
         continue;
       }
 
-      if (name.endsWith(".bcfzip") || name.endsWith(".zip")) {
+      if (name.endsWith(".bcf") || name.endsWith(".bcfzip") || name.endsWith(".zip")) {
         const zip = await JSZip.loadAsync(buffer);
         const docxEntries = Object.values(zip.files).filter((entry) => !entry.dir && entry.name.toLowerCase().endsWith(".docx"));
 
@@ -725,10 +780,11 @@ export async function POST(req: Request) {
 
         importedFiles.push({
           fileName: file.name,
-          type: name.endsWith(".bcfzip") ? "bcfzip" : "zip",
+          type: name.endsWith(".bcf") ? "bcf" : name.endsWith(".bcfzip") ? "bcfzip" : "zip",
           markupCount: result.markupCount,
           topics: result.bcfTopics.length,
           comments: result.bcfComments.length,
+          snapshots: result.bcfTopics.filter((topic) => topic.snapshotDataUrl).length,
           docx: docxEntries.length,
         });
       }
@@ -819,6 +875,8 @@ export async function POST(req: Request) {
         descrizione: description,
         tipo,
         tipoOriginale: todo.Type || "",
+        snapshotPath: todo.snapshotPath || matchedBcfTopic?.snapshotPath || "",
+        snapshotDataUrl: todo.snapshotDataUrl || matchedBcfTopic?.snapshotDataUrl || "",
         tags,
         tipologiaNcOss,
         tipologiaDocumento: tipologiaNcOss,
