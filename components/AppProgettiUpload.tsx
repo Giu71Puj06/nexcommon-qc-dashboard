@@ -18,6 +18,25 @@ function getElaboratoKey(r: any) {
   );
 }
 
+// Chiave tecnica per conteggiare gli elaborati una sola volta.
+// Esempio: "T1266 0000 PE OS GTA..." e "T1266-0000-PE-OS-GTA..." diventano uguali.
+function normalizeElaboratoCode(v = "") {
+  return String(v || "")
+    .toUpperCase()
+    .replace(/\.PDF$/i, "")
+    .replace(/[^A-Z0-9]/g, "");
+}
+
+function getElaboratoNormalizedKey(r: any) {
+  const raw = getElaboratoKey(r);
+  const normalized = normalizeElaboratoCode(raw);
+  return normalized || cleanPdfText(raw);
+}
+
+function getElaboratoDisplay(r: any) {
+  return cleanPdfText(getElaboratoKey(r)) || "Elaborato non identificato";
+}
+
 function translateStatus(status = "") {
   const value = String(status || "").trim();
 
@@ -448,14 +467,17 @@ function BarList({ title, data, onClick, activeKey, onExport }: any) {
         <div style={{ color: "#64748b", fontSize: 13 }}>Nessun dato disponibile</div>
       )}
 
-      {data.map((d: any) => (
+      {data.map((d: any) => {
+        const itemKey = d.key || d.label;
+
+        return (
         <div
-          key={d.label}
-          onClick={() => onClick(d.label)}
+          key={itemKey}
+          onClick={() => onClick(itemKey, d.label)}
           style={{
             marginBottom: 12,
             cursor: "pointer",
-            background: activeKey === d.label ? "#e0f2fe" : "transparent",
+            background: activeKey === itemKey ? "#e0f2fe" : "transparent",
             borderRadius: 10,
             padding: 6,
           }}
@@ -489,7 +511,8 @@ function BarList({ title, data, onClick, activeKey, onExport }: any) {
             />
           </div>
         </div>
-      ))}
+        );
+      })}
     </Card>
   );
 }
@@ -817,7 +840,8 @@ export default function AppProgettiUpload() {
       ...r,
       tipologiaNcOss: r.tipologiaNcOss || r.tipologiaDocumento || "",
       tipologia: r.tipologiaNcOss || r.tipologiaDocumento || "",
-      elaboratoKey: getElaboratoKey(r),
+      elaboratoKey: getElaboratoNormalizedKey(r),
+      elaboratoDisplay: getElaboratoDisplay(r),
       stato: translateStatus(r.stato),
     }));
   }, [rows]);
@@ -869,11 +893,13 @@ export default function AppProgettiUpload() {
     const e = r.tipo || "Rilievo mancante";
     esiti[e] = (esiti[e] || 0) + 1;
 
-    const elaborato = r.elaboratoKey || "Elaborato non identificato";
+    const elaboratoKey = r.elaboratoKey || "Elaborato non identificato";
+    const elaboratoLabel = r.elaboratoDisplay || getElaboratoDisplay(r);
 
-    if (!rilieviPerElaborato[elaborato]) {
-      rilieviPerElaborato[elaborato] = {
-        label: elaborato,
+    if (!rilieviPerElaborato[elaboratoKey]) {
+      rilieviPerElaborato[elaboratoKey] = {
+        key: elaboratoKey,
+        label: elaboratoLabel,
         value: 0,
         nc: 0,
         oss: 0,
@@ -881,13 +907,13 @@ export default function AppProgettiUpload() {
     }
 
     if (r.tipo === "NC") {
-      rilieviPerElaborato[elaborato].value += 1;
-      rilieviPerElaborato[elaborato].nc += 1;
+      rilieviPerElaborato[elaboratoKey].value += 1;
+      rilieviPerElaborato[elaboratoKey].nc += 1;
     }
 
     if (r.tipo === "OSS") {
-      rilieviPerElaborato[elaborato].value += 1;
-      rilieviPerElaborato[elaborato].oss += 1;
+      rilieviPerElaborato[elaboratoKey].value += 1;
+      rilieviPerElaborato[elaboratoKey].oss += 1;
     }
   });
 
@@ -1100,7 +1126,7 @@ export default function AppProgettiUpload() {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
         <BarList title="Rilievi per disciplina" data={disciplineData} activeKey={selection?.type === "disciplina" ? selection.value : ""} onClick={(value: string) => setSelection({ type: "disciplina", value, label: "Disciplina" })} onExport={() => exportExcel("Rilievi_per_disciplina", toChartExportRows(disciplineData))} />
         <BarList title="Rilievi" data={esitiData} activeKey={selection?.type === "tipo" ? selection.value : ""} onClick={(value: string) => setSelection({ type: "tipo", value, label: "Rilievi" })} onExport={() => exportExcel("Rilievi", toChartExportRows(esitiData))} />
-        <BarList title="NC / OSS per elaborato" data={rilieviPerElaboratoData} activeKey={selection?.type === "elaborato" ? selection.value : ""} onClick={(value: string) => setSelection({ type: "elaborato", value, label: "Elaborato" })} onExport={() => exportExcel("NC_OSS_per_elaborato", toChartExportRows(rilieviPerElaboratoData))} />
+        <BarList title="NC / OSS per elaborato" data={rilieviPerElaboratoData} activeKey={selection?.type === "elaborato" ? selection.value : ""} onClick={(value: string, valueLabel: string) => setSelection({ type: "elaborato", value, label: "Elaborato", valueLabel })} onExport={() => exportExcel("NC_OSS_per_elaborato", toChartExportRows(rilieviPerElaboratoData))} />
       </div>
 
       <div style={{ marginTop: 24 }}>
