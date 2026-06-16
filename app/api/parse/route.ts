@@ -68,6 +68,42 @@ function getXmlText(value: any) {
   return String(value);
 }
 
+function extractBcfLabels(value: any): string {
+  if (!value) return "";
+
+  if (typeof value === "string" || typeof value === "number") {
+    return getXmlText(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => extractBcfLabels(item))
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  if (typeof value === "object") {
+    const directText = getXmlText(value);
+    const nestedLabels = [
+      value.Label,
+      value.label,
+      value.Labels,
+      value.labels,
+      value.TopicLabel,
+      value.topicLabel,
+      value.TopicLabels,
+      value.topicLabels,
+    ]
+      .map((item) => extractBcfLabels(item))
+      .filter(Boolean)
+      .join(" ");
+
+    return [directText, nestedLabels].filter(Boolean).join(" ").trim();
+  }
+
+  return "";
+}
+
 function roleFromText(text = "") {
   const m = String(text).match(/\((ISP|PRG)\)/i);
   return m ? m[1].toUpperCase() : "";
@@ -76,15 +112,16 @@ function roleFromText(text = "") {
 function detectTipo(tags = "", description = "") {
   const t = String(tags).toUpperCase();
   const d = String(description).toUpperCase();
+  const text = `${t} ${d}`;
 
-  if (t.includes("DA NC A OSS") || t.includes("DA NC A OS")) return "Da NC a OSS";
+  if (text.includes("DA NC A OSS") || text.includes("DA NC A OS")) return "Da NC a OSS";
 
-  if (t.includes("NESSUN RILIEVO") || d.includes("NESSUN RILIEVO")) {
+  if (text.includes("NESSUN RILIEVO")) {
     return "Nessun rilievo";
   }
 
-  if (t.includes("OSS")) return "OSS";
-  if (t.includes("NC")) return "NC";
+  if (/(^|[^A-Z0-9])OSS([^A-Z0-9]|$)/.test(text)) return "OSS";
+  if (/(^|[^A-Z0-9])NC([^A-Z0-9]|$)/.test(text)) return "NC";
 
   return "Esito mancante";
 }
@@ -266,8 +303,8 @@ function extractTopic(markup: any, fallbackGuid: string) {
 
   const title = getXmlText(getAny(topic, ["Title", "title", "TopicTitle", "Name"]));
   const description = getXmlText(getAny(topic, ["Description", "description"]));
-  const labelsRaw = getAny(topic, ["Labels", "labels", "Label", "label"]);
-  const labels = Array.isArray(labelsRaw) ? labelsRaw.map((x) => getXmlText(x)).join(" ") : getXmlText(labelsRaw);
+  const labelsRaw = getAny(topic, ["Labels", "labels", "Label", "label", "TopicLabels", "topicLabels", "TopicLabel", "topicLabel"]);
+  const labels = extractBcfLabels(labelsRaw);
 
   const guid = getXmlText(getAny(topic, ["Guid", "guid", "GUID"])) || topic.Guid || topic.guid || fallbackGuid;
 
