@@ -156,6 +156,24 @@ function headerValue(value: any) {
   return cleaned || "____________________________";
 }
 
+function getImageFormatFromDataUrl(dataUrl = "") {
+  const lower = String(dataUrl || "").toLowerCase();
+
+  if (lower.startsWith("data:image/jpeg") || lower.startsWith("data:image/jpg")) return "JPEG";
+  if (lower.startsWith("data:image/webp")) return "WEBP";
+  return "PNG";
+}
+
+function addPdfPageNumber(doc: jsPDF) {
+  const pageCount = doc.getNumberOfPages();
+  const pageWidthCurrent = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+
+  doc.setFontSize(8);
+  doc.setTextColor(100);
+  doc.text(`Pagina ${pageCount}`, pageWidthCurrent - 10, pageHeight - 6, { align: "right" });
+}
+
 function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}) {
   if (!rows || rows.length === 0) return;
 
@@ -317,14 +335,7 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
       7: { cellWidth: 20 },
     },
     margin: { left: 10, right: 10, top: 10, bottom: 12 },
-    didDrawPage: () => {
-      const pageCount = doc.getNumberOfPages();
-      const pageWidthCurrent = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
-      doc.setFontSize(8);
-      doc.setTextColor(100);
-      doc.text(`Pagina ${pageCount}`, pageWidthCurrent - 10, pageHeight - 6, { align: "right" });
-    },
+    didDrawPage: () => addPdfPageNumber(doc),
   });
 
 
@@ -370,15 +381,112 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
       4: { cellWidth: 55 },
     },
     margin: { left: 10, right: 10, top: 10, bottom: 12 },
-    didDrawPage: () => {
-      const pageCount = doc.getNumberOfPages();
-      const pageWidthCurrent = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
-      doc.setFontSize(8);
-      doc.setTextColor(100);
-      doc.text(`Pagina ${pageCount}`, pageWidthCurrent - 10, pageHeight - 6, { align: "right" });
-    },
+    didDrawPage: () => addPdfPageNumber(doc),
   });
+
+  const rowsWithImages = rows.filter((r: any) => Boolean(r.snapshotDataUrl));
+
+  if (rowsWithImages.length > 0) {
+    const lastSummaryTable = (doc as any).lastAutoTable;
+    let imagesStartY = (lastSummaryTable?.finalY || summaryStartY) + 12;
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const imageMaxW = 135;
+    const imageMaxH = 78;
+    const imageX = 10;
+    const textX = imageX + imageMaxW + 8;
+    const contentW = pageWidth - textX - 10;
+
+    if (imagesStartY > pageHeight - 45) {
+      doc.addPage();
+      imagesStartY = 18;
+    }
+
+    doc.setTextColor(ITS_BLUE[0], ITS_BLUE[1], ITS_BLUE[2]);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text("IMMAGINI NC/OSS", 10, imagesStartY);
+
+    let currentY = imagesStartY + 8;
+
+    rowsWithImages.forEach((r: any, index: number) => {
+      const requiredHeight = imageMaxH + 22;
+
+      if (currentY > pageHeight - requiredHeight - 12) {
+        doc.addPage();
+        currentY = 18;
+      }
+
+      const idRilievo = cleanPdfText(r.id || r.idTodo || `Rilievo ${index + 1}`);
+      const tipologia = cleanPdfText(r.tipo || "");
+      const disciplina = cleanPdfText(r.disciplina || "");
+      const elaborato = cleanPdfText(getElaboratoKey(r));
+      const descrizione = cleanPdfText(r.descrizione || "");
+
+      doc.setFillColor(ITS_DARK_BLUE[0], ITS_DARK_BLUE[1], ITS_DARK_BLUE[2]);
+      doc.rect(10, currentY, pageWidth - 20, 7, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8);
+      doc.text(`Immagine ${index + 1} - ${tipologia || "Rilievo"} - ${idRilievo}`, 12, currentY + 4.8);
+
+      currentY += 10;
+
+      try {
+        const props = doc.getImageProperties(r.snapshotDataUrl);
+        const ratio = props.width && props.height ? props.width / props.height : 1.6;
+        let imageW = imageMaxW;
+        let imageH = imageW / ratio;
+
+        if (imageH > imageMaxH) {
+          imageH = imageMaxH;
+          imageW = imageH * ratio;
+        }
+
+        doc.addImage(
+          r.snapshotDataUrl,
+          getImageFormatFromDataUrl(r.snapshotDataUrl),
+          imageX,
+          currentY,
+          imageW,
+          imageH
+        );
+
+        doc.setDrawColor(200, 200, 200);
+        doc.rect(imageX, currentY, imageW, imageH);
+      } catch (error) {
+        doc.setDrawColor(200, 200, 200);
+        doc.rect(imageX, currentY, imageMaxW, 22);
+        doc.setTextColor(120, 120, 120);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        doc.text("Immagine BCF non visualizzabile nel PDF", imageX + 3, currentY + 12);
+      }
+
+      doc.setTextColor(35, 35, 35);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8);
+      doc.text("ID rilievo:", textX, currentY + 4);
+      doc.text("Tipologia:", textX, currentY + 12);
+      doc.text("Disciplina:", textX, currentY + 20);
+      doc.text("Elaborato:", textX, currentY + 28);
+      doc.text("Descrizione:", textX, currentY + 40);
+
+      doc.setFont("helvetica", "normal");
+      doc.text(idRilievo.slice(0, 75), textX + 24, currentY + 4);
+      doc.text(tipologia.slice(0, 40), textX + 24, currentY + 12);
+      doc.text(disciplina.slice(0, 40), textX + 24, currentY + 20);
+
+      const elaboratoLines = doc.splitTextToSize(elaborato || "Elaborato non identificato", contentW);
+      doc.text(elaboratoLines.slice(0, 2), textX + 24, currentY + 28);
+
+      const descrizioneLines = doc.splitTextToSize(descrizione || "", contentW);
+      doc.text(descrizioneLines.slice(0, 5), textX, currentY + 46);
+
+      currentY += imageMaxH + 22;
+    });
+
+    addPdfPageNumber(doc);
+  }
 
   doc.save("Dettaglio_selezione.pdf");
 }
@@ -390,6 +498,7 @@ function toDashboardExportRows(rows: any[]) {
     Elaborato: getElaboratoKey(r),
     Descrizione: r.descrizione || "",
     "Gestione rilievo": commentsToText(Array.isArray(r.comments) ? r.comments : []),
+    "Immagine BCF": r.snapshotDataUrl ? "Presente" : "",
     Stato: translateStatus(r.stato),
   }));
 }
@@ -529,8 +638,8 @@ function ImportSummary({ importedFiles }: any) {
             <b>{f.fileName}</b>{" "}
             <span style={{ color: "#64748b" }}>
               {f.type === "xlsx" && `- Excel letto: ${f.rows || 0} righe`}
-              {(f.type === "bcfzip" || f.type === "zip") &&
-                `- BCF letto: ${f.markupCount || 0} topic, ${f.comments || 0} commenti${f.docx ? `, ${f.docx} schede Word` : ""}`}
+              {(f.type === "bcf" || f.type === "bcfzip" || f.type === "zip") &&
+                `- BCF letto: ${f.markupCount || 0} topic, ${f.comments || 0} commenti${f.snapshots ? `, ${f.snapshots} immagini` : ""}${f.docx ? `, ${f.docx} schede Word` : ""}`}
               {f.type === "docx" &&
                 `- Scheda Word letta: ${f.rilievi || 0} rilievi, ${f.elaboratiSenzaRilievi || 0} elaborati senza rilievi${f.disciplina ? ` - ${f.disciplina}` : ""}`}
             </span>
@@ -1006,7 +1115,7 @@ export default function AppProgettiUpload() {
             <input
               type="file"
               multiple
-              accept=".xlsx,.xls,.bcfzip,.zip,.docx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              accept=".xlsx,.xls,.bcf,.bcfzip,.zip,.docx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
               onChange={(e) => setFiles(Array.from(e.target.files || []))}
             />
             <button
