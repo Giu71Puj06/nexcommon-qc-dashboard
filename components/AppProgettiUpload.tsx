@@ -118,6 +118,51 @@ function buildElaboratiDisciplinaSummary(rows: any[]) {
     });
 }
 
+function buildRilieviByElaboratoRows(rows: any[]) {
+  const grouped: Record<string, any[]> = {};
+
+  rows.forEach((r: any) => {
+    const elaborato = cleanPdfText(getElaboratoKey(r)) || "Elaborato non identificato";
+
+    if (!grouped[elaborato]) {
+      grouped[elaborato] = [];
+    }
+
+    grouped[elaborato].push(r);
+  });
+
+  const result: any[] = [];
+  const elaborati = Object.keys(grouped).sort((a, b) => a.localeCompare(b, "it"));
+
+  elaborati.forEach((elaborato) => {
+    const rilievi = grouped[elaborato].slice().sort((a: any, b: any) => {
+      const tipoA = cleanPdfText(a.tipo);
+      const tipoB = cleanPdfText(b.tipo);
+      const idA = cleanPdfText(a.id);
+      const idB = cleanPdfText(b.id);
+
+      if (tipoA !== tipoB) return tipoA.localeCompare(tipoB, "it");
+      return idA.localeCompare(idB, "it", { numeric: true });
+    });
+
+    rilievi.forEach((r: any, index: number) => {
+      const allComments = Array.isArray(r.comments) ? r.comments : [];
+
+      result.push([
+        index === 0 ? elaborato : "",
+        cleanPdfText(r.id),
+        cleanPdfText(r.tipo),
+        cleanPdfText(r.disciplina),
+        cleanPdfText(r.descrizione),
+        cleanPdfText(commentsToText(allComments)),
+        cleanPdfText(translateStatus(r.stato)),
+      ]);
+    });
+  });
+
+  return result;
+}
+
 type PdfHeaderData = {
   committente?: string;
   oggetto?: string;
@@ -384,11 +429,60 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
     didDrawPage: () => addPdfPageNumber(doc),
   });
 
+  const groupedRows = buildRilieviByElaboratoRows(rows);
+  const lastSummaryAutoTable = (doc as any).lastAutoTable;
+  let groupedStartY = (lastSummaryAutoTable?.finalY || summaryStartY) + 12;
+
+  if (groupedRows.length > 0) {
+    if (groupedStartY > doc.internal.pageSize.getHeight() - 55) {
+      doc.addPage();
+      groupedStartY = 18;
+    }
+
+    doc.setTextColor(ITS_BLUE[0], ITS_BLUE[1], ITS_BLUE[2]);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text("RILIEVI ORDINATI PER ELABORATO", 10, groupedStartY);
+
+    autoTable(doc, {
+      startY: groupedStartY + 4,
+      head: [["Elaborato", "ID rilievo", "Tipologia", "Disciplina", "Descrizione", "Gestione rilievo", "Stato"]],
+      body: groupedRows,
+      theme: "grid",
+      styles: {
+        font: "helvetica",
+        fontSize: 7,
+        cellPadding: 1.8,
+        overflow: "linebreak",
+        valign: "top",
+        lineColor: [200, 200, 200],
+        lineWidth: 0.1,
+      },
+      headStyles: {
+        fillColor: ITS_DARK_BLUE,
+        textColor: [255, 255, 255],
+        fontStyle: "bold",
+      },
+      alternateRowStyles: { fillColor: ITS_TABLE_LIGHT },
+      columnStyles: {
+        0: { cellWidth: 42, fontStyle: "bold" },
+        1: { cellWidth: 22 },
+        2: { cellWidth: 20 },
+        3: { cellWidth: 24 },
+        4: { cellWidth: 62 },
+        5: { cellWidth: 82 },
+        6: { cellWidth: 20 },
+      },
+      margin: { left: 10, right: 10, top: 10, bottom: 12 },
+      didDrawPage: () => addPdfPageNumber(doc),
+    });
+  }
+
   const rowsWithImages = rows.filter((r: any) => Boolean(r.snapshotDataUrl));
 
   if (rowsWithImages.length > 0) {
-    const lastSummaryTable = (doc as any).lastAutoTable;
-    let imagesStartY = (lastSummaryTable?.finalY || summaryStartY) + 12;
+    const lastTableBeforeImages = (doc as any).lastAutoTable;
+    let imagesStartY = (lastTableBeforeImages?.finalY || groupedStartY || summaryStartY) + 12;
     const pageHeight = doc.internal.pageSize.getHeight();
     const imageMaxW = 135;
     const imageMaxH = 78;
