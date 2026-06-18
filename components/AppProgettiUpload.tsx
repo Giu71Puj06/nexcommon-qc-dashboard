@@ -126,6 +126,7 @@ type PdfHeaderData = {
   ispettore?: string;
   firma?: string;
   firmaImage?: string;
+  allegatoRapporto?: string;
   notaRicezione?: string;
   dataRicezione?: string;
 };
@@ -218,6 +219,12 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
 
   doc.setFillColor(ITS_LIGHT_BLUE[0], ITS_LIGHT_BLUE[1], ITS_LIGHT_BLUE[2]);
   doc.rect(marginX + 208, headerY + 3, headerW - 208, 17, "F");
+  doc.setTextColor(80, 80, 80);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  doc.text(headerValue(headerData.allegatoRapporto || "").slice(0, 55), pageWidth - marginX - 4, headerY + 10, { align: "right" });
+  doc.setFont("helvetica", "normal");
+  doc.text("Allegato al Rapporto", pageWidth - marginX - 4, headerY + 15, { align: "right" });
 
   // Sezione 1 - Dati commessa
   doc.setFillColor(ITS_BLUE[0], ITS_BLUE[1], ITS_BLUE[2]);
@@ -826,6 +833,15 @@ function DetailPanel({ rows, title, onReset }: any) {
               value={pdfHeader.notaRicezione || ""}
               onChange={(e) => updatePdfHeader("notaRicezione", e.target.value)}
               placeholder="es. 25063AR-PE1-RE-0001"
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Allegato al Rapporto</label>
+            <input
+              style={inputStyle}
+              value={pdfHeader.allegatoRapporto || ""}
+              onChange={(e) => updatePdfHeader("allegatoRapporto", e.target.value)}
+              placeholder="es. Allegato 1 al Rapporto"
             />
           </div>
           <div>
