@@ -123,12 +123,14 @@ type PdfHeaderData = {
   committente?: string;
   oggetto?: string;
   codiceCommessa?: string;
+  responsabileTecnico?: string;
   ispettore?: string;
   firma?: string;
   firmaImage?: string;
   allegatoRapporto?: string;
   notaRicezione?: string;
   dataRicezione?: string;
+  dataEmissione?: string;
 };
 
 const ITS_BLUE = [30, 117, 192] as [number, number, number];
@@ -194,7 +196,7 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
 
   doc.setDrawColor(210, 210, 210);
   doc.setLineWidth(0.25);
-  doc.rect(marginX, headerY + 3, headerW, 47);
+  doc.rect(marginX, headerY + 3, headerW, 54);
 
   doc.setFillColor(255, 255, 255);
   doc.rect(marginX, headerY + 3, 66, 17, "F");
@@ -222,9 +224,7 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
   doc.setTextColor(80, 80, 80);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8);
-  doc.text(headerValue(headerData.allegatoRapporto || "").slice(0, 55), pageWidth - marginX - 4, headerY + 10, { align: "right" });
-  doc.setFont("helvetica", "normal");
-  doc.text("Allegato al Rapporto", pageWidth - marginX - 4, headerY + 15, { align: "right" });
+  doc.text(headerValue(headerData.allegatoRapporto || "").slice(0, 55), pageWidth - marginX - 4, headerY + 12, { align: "right" });
 
   // Sezione 1 - Dati commessa
   doc.setFillColor(ITS_BLUE[0], ITS_BLUE[1], ITS_BLUE[2]);
@@ -232,13 +232,13 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
   doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(9);
-  doc.text("1. DATI COMMESSA", marginX + 1, headerY + 25);
+  doc.text("DATI COMMESSA", marginX + 1, headerY + 25);
 
   const leftX = marginX;
   const labelW = 68;
   const midX = marginX + 168;
   const row1Y = headerY + 27;
-  const rowH = 7;
+  const rowH = 8;
 
   function labelCell(label: string, x: number, y: number, w: number) {
     doc.setFillColor(ITS_GRAY[0], ITS_GRAY[1], ITS_GRAY[2]);
@@ -267,7 +267,7 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
         const props = doc.getImageProperties(imageDataUrl);
         const ratio = props.width && props.height ? props.width / props.height : 3.2;
         const maxW = w - 4;
-        const maxH = rowH - 1.5;
+        const maxH = rowH * 1.6;
         let imageW = maxW;
         let imageH = imageW / ratio;
 
@@ -276,7 +276,7 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
           imageW = imageH * ratio;
         }
 
-        doc.addImage(imageDataUrl, "PNG", x + 2, y + (rowH - imageH) / 2, imageW, imageH);
+        doc.addImage(imageDataUrl, "PNG", x + 2, y + Math.max(0.5, (rowH - imageH) / 2), imageW, imageH);
         return;
       } catch (error) {
         // In caso di immagine non valida, usa il testo di fallback.
@@ -300,24 +300,27 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
   labelCell("Firma:", midX, row1Y + rowH * 2, 36);
   signatureCell(headerData.firma || "", headerData.firmaImage, midX + 36, row1Y + rowH * 2, headerW - 204);
 
-  labelCell("Nome ispettore:", leftX, row1Y + rowH * 3, labelW);
-  valueCell(headerData.ispettore || "", leftX + labelW, row1Y + rowH * 3, 100);
+  labelCell("Nome Responsabile tecnico:", leftX, row1Y + rowH * 3, labelW);
+  valueCell(headerData.responsabileTecnico || "", leftX + labelW, row1Y + rowH * 3, 100);
   labelCell("Data Ricezione:", midX, row1Y + rowH * 3, 36);
   valueCell(headerData.dataRicezione || "", midX + 36, row1Y + rowH * 3, headerW - 204);
 
-  labelCell("Nota di Ricezione Elaborati:", leftX, row1Y + rowH * 4, labelW);
-  valueCell(headerData.notaRicezione || "", leftX + labelW, row1Y + rowH * 4, 100);
-  labelCell("Data esportazione:", midX, row1Y + rowH * 4, 36);
-  valueCell(generatedAt, midX + 36, row1Y + rowH * 4, headerW - 204);
+  labelCell("Nome ispettore:", leftX, row1Y + rowH * 4, labelW);
+  valueCell(headerData.ispettore || "", leftX + labelW, row1Y + rowH * 4, 100);
+  labelCell("Data emissione:", midX, row1Y + rowH * 4, 36);
+  valueCell(headerData.dataEmissione || "", midX + 36, row1Y + rowH * 4, headerW - 204);
+
+  labelCell("Nota di Ricezione Elaborati e data:", leftX, row1Y + rowH * 5, labelW);
+  valueCell(headerData.notaRicezione || "", leftX + labelW, row1Y + rowH * 5, headerW - labelW);
 
   // Sezione 4 - Rilievi, coerente con il template.
-  const sectionY = headerY + 70;
+  const sectionY = headerY + 84;
   doc.setFillColor(ITS_BLUE[0], ITS_BLUE[1], ITS_BLUE[2]);
   doc.rect(marginX, sectionY, headerW, 7, "F");
   doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(9);
-  doc.text("4. RILIEVI ITS CONTROLLI TECNICI   (*) NC = Non conformità   |   OSS = Osservazione", marginX + 1, sectionY + 5);
+  doc.text("RILIEVI ITS CONTROLLI TECNICI   NC = Non conformità   |   OSS = Osservazione", marginX + 1, sectionY + 5);
 
   doc.setTextColor(80, 80, 80);
   doc.setFont("helvetica", "normal");
@@ -827,7 +830,7 @@ function DetailPanel({ rows, title, onReset }: any) {
             />
           </div>
           <div>
-            <label style={labelStyle}>Nota di Ricezione Elaborati</label>
+            <label style={labelStyle}>Nota di Ricezione Elaborati e data</label>
             <input
               style={inputStyle}
               value={pdfHeader.notaRicezione || ""}
@@ -854,6 +857,15 @@ function DetailPanel({ rows, title, onReset }: any) {
             />
           </div>
           <div>
+            <label style={labelStyle}>Nome Responsabile tecnico</label>
+            <input
+              style={inputStyle}
+              value={pdfHeader.responsabileTecnico || ""}
+              onChange={(e) => updatePdfHeader("responsabileTecnico", e.target.value)}
+              placeholder="es. Ing. Mario Rossi"
+            />
+          </div>
+          <div>
             <label style={labelStyle}>Nome ispettore</label>
             <input
               style={inputStyle}
@@ -863,13 +875,19 @@ function DetailPanel({ rows, title, onReset }: any) {
             />
           </div>
           <div>
-            <label style={labelStyle}>Data Ricezione / Firma</label>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <label style={labelStyle}>Data Ricezione / Data emissione / Firma</label>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
               <input
                 style={inputStyle}
                 value={pdfHeader.dataRicezione || ""}
                 onChange={(e) => updatePdfHeader("dataRicezione", e.target.value)}
-                placeholder="es. 15/06/2026"
+                placeholder="Data ricezione"
+              />
+              <input
+                style={inputStyle}
+                value={pdfHeader.dataEmissione || ""}
+                onChange={(e) => updatePdfHeader("dataEmissione", e.target.value)}
+                placeholder="Data emissione"
               />
               <div>
                 <input
