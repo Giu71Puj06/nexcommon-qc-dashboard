@@ -215,7 +215,7 @@ function commentsToPdfRichText(comments: any[] = []) {
       const role = c.role ? `[${String(c.role).toUpperCase()}] ` : "";
       const author = normalizeCommentAuthor(c.author || "Autore non indicato");
       const date = formatCommentDateIt(c.date || "");
-      const header = [role + author, date].filter(Boolean).join("\n");
+      const header = [role + author, date].filter(Boolean).join(" - ");
       const comment = cleanPdfText(c.comment || "");
       return [header, comment].filter(Boolean).join("\n");
     })
@@ -427,50 +427,13 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
       8: { cellWidth: 19 },
     },
     margin: { left: 10, right: 10, top: 10, bottom: 12 },
-    willDrawCell: (data: any) => {
+    didParseCell: (data: any) => {
       if (data.section === "body" && data.column.index === 7) {
-        data.cell.text = [];
+        data.cell.styles.fontStyle = "normal";
+        data.cell.styles.fontSize = 7;
+        data.cell.styles.cellPadding = 2;
+        data.cell.styles.overflow = "linebreak";
       }
-    },
-    didDrawCell: (data: any) => {
-      if (data.section !== "body" || data.column.index !== 7) return;
-
-      const row = rows[data.row.index];
-      const comments = Array.isArray(row?.comments) ? row.comments : [];
-      let y = data.cell.y + 2.2;
-      const x = data.cell.x + 2;
-      const maxWidth = data.cell.width - 4;
-
-      comments.forEach((c: any, idx: number) => {
-        const role = c.role ? `[${String(c.role).toUpperCase()}] ` : "";
-        const author = normalizeCommentAuthor(c.author || "Autore non indicato");
-        const date = formatCommentDateIt(c.date || "");
-        const comment = cleanPdfText(c.comment || "");
-
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(7);
-        doc.setTextColor(20, 20, 20);
-        const headerLines = doc.splitTextToSize(`${role}${author}`, maxWidth);
-        doc.text(headerLines, x, y);
-        y += headerLines.length * 3.1;
-
-        if (date) {
-          doc.setFont("helvetica", "bold");
-          doc.text(date, x, y);
-          y += 3.1;
-        }
-
-        if (comment) {
-          doc.setFont("helvetica", "normal");
-          const commentLines = doc.splitTextToSize(comment, maxWidth);
-          doc.text(commentLines, x, y);
-          y += commentLines.length * 3.1;
-        }
-
-        if (idx < comments.length - 1) {
-          y += 2.5;
-        }
-      });
     },
     didDrawPage: () => addPdfPageNumber(doc),
   });
