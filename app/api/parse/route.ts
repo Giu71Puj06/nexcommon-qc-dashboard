@@ -347,6 +347,18 @@ function getFolderFromPath(path = "") {
   return parts.join("/");
 }
 
+function isSolibriCheckingFile(fileName = "") {
+  const baseName = String(fileName || "").split("/").pop() || "";
+  return /^solibri_checking_/i.test(baseName);
+}
+
+function extractSolibriCheckingRevision(fileName = "") {
+  const baseName = String(fileName || "").split("/").pop() || "";
+  const match = baseName.match(/^solibri_checking_(.+?)\.(bcf|bcfzip|zip)$/i);
+
+  return match ? match[1] : "";
+}
+
 async function extractSnapshotDataUrl(zip: JSZip, markupPath: string) {
   const folder = getFolderFromPath(markupPath);
   const files = Object.keys(zip.files);
@@ -391,6 +403,10 @@ async function readBcfZip(fileName: string, buffer: Buffer) {
 
   const zip = await JSZip.loadAsync(buffer);
   const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "", textNodeName: "#text", trimValues: true });
+  const isSolibriChecking = isSolibriCheckingFile(fileName);
+  const solibriCheckingRevision = extractSolibriCheckingRevision(fileName);
+  const origineFile = isSolibriChecking ? "Solibri" : "BCF";
+  const tipoVerificaFile = isSolibriChecking ? "Checking Modelli" : "Verifica Documentale";
 
   const markupPaths = Object.keys(zip.files).filter((path) => path.toLowerCase().endsWith("markup.bcf"));
 
@@ -405,6 +421,10 @@ async function readBcfZip(fileName: string, buffer: Buffer) {
 
     bcfTopics.push({
       sourceFile: fileName,
+      origine: origineFile,
+      tipoVerifica: tipoVerificaFile,
+      revisioneChecking: solibriCheckingRevision,
+      isSolibriChecking,
       markupPath: path,
       snapshotPath: snapshot.snapshotPath,
       snapshotDataUrl: snapshot.snapshotDataUrl,
@@ -817,6 +837,9 @@ export async function POST(req: Request) {
 
         importedFiles.push({
           fileName: file.name,
+          origine: isSolibriCheckingFile(file.name) ? "Solibri" : "BCF",
+          tipoVerifica: isSolibriCheckingFile(file.name) ? "Checking Modelli" : "Verifica Documentale",
+          revisioneChecking: isSolibriCheckingFile(file.name) ? extractSolibriCheckingRevision(file.name) : "",
           type: name.endsWith(".bcf") ? "bcf" : name.endsWith(".bcfzip") ? "bcfzip" : "zip",
           markupCount: result.markupCount,
           topics: result.bcfTopics.length,
@@ -912,6 +935,10 @@ export async function POST(req: Request) {
         descrizione: description,
         tipo,
         tipoOriginale: todo.Type || "",
+        origine: todo.origine || matchedBcfTopic?.origine || (todo.__source ? "BCF" : "Trimble"),
+        tipoVerifica: todo.tipoVerifica || matchedBcfTopic?.tipoVerifica || "Verifica Documentale",
+        revisioneChecking: todo.revisioneChecking || matchedBcfTopic?.revisioneChecking || "",
+        isSolibriChecking: Boolean(todo.isSolibriChecking || matchedBcfTopic?.isSolibriChecking),
         snapshotPath: todo.snapshotPath || matchedBcfTopic?.snapshotPath || "",
         snapshotDataUrl: todo.snapshotDataUrl || matchedBcfTopic?.snapshotDataUrl || "",
         tags,
@@ -946,6 +973,8 @@ export async function POST(req: Request) {
         statoRisoluzione,
         nCommenti: comments.length,
         comments,
+        sourceFile: todo.sourceFile || matchedBcfTopic?.sourceFile || "",
+        sourceType: todo.__source || matchedBcfTopic?.__source || (excelRows.length > 0 ? "xlsx" : "bcf"),
       };
     });
 
