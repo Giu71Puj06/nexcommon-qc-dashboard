@@ -179,6 +179,49 @@ function addPdfPageNumber(doc: jsPDF) {
   doc.text(`Pagina ${pageCount}`, pageWidthCurrent - 10, pageHeight - 6, { align: "right" });
 }
 
+function formatCommentDateIt(value = "") {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) return `${match[3]}-${match[2]}-${match[1]}`;
+
+  const fallback = new Date(raw);
+  if (!Number.isNaN(fallback.getTime())) {
+    return fallback.toLocaleDateString("it-IT").replace(/\//g, "-");
+  }
+
+  return raw;
+}
+
+function normalizeCommentAuthor(author = "") {
+  return cleanPdfText(author).replace(/\s+/g, " ").trim();
+}
+
+function getRedattoreFromComments(comments: any[] = []) {
+  const ispAuthors = comments
+    .filter((c: any) => String(c?.role || "").toUpperCase() === "ISP")
+    .map((c: any) => normalizeCommentAuthor(c?.author || ""))
+    .filter(Boolean);
+
+  return Array.from(new Set(ispAuthors)).join(" / ");
+}
+
+function commentsToPdfRichText(comments: any[] = []) {
+  if (!Array.isArray(comments) || comments.length === 0) return "";
+
+  return comments
+    .map((c: any) => {
+      const role = c.role ? `[${String(c.role).toUpperCase()}] ` : "";
+      const author = normalizeCommentAuthor(c.author || "Autore non indicato");
+      const date = formatCommentDateIt(c.date || "");
+      const header = [role + author, date].filter(Boolean).join("\n");
+      const comment = cleanPdfText(c.comment || "");
+      return [header, comment].filter(Boolean).join("\n");
+    })
+    .join("\n\n");
+}
+
 function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}) {
   if (!rows || rows.length === 0) return;
 
@@ -343,16 +386,17 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
       cleanPdfText(r.id),
       cleanPdfText(r.tipo),
       cleanPdfText(r.disciplina),
+      cleanPdfText(getRedattoreFromComments(allComments)),
       cleanPdfText(getElaboratoKey(r)),
       cleanPdfText(r.descrizione),
-      cleanPdfText(commentsToText(allComments)),
+      cleanPdfText(commentsToPdfRichText(allComments)),
       cleanPdfText(translateStatus(r.stato)),
     ];
   });
 
   autoTable(doc, {
     startY: sectionY + 7,
-    head: [["N.", "ID rilievo", "Tipologia", "Disciplina", "Elaborato", "Descrizione", "Gestione rilievo", "Stato"]],
+    head: [["N.", "ID rilievo", "Tipologia", "Disciplina", "Redattore", "Elaborato", "Descrizione", "Gestione rilievo", "Stato"]],
     body: tableRows,
     theme: "grid",
     tableWidth: headerW,
@@ -373,15 +417,61 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
     alternateRowStyles: { fillColor: ITS_TABLE_LIGHT },
     columnStyles: {
       0: { cellWidth: 9, halign: "center" },
-      1: { cellWidth: 22 },
-      2: { cellWidth: 22 },
-      3: { cellWidth: 25 },
-      4: { cellWidth: 38 },
-      5: { cellWidth: 55 },
-      6: { cellWidth: 82 },
-      7: { cellWidth: 20 },
+      1: { cellWidth: 21 },
+      2: { cellWidth: 21 },
+      3: { cellWidth: 23 },
+      4: { cellWidth: 26 },
+      5: { cellWidth: 34 },
+      6: { cellWidth: 52 },
+      7: { cellWidth: 68 },
+      8: { cellWidth: 19 },
     },
     margin: { left: 10, right: 10, top: 10, bottom: 12 },
+    willDrawCell: (data: any) => {
+      if (data.section === "body" && data.column.index === 7) {
+        data.cell.text = [];
+      }
+    },
+    didDrawCell: (data: any) => {
+      if (data.section !== "body" || data.column.index !== 7) return;
+
+      const row = rows[data.row.index];
+      const comments = Array.isArray(row?.comments) ? row.comments : [];
+      let y = data.cell.y + 2.2;
+      const x = data.cell.x + 2;
+      const maxWidth = data.cell.width - 4;
+
+      comments.forEach((c: any, idx: number) => {
+        const role = c.role ? `[${String(c.role).toUpperCase()}] ` : "";
+        const author = normalizeCommentAuthor(c.author || "Autore non indicato");
+        const date = formatCommentDateIt(c.date || "");
+        const comment = cleanPdfText(c.comment || "");
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(7);
+        doc.setTextColor(20, 20, 20);
+        const headerLines = doc.splitTextToSize(`${role}${author}`, maxWidth);
+        doc.text(headerLines, x, y);
+        y += headerLines.length * 3.1;
+
+        if (date) {
+          doc.setFont("helvetica", "bold");
+          doc.text(date, x, y);
+          y += 3.1;
+        }
+
+        if (comment) {
+          doc.setFont("helvetica", "normal");
+          const commentLines = doc.splitTextToSize(comment, maxWidth);
+          doc.text(commentLines, x, y);
+          y += commentLines.length * 3.1;
+        }
+
+        if (idx < comments.length - 1) {
+          y += 2.5;
+        }
+      });
+    },
     didDrawPage: () => addPdfPageNumber(doc),
   });
 
@@ -542,6 +632,7 @@ function toDashboardExportRows(rows: any[]) {
     ID_Rilievo: r.id || "",
     "Tipologia rilievo": r.tipo || "",
     Disciplina: r.disciplina || "",
+    Redattore: getRedattoreFromComments(Array.isArray(r.comments) ? r.comments : []),
     Elaborato: getElaboratoKey(r),
     Descrizione: r.descrizione || "",
     "Gestione rilievo": commentsToText(Array.isArray(r.comments) ? r.comments : []),
@@ -920,6 +1011,7 @@ function DetailPanel({ rows, title, onReset }: any) {
               <th style={th}>ID_Rilievo</th>
               <th style={th}>Tipologia rilievo</th>
               <th style={th}>Disciplina</th>
+              <th style={th}>Redattore</th>
               <th style={th}>Elaborato</th>
               <th style={th}>Descrizione</th>
               <th style={th}>Gestione rilievo</th>
@@ -937,6 +1029,7 @@ function DetailPanel({ rows, title, onReset }: any) {
                   <td style={td}>{r.id}</td>
                   <td style={td}>{r.tipo}</td>
                   <td style={td}>{r.disciplina}</td>
+                  <td style={td}>{getRedattoreFromComments(allComments)}</td>
                   <td style={td}>{getElaboratoKey(r)}</td>
                   <td style={td}>{r.descrizione}</td>
                   <td style={td}>
