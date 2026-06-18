@@ -183,9 +183,8 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
   if (!rows || rows.length === 0) return;
 
   const printableRows = rows.filter((r: any) => {
-    const stato = cleanPdfText(r.stato || r.Stato).toLowerCase();
-    const tipo = cleanPdfText(r.tipo || r["Tipologia rilievo"]).toLowerCase();
-    return stato !== "nessun rilievo" && tipo !== "nessun rilievo";
+    const tipo = cleanPdfText(r.tipo || r["Tipologia rilievo"]).toUpperCase();
+    return tipo === "NC" || tipo === "OSS" || tipo === "DA NC A OSS";
   });
 
   if (printableRows.length === 0) return;
@@ -276,8 +275,8 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
       try {
         const props = doc.getImageProperties(imageDataUrl);
         const ratio = props.width && props.height ? props.width / props.height : 3.2;
-        const maxW = (w - 4) * 2;
-        const maxH = rowH * 1.05;
+        const maxW = (w - 4) * 2.2;
+        const maxH = rowH * 0.7;
         let imageW = Math.min(maxW, pageWidth - x - 12);
         let imageH = imageW / ratio;
 
@@ -356,6 +355,7 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
     head: [["N.", "ID rilievo", "Tipologia", "Disciplina", "Elaborato", "Descrizione", "Gestione rilievo", "Stato"]],
     body: tableRows,
     theme: "grid",
+    tableWidth: headerW,
     styles: {
       font: "helvetica",
       fontSize: 7,
@@ -1326,7 +1326,7 @@ export default function AppProgettiUpload() {
         <KPI title="In attesa di risposta del progettista" value={daRisponderePRG} subtitle="Nessun PRG o ultimo ISP" onClick={() => setSelection({ type: "kpi", value: "da-rispondere-prg", label: "KPI", valueLabel: "Da rispondere PRG" })} />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         <BarList title="Rilievi per disciplina" data={disciplineData} activeKey={selection?.type === "disciplina" ? selection.value : ""} onClick={(value: string) => setSelection({ type: "disciplina", value, label: "Disciplina" })} onExport={() => exportExcel("Rilievi_per_disciplina", toChartExportRows(disciplineData))} />
         <BarList title="Rilievi" data={esitiData} activeKey={selection?.type === "tipo" ? selection.value : ""} onClick={(value: string) => setSelection({ type: "tipo", value, label: "Rilievi" })} onExport={() => exportExcel("Rilievi", toChartExportRows(esitiData))} />
         <BarList title="NC / OSS per elaborato" data={rilieviPerElaboratoData} activeKey={selection?.type === "elaborato" ? selection.value : ""} onClick={(value: string, valueLabel: string) => setSelection({ type: "elaborato", value, label: "Elaborato", valueLabel })} onExport={() => exportExcel("NC_OSS_per_elaborato", toChartExportRows(rilieviPerElaboratoData))} />
