@@ -125,6 +125,7 @@ type PdfHeaderData = {
   codiceCommessa?: string;
   ispettore?: string;
   firma?: string;
+  firmaImage?: string;
   notaRicezione?: string;
   dataRicezione?: string;
 };
@@ -217,12 +218,6 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
 
   doc.setFillColor(ITS_LIGHT_BLUE[0], ITS_LIGHT_BLUE[1], ITS_LIGHT_BLUE[2]);
   doc.rect(marginX + 208, headerY + 3, headerW - 208, 17, "F");
-  doc.setTextColor(80, 80, 80);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(8);
-  doc.text("Export dettaglio NC / OSS", pageWidth - marginX - 4, headerY + 10, { align: "right" });
-  doc.setFont("helvetica", "normal");
-  doc.text("Nexcommon QC", pageWidth - marginX - 4, headerY + 15, { align: "right" });
 
   // Sezione 1 - Dati commessa
   doc.setFillColor(ITS_BLUE[0], ITS_BLUE[1], ITS_BLUE[2]);
@@ -256,6 +251,37 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
     doc.text(headerValue(value).slice(0, Math.max(15, Math.floor(w / 2.1))), x + 2, y + 4.7);
   }
 
+  function signatureCell(value: string, imageDataUrl: string | undefined, x: number, y: number, w: number) {
+    doc.setFillColor(255, 255, 255);
+    doc.rect(x, y, w, rowH, "D");
+
+    if (imageDataUrl) {
+      try {
+        const props = doc.getImageProperties(imageDataUrl);
+        const ratio = props.width && props.height ? props.width / props.height : 3.2;
+        const maxW = w - 4;
+        const maxH = rowH - 1.5;
+        let imageW = maxW;
+        let imageH = imageW / ratio;
+
+        if (imageH > maxH) {
+          imageH = maxH;
+          imageW = imageH * ratio;
+        }
+
+        doc.addImage(imageDataUrl, "PNG", x + 2, y + (rowH - imageH) / 2, imageW, imageH);
+        return;
+      } catch (error) {
+        // In caso di immagine non valida, usa il testo di fallback.
+      }
+    }
+
+    doc.setTextColor(35, 35, 35);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.text(headerValue(value).slice(0, Math.max(15, Math.floor(w / 2.1))), x + 2, y + 4.7);
+  }
+
   labelCell("Committente / Stazione Appaltante:", leftX, row1Y, labelW);
   valueCell(headerData.committente || "", leftX + labelW, row1Y, headerW - labelW);
 
@@ -265,9 +291,9 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
   labelCell("Codice commessa ITS:", leftX, row1Y + rowH * 2, labelW);
   valueCell(headerData.codiceCommessa || "", leftX + labelW, row1Y + rowH * 2, 100);
   labelCell("Firma:", midX, row1Y + rowH * 2, 36);
-  valueCell(headerData.firma || "", midX + 36, row1Y + rowH * 2, headerW - 204);
+  signatureCell(headerData.firma || "", headerData.firmaImage, midX + 36, row1Y + rowH * 2, headerW - 204);
 
-  labelCell("Nome ispettore redattore:", leftX, row1Y + rowH * 3, labelW);
+  labelCell("Nome ispettore:", leftX, row1Y + rowH * 3, labelW);
   valueCell(headerData.ispettore || "", leftX + labelW, row1Y + rowH * 3, 100);
   labelCell("Data Ricezione:", midX, row1Y + rowH * 3, 36);
   valueCell(headerData.dataRicezione || "", midX + 36, row1Y + rowH * 3, headerW - 204);
@@ -689,6 +715,27 @@ function DetailPanel({ rows, title, onReset }: any) {
     setPdfHeader((prev) => ({ ...prev, [field]: value }));
   }
 
+  function updateFirmaImage(file?: File) {
+    if (!file) {
+      setPdfHeader((prev) => ({ ...prev, firmaImage: "" }));
+      return;
+    }
+
+    if (file.type !== "image/png") {
+      alert("Caricare una firma in formato .png");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setPdfHeader((prev) => ({
+        ...prev,
+        firmaImage: typeof reader.result === "string" ? reader.result : "",
+      }));
+    };
+    reader.readAsDataURL(file);
+  }
+
   const inputStyle = {
     width: "100%",
     border: "1px solid #cbd5e1",
@@ -791,7 +838,7 @@ function DetailPanel({ rows, title, onReset }: any) {
             />
           </div>
           <div>
-            <label style={labelStyle}>Nome ispettore redattore</label>
+            <label style={labelStyle}>Nome ispettore</label>
             <input
               style={inputStyle}
               value={pdfHeader.ispettore || ""}
@@ -808,12 +855,20 @@ function DetailPanel({ rows, title, onReset }: any) {
                 onChange={(e) => updatePdfHeader("dataRicezione", e.target.value)}
                 placeholder="es. 15/06/2026"
               />
-              <input
-                style={inputStyle}
-                value={pdfHeader.firma || ""}
-                onChange={(e) => updatePdfHeader("firma", e.target.value)}
-                placeholder="Firma"
-              />
+              <div>
+                <input
+                  style={inputStyle}
+                  type="file"
+                  accept="image/png"
+                  onChange={(e) => updateFirmaImage(e.target.files?.[0])}
+                  title="Carica firma in formato PNG"
+                />
+                {pdfHeader.firmaImage && (
+                  <div style={{ marginTop: 4, fontSize: 11, color: "#16a34a", fontWeight: 700 }}>
+                    Firma PNG caricata
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
