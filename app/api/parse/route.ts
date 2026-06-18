@@ -294,6 +294,54 @@ function findBestBcfTopic(todo: any, topicsByKey: Map<string, any>, allTopics: a
   return null;
 }
 
+function buildBcfTopicUniqueKey(topic: any) {
+  return [
+    normalize(topic?.sourceFile || ""),
+    normalize(topic?.Guid || topic?.GUID || topic?.ID || topic?.Label || ""),
+    normalize(topic?.Title || ""),
+    normalize(topic?.Description || ""),
+  ].join("|");
+}
+
+function buildBcfTopicsByKey(topics: any[]) {
+  const map = new Map<string, any>();
+
+  for (const topic of topics) {
+    const keys = Array.from(new Set([
+      normalize(topic.Label),
+      normalize(topic.ID),
+      normalize(topic.Guid),
+      normalize(topic.Title),
+      normalize(String(topic.Title || "").replace(/\.pdf/gi, "")),
+    ].filter(Boolean)));
+
+    for (const key of keys) {
+      if (!map.has(key)) map.set(key, topic);
+    }
+  }
+
+  return map;
+}
+
+function buildTodoRowsWithStandaloneBcf(excelRows: any[], bcfTopicRows: any[]) {
+  if (!excelRows.length) return bcfTopicRows;
+
+  const topicsByKeyForMatch = buildBcfTopicsByKey(bcfTopicRows);
+  const matchedTopicKeys = new Set<string>();
+
+  for (const todo of excelRows) {
+    const matched = findBestBcfTopic(todo, topicsByKeyForMatch, bcfTopicRows);
+    if (matched) matchedTopicKeys.add(buildBcfTopicUniqueKey(matched));
+  }
+
+  const standaloneBcfTopics = bcfTopicRows.filter((topic) => {
+    const key = buildBcfTopicUniqueKey(topic);
+    return key && !matchedTopicKeys.has(key);
+  });
+
+  return [...excelRows, ...standaloneBcfTopics];
+}
+
 function extractMarkup(parsed: any) {
   return parsed?.Markup || parsed?.markup || parsed?.bcf?.Markup || parsed?.Bcf?.Markup || parsed;
 }
@@ -872,10 +920,12 @@ export async function POST(req: Request) {
       }
     }
 
-    const todoRows = excelRows.length > 0 ? excelRows : bcfTopicRows;
+    const todoRows = buildTodoRowsWithStandaloneBcf(excelRows, bcfTopicRows);
 
     const rowsFromTodoOrBcf = todoRows.map((todo: any, index: number) => {
-      const matchedBcfTopic = findBestBcfTopic(todo, topicsByKey, bcfTopicRows);
+      const matchedBcfTopic = todo.__source
+        ? todo
+        : findBestBcfTopic(todo, topicsByKey, bcfTopicRows);
       const label = getTodoLabel(todo);
       const title = todo.Title || matchedBcfTopic?.Title || "";
       const todoDescription = todo.Description || "";
