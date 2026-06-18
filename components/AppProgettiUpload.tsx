@@ -182,13 +182,23 @@ function addPdfPageNumber(doc: jsPDF) {
 function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}) {
   if (!rows || rows.length === 0) return;
 
+  const printableRows = rows.filter((r: any) => {
+    const stato = cleanPdfText(r.stato || r.Stato).toLowerCase();
+    const tipo = cleanPdfText(r.tipo || r["Tipologia rilievo"]).toLowerCase();
+    return stato !== "nessun rilievo" && tipo !== "nessun rilievo";
+  });
+
+  if (printableRows.length === 0) return;
+
+  rows = printableRows;
+
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const generatedAt = new Date().toLocaleString("it-IT");
   const disciplina = detectDisciplinaForPdf(rows, title);
   const pageWidth = doc.internal.pageSize.getWidth();
   const marginX = 10;
   const headerY = 8;
-  const headerW = pageWidth - marginX * 2;
+  const headerW = 273;
 
   // Testata solo sulla prima pagina, con colori e logo ricavati dal template Excel ITS.
   doc.setFillColor(ITS_BLUE[0], ITS_BLUE[1], ITS_BLUE[2]);
@@ -266,9 +276,9 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
       try {
         const props = doc.getImageProperties(imageDataUrl);
         const ratio = props.width && props.height ? props.width / props.height : 3.2;
-        const maxW = w - 4;
-        const maxH = rowH * 1.6;
-        let imageW = maxW;
+        const maxW = (w - 4) * 2;
+        const maxH = rowH * 1.05;
+        let imageW = Math.min(maxW, pageWidth - x - 12);
         let imageH = imageW / ratio;
 
         if (imageH > maxH) {
@@ -302,8 +312,8 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
 
   labelCell("Nome Responsabile tecnico:", leftX, row1Y + rowH * 3, labelW);
   valueCell(headerData.responsabileTecnico || "", leftX + labelW, row1Y + rowH * 3, 100);
-  labelCell("Data Ricezione:", midX, row1Y + rowH * 3, 36);
-  valueCell(headerData.dataRicezione || "", midX + 36, row1Y + rowH * 3, headerW - 204);
+  doc.setFillColor(255, 255, 255);
+  doc.rect(midX, row1Y + rowH * 3, headerW - 168, rowH, "D");
 
   labelCell("Nome ispettore:", leftX, row1Y + rowH * 4, labelW);
   valueCell(headerData.ispettore || "", leftX + labelW, row1Y + rowH * 4, 100);
@@ -875,14 +885,8 @@ function DetailPanel({ rows, title, onReset }: any) {
             />
           </div>
           <div>
-            <label style={labelStyle}>Data Ricezione / Data emissione / Firma</label>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-              <input
-                style={inputStyle}
-                value={pdfHeader.dataRicezione || ""}
-                onChange={(e) => updatePdfHeader("dataRicezione", e.target.value)}
-                placeholder="Data ricezione"
-              />
+            <label style={labelStyle}>Data emissione / Firma</label>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               <input
                 style={inputStyle}
                 value={pdfHeader.dataEmissione || ""}
