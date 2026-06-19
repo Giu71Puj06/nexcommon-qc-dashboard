@@ -188,7 +188,7 @@ function addPdfPageNumber(doc: jsPDF) {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8);
   doc.setTextColor(110, 110, 110);
-  doc.text("Mod.PR 09.1.TR.rev.0 08.01.2026", 6, pageHeight - 38, { angle: 90 });
+  doc.text("Mod.PR 09.1.TR.rev.1 19.06.2026", 6, pageHeight - 38, { angle: 90 });
 }
 
 function formatCommentDateIt(value = "") {
@@ -308,7 +308,7 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
 
   doc.setDrawColor(210, 210, 210);
   doc.setLineWidth(0.25);
-  doc.rect(marginX, headerY + 3, headerW, 72);
+  doc.rect(marginX, headerY + 3, headerW, 82);
 
   doc.setFillColor(255, 255, 255);
   doc.rect(marginX, headerY + 3, 66, 17, "F");
@@ -379,7 +379,7 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
         const props = doc.getImageProperties(imageDataUrl);
         const ratio = props.width && props.height ? props.width / props.height : 3.2;
         const maxW = Math.min(w - 4, pageWidth - x - 12);
-        const maxH = h - 2;
+        const maxH = h - 3;
         let imageW = maxW;
         let imageH = imageW / ratio;
 
@@ -408,7 +408,7 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
     const validImages = (images || []).filter(Boolean).slice(0, 10);
     if (validImages.length === 0) return;
 
-    const cols = Math.min(5, validImages.length);
+    const cols = validImages.length === 1 ? 1 : Math.min(5, validImages.length);
     const rowsCount = validImages.length > 5 ? 2 : 1;
     const gap = 1.5;
     const cellW = (w - 4 - gap * (cols - 1)) / cols;
@@ -452,20 +452,20 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
   labelCell("Data emissione:", leftX, row1Y + rowH * 3, labelW);
   valueCell(headerData.dataEmissione || "", leftX + labelW, row1Y + rowH * 3, 100);
   labelCell("Firma Responsabile:", midX, row1Y + rowH * 3, 46);
-  signatureCell(headerData.firma || "", headerData.firmaResponsabileImage || headerData.firmaImage, midX + 46, row1Y + rowH * 3, headerW - 214, rowH);
+  signatureCell(headerData.firma || "", headerData.firmaResponsabileImage || headerData.firmaImage, midX + 46, row1Y + rowH * 3, headerW - 214, rowH * 2);
 
   doc.setFillColor(255, 255, 255);
   doc.rect(leftX, row1Y + rowH * 4, labelW + 100, rowH, "D");
-  labelCell("Nome ispettore:", midX, row1Y + rowH * 4, 46);
-  valueCell(headerData.ispettore || "", midX + 46, row1Y + rowH * 4, headerW - 214);
+  labelCell("Nome ispettore:", midX, row1Y + rowH * 5, 46);
+  valueCell(headerData.ispettore || "", midX + 46, row1Y + rowH * 5, headerW - 214);
 
   doc.setFillColor(255, 255, 255);
   doc.rect(leftX, row1Y + rowH * 5, labelW + 100, rowH * 2, "D");
-  labelCell("Firma ispettore:", midX, row1Y + rowH * 5, 46);
-  multiSignatureCell(headerData.firmaIspettoreImages || [], midX + 46, row1Y + rowH * 5, headerW - 214, rowH * 2);
+  labelCell("Firma ispettore:", midX, row1Y + rowH * 6, 46);
+  multiSignatureCell(headerData.firmaIspettoreImages || [], midX + 46, row1Y + rowH * 6, headerW - 214, rowH * 2);
 
   // Sezione 4 - Rilievi, coerente con il template.
-  const sectionY = headerY + 102;
+  const sectionY = headerY + 112;
   doc.setFillColor(ITS_BLUE[0], ITS_BLUE[1], ITS_BLUE[2]);
   doc.rect(marginX, sectionY, headerW, 7, "F");
   doc.setTextColor(255, 255, 255);
