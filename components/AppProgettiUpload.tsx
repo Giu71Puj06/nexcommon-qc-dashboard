@@ -250,64 +250,7 @@ function commentsToPdfRichText(comments: any[] = []) {
       const comment = cleanPdfText(c.comment || "");
       return [header, comment].filter(Boolean).join("\n");
     })
-    .join("\n");
-}
-
-function estimatePdfCommentLines(doc: jsPDF, comments: any[] = [], maxWidth = 60) {
-  let lines = 0;
-
-  comments.forEach((c: any) => {
-    const role = c.role ? `[${String(c.role).toUpperCase()}] ` : "";
-    const author = normalizeCommentAuthor(c.author || "Autore non indicato");
-    const date = formatCommentDateIt(c.date || "");
-    const header = [role + author, date].filter(Boolean).join(" - ");
-    const comment = cleanPdfText(c.comment || "");
-
-    if (header) lines += doc.splitTextToSize(header, maxWidth).length;
-    if (comment) lines += doc.splitTextToSize(comment, maxWidth).length;
-  });
-
-  return Math.max(lines, 1);
-}
-
-function drawPdfCommentsCell(doc: jsPDF, cell: any, comments: any[] = []) {
-  if (!Array.isArray(comments) || comments.length === 0) return;
-
-  const x = cell.x + 2;
-  let y = cell.y + 3;
-  const maxWidth = cell.width - 4;
-  const bottom = cell.y + cell.height - 1.5;
-  const lineH = 3.05;
-
-  for (const c of comments) {
-    const role = c.role ? `[${String(c.role).toUpperCase()}] ` : "";
-    const author = normalizeCommentAuthor(c.author || "Autore non indicato");
-    const date = formatCommentDateIt(c.date || "");
-    const header = [role + author, date].filter(Boolean).join(" - ");
-    const comment = cleanPdfText(c.comment || "");
-
-    if (header) {
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(7);
-      const headerLines = doc.splitTextToSize(header, maxWidth);
-      for (const line of headerLines) {
-        if (y > bottom) return;
-        doc.text(line, x, y);
-        y += lineH;
-      }
-    }
-
-    if (comment) {
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(7);
-      const commentLines = doc.splitTextToSize(comment, maxWidth);
-      for (const line of commentLines) {
-        if (y > bottom) return;
-        doc.text(line, x, y);
-        y += lineH;
-      }
-    }
-  }
+    .join("\n\n");
 }
 
 function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}) {
@@ -514,23 +457,10 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
     margin: { left: 10, right: 10, top: 10, bottom: 12 },
     didParseCell: (data: any) => {
       if (data.section === "body" && data.column.index === 7) {
-        const row = rows[data.row.index];
-        const comments = Array.isArray(row?.comments) ? row.comments : [];
-        const lineCount = estimatePdfCommentLines(doc, comments, data.cell.width - 4);
-
-        data.cell.text = [""];
         data.cell.styles.fontStyle = "normal";
         data.cell.styles.fontSize = 7;
         data.cell.styles.cellPadding = 2;
         data.cell.styles.overflow = "linebreak";
-        data.cell.styles.minCellHeight = Math.max(8, lineCount * 3.05 + 4);
-      }
-    },
-    didDrawCell: (data: any) => {
-      if (data.section === "body" && data.column.index === 7) {
-        const row = rows[data.row.index];
-        const comments = Array.isArray(row?.comments) ? row.comments : [];
-        drawPdfCommentsCell(doc, data.cell, comments);
       }
     },
     didDrawPage: () => addPdfPageNumber(doc),
