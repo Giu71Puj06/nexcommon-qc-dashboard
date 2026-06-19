@@ -337,8 +337,6 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
     .filter(Boolean) as SignatureDatabaseEntry[];
   const inspectorRows = Math.max(1, inspectorEntries.length);
   const headerBoxH = 60 + 10 * (1 + inspectorRows);
-  const templateMode = Boolean((headerData as any)?.templateMode);
-
   // Testata solo sulla prima pagina, con colori e logo ricavati dal template Excel ITS.
   doc.setFillColor(ITS_BLUE[0], ITS_BLUE[1], ITS_BLUE[2]);
   doc.rect(marginX, headerY, headerW, 3, "F");
