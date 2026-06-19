@@ -307,16 +307,22 @@ function commentsToPdfRichText(comments: any[] = []) {
 }
 
 function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}) {
-  if (!rows || rows.length === 0) return;
+  const templateMode = Boolean((headerData as any)?.templateMode);
 
-  const printableRows = rows.filter((r: any) => {
-    const tipo = cleanPdfText(r.tipo || r["Tipologia rilievo"]).toUpperCase();
-    return tipo === "NC" || tipo === "OSS" || tipo === "DA NC A OSS";
-  });
+  if (!templateMode && (!rows || rows.length === 0)) return;
 
-  if (printableRows.length === 0) return;
+  if (templateMode) {
+    rows = [];
+  } else {
+    const printableRows = rows.filter((r: any) => {
+      const tipo = cleanPdfText(r.tipo || r["Tipologia rilievo"]).toUpperCase();
+      return tipo === "NC" || tipo === "OSS" || tipo === "DA NC A OSS";
+    });
 
-  rows = printableRows;
+    if (printableRows.length === 0) return;
+
+    rows = printableRows;
+  }
 
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const generatedAt = new Date().toLocaleString("it-IT");
@@ -325,6 +331,13 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
   const marginX = 10;
   const headerY = 8;
   const headerW = 273;
+  const responsabileEntry = getSignatureEntryByKey(headerData.responsabileTecnicoKey || "");
+  const inspectorEntries = (headerData.ispettoreKeys || [])
+    .map((key) => getSignatureEntryByKey(key))
+    .filter(Boolean) as SignatureDatabaseEntry[];
+  const inspectorRows = Math.max(1, inspectorEntries.length);
+  const headerBoxH = 60 + 10 * (1 + inspectorRows);
+  const templateMode = Boolean((headerData as any)?.templateMode);
 
   // Testata solo sulla prima pagina, con colori e logo ricavati dal template Excel ITS.
   doc.setFillColor(ITS_BLUE[0], ITS_BLUE[1], ITS_BLUE[2]);
@@ -332,7 +345,7 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
 
   doc.setDrawColor(210, 210, 210);
   doc.setLineWidth(0.25);
-  doc.rect(marginX, headerY + 3, headerW, 92);
+  doc.rect(marginX, headerY + 3, headerW, headerBoxH);
 
   doc.setFillColor(255, 255, 255);
   doc.rect(marginX, headerY + 3, 66, 17, "F");
@@ -360,7 +373,7 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
   doc.setTextColor(80, 80, 80);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8);
-  doc.text(headerValue(headerData.codiceScheda || "").slice(0, 55), pageWidth - marginX - 4, headerY + 12, { align: "right" });
+  doc.text(headerValue(templateMode ? "" : headerData.codiceScheda || "").slice(0, 55), pageWidth - marginX - 4, headerY + 12, { align: "right" });
 
   // Sezione 1 - Dati commessa
   doc.setFillColor(ITS_BLUE[0], ITS_BLUE[1], ITS_BLUE[2]);
@@ -434,73 +447,99 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
     doc.text(headerValue(value).slice(0, Math.max(15, Math.floor(w / 2.1))), x + 2, y + Math.min(h - 2, 4.7));
   }
 
-  function multiSignatureCell(images: string[] = [], x: number, y: number, w: number, h: number) {
-    doc.setFillColor(255, 255, 255);
-    doc.rect(x, y, w, h, "D");
+  function drawSmallSignature(imageDataUrl: string | undefined, x: number, y: number, w: number, h: number) {
+    if (!imageDataUrl) return;
 
-    const validImages = (images || []).filter(Boolean).slice(0, 10);
-    if (validImages.length === 0) return;
+    try {
+      const props = doc.getImageProperties(imageDataUrl);
+      const ratio = props.width && props.height ? props.width / props.height : 3.2;
+      const maxW = w - 4;
+      const maxH = h - 2.5;
+      let imageW = maxW;
+      let imageH = imageW / ratio;
 
-    const cols = validImages.length === 1 ? 1 : Math.min(5, validImages.length);
-    const rowsCount = validImages.length > 5 ? 2 : 1;
-    const gap = 1.5;
-    const cellW = (w - 4 - gap * (cols - 1)) / cols;
-    const cellH = (h - 2 - gap * (rowsCount - 1)) / rowsCount;
-
-    validImages.forEach((img, index) => {
-      try {
-        const col = index % 5;
-        const row = Math.floor(index / 5);
-        const props = doc.getImageProperties(img);
-        const ratio = props.width && props.height ? props.width / props.height : 3.2;
-
-        let imageW = cellW;
-        let imageH = imageW / ratio;
-
-        if (imageH > cellH) {
-          imageH = cellH;
-          imageW = imageH * ratio;
-        }
-
-        const imgX = x + 2 + col * (cellW + gap);
-        const imgY = y + 1 + row * (cellH + gap) + Math.max(0, (cellH - imageH) / 2);
-        doc.addImage(img, getImageFormatFromDataUrl(img), imgX, imgY, imageW, imageH);
-      } catch (error) {
-        // Salta immagini non valide.
+      if (imageH > maxH) {
+        imageH = maxH;
+        imageW = imageH * ratio;
       }
-    });
+
+      doc.addImage(
+        imageDataUrl,
+        getImageFormatFromDataUrl(imageDataUrl),
+        x + 2,
+        y + Math.max(1.2, (h - imageH) / 2),
+        imageW,
+        imageH
+      );
+    } catch (error) {
+      // Salta immagini non valide.
+    }
+  }
+
+  function signatoryRow(label: string, name: string, signature: string | undefined, x: number, y: number, w: number, h: number) {
+    const signatureW = 72;
+    const nameW = w - labelW - signatureW;
+
+    labelTallCell(label, x, y, labelW, h);
+
+    doc.setFillColor(255, 255, 255);
+    doc.rect(x + labelW, y, signatureW, h, "D");
+    drawSmallSignature(signature, x + labelW, y, signatureW, h);
+
+    doc.setFillColor(255, 255, 255);
+    doc.rect(x + labelW + signatureW, y, nameW, h, "D");
+    doc.setTextColor(35, 35, 35);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.text(headerValue(name).slice(0, Math.max(15, Math.floor(nameW / 2.1))), x + labelW + signatureW + 2, y + Math.min(h - 2, 5.2));
   }
 
   const valueW = headerW - labelW;
-  const signatureRowH = 14;
-  const multiSignatureRowH = 22;
+  const signatoryH = 10;
 
   labelCell("Committente / Stazione Appaltante:", leftX, row1Y, labelW);
-  valueCell(headerData.committente || "", leftX + labelW, row1Y, valueW);
+  valueCell(templateMode ? "" : headerData.committente || "", leftX + labelW, row1Y, valueW);
 
   labelCell("Oggetto del Contratto / Accordo Quadro:", leftX, row1Y + rowH, labelW);
-  valueCell(headerData.oggetto || "", leftX + labelW, row1Y + rowH, valueW);
+  valueCell(templateMode ? "" : headerData.oggetto || "", leftX + labelW, row1Y + rowH, valueW);
 
   labelCell("Nota di Ricezione Elaborati e data:", leftX, row1Y + rowH * 2, labelW);
-  valueCell(headerData.notaRicezione || "", leftX + labelW, row1Y + rowH * 2, valueW);
+  valueCell(templateMode ? "" : headerData.notaRicezione || "", leftX + labelW, row1Y + rowH * 2, valueW);
 
   labelCell("Data emissione:", leftX, row1Y + rowH * 3, labelW);
-  valueCell(headerData.dataEmissione || "", leftX + labelW, row1Y + rowH * 3, valueW);
+  valueCell(templateMode ? "" : headerData.dataEmissione || "", leftX + labelW, row1Y + rowH * 3, valueW);
 
-  labelCell("Nome Responsabile tecnico:", leftX, row1Y + rowH * 4, labelW);
-  valueCell(headerData.responsabileTecnico || "", leftX + labelW, row1Y + rowH * 4, valueW);
+  const firstSignatoryY = row1Y + rowH * 4;
+  signatoryRow(
+    "Responsabile tecnico:",
+    templateMode ? "" : headerData.responsabileTecnico || "",
+    templateMode ? "" : responsabileEntry?.signature || headerData.firmaResponsabileImage || headerData.firmaImage,
+    leftX,
+    firstSignatoryY,
+    headerW,
+    signatoryH
+  );
 
-  labelTallCell("Firma Responsabile:", leftX, row1Y + rowH * 5, labelW, signatureRowH);
-  signatureCell(headerData.firma || "", headerData.firmaResponsabileImage || headerData.firmaImage, leftX + labelW, row1Y + rowH * 5, valueW, signatureRowH);
+  const inspectorsToPrint = templateMode
+    ? [{ name: "", signature: "" } as any]
+    : inspectorEntries.length > 0
+      ? inspectorEntries
+      : [{ name: headerData.ispettore || "", signature: (headerData.firmaIspettoreImages || [])[0] || "" } as any];
 
-  labelCell("Nome ispettore:", leftX, row1Y + rowH * 5 + signatureRowH, labelW);
-  valueCell(headerData.ispettore || "", leftX + labelW, row1Y + rowH * 5 + signatureRowH, valueW);
-
-  labelTallCell("Firma ispettore:", leftX, row1Y + rowH * 6 + signatureRowH, labelW, multiSignatureRowH);
-  multiSignatureCell(headerData.firmaIspettoreImages || [], leftX + labelW, row1Y + rowH * 6 + signatureRowH, valueW, multiSignatureRowH);
+  inspectorsToPrint.forEach((entry: any, index: number) => {
+    signatoryRow(
+      index === 0 ? "Ispettore:" : "",
+      entry.name || "",
+      entry.signature || "",
+      leftX,
+      firstSignatoryY + signatoryH * (index + 1),
+      headerW,
+      signatoryH
+    );
+  });
 
   // Sezione 4 - Rilievi, coerente con il template.
-  const sectionY = headerY + 122;
+  const sectionY = headerY + headerBoxH + 30;
   doc.setFillColor(ITS_BLUE[0], ITS_BLUE[1], ITS_BLUE[2]);
   doc.rect(marginX, sectionY, headerW, 7, "F");
   doc.setTextColor(255, 255, 255);
@@ -511,7 +550,7 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
   doc.setTextColor(80, 80, 80);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7.5);
-  doc.text(`Numero righe: ${rows.length}`, pageWidth - marginX, sectionY - 2, { align: "right" });
+  if (!templateMode) doc.text(`Numero righe: ${rows.length}`, pageWidth - marginX, sectionY - 2, { align: "right" });
 
   const tableRows = rows.map((r: any, i: number) => {
     const allComments = Array.isArray(r.comments) ? r.comments : [];
@@ -1038,6 +1077,9 @@ function DetailPanel({ rows, title, onReset }: any) {
           </ExportButton>
           <ExportButton onClick={() => exportDetailPdf(rows, title, pdfHeader)}>
             Export PDF
+          </ExportButton>
+          <ExportButton onClick={() => exportDetailPdf(rows, title, { templateMode: true } as any)}>
+            Export PDF Template Qualità
           </ExportButton>
           <button
             onClick={onReset}
