@@ -380,16 +380,16 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
 
   labelCell("Codice commessa ITS:", leftX, row1Y + rowH * 2, labelW);
   valueCell(headerData.codiceCommessa || "", leftX + labelW, row1Y + rowH * 2, 100);
-  labelCell("Firma:", midX, row1Y + rowH * 2, 36);
-  signatureCell(headerData.firma || "", headerData.firmaImage, midX + 36, row1Y + rowH * 2, headerW - 204);
+  labelCell("Nome ispettore:", midX, row1Y + rowH * 2, 36);
+  valueCell(headerData.ispettore || "", midX + 36, row1Y + rowH * 2, headerW - 204);
 
   labelCell("Nome Responsabile tecnico:", leftX, row1Y + rowH * 3, labelW);
   valueCell(headerData.responsabileTecnico || "", leftX + labelW, row1Y + rowH * 3, 100);
-  doc.setFillColor(255, 255, 255);
-  doc.rect(midX, row1Y + rowH * 3, headerW - 168, rowH, "D");
+  labelCell("Firma:", midX, row1Y + rowH * 3, 36);
+  signatureCell(headerData.firma || "", headerData.firmaImage, midX + 36, row1Y + rowH * 3, headerW - 204);
 
-  labelCell("Nome ispettore:", leftX, row1Y + rowH * 4, labelW);
-  valueCell(headerData.ispettore || "", leftX + labelW, row1Y + rowH * 4, 100);
+  doc.setFillColor(255, 255, 255);
+  doc.rect(leftX, row1Y + rowH * 4, labelW + 100, rowH, "D");
   labelCell("Data emissione:", midX, row1Y + rowH * 4, 36);
   valueCell(headerData.dataEmissione || "", midX + 36, row1Y + rowH * 4, headerW - 204);
 
