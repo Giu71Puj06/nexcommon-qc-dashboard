@@ -170,6 +170,11 @@ function getImageFormatFromDataUrl(dataUrl = "") {
   return "PNG";
 }
 
+function isAllowedSignatureImage(file?: File) {
+  if (!file) return false;
+  return file.type === "image/png" || file.type === "image/jpeg" || file.type === "image/jpg";
+}
+
 function addPdfPageNumber(doc: jsPDF) {
   const pageCount = doc.getNumberOfPages();
   const pageWidthCurrent = doc.internal.pageSize.getWidth();
@@ -360,7 +365,7 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
           imageW = imageH * ratio;
         }
 
-        doc.addImage(imageDataUrl, "PNG", x + 2, y + Math.max(1, (h - imageH) / 2), imageW, imageH);
+        doc.addImage(imageDataUrl, getImageFormatFromDataUrl(imageDataUrl), x + 2, y + Math.max(1, (h - imageH) / 2), imageW, imageH);
         return;
       } catch (error) {
         // In caso di immagine non valida, usa il testo di fallback.
@@ -403,7 +408,7 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
 
         const imgX = x + 2 + col * (cellW + gap);
         const imgY = y + 1 + row * (cellH + gap) + Math.max(0, (cellH - imageH) / 2);
-        doc.addImage(img, "PNG", imgX, imgY, imageW, imageH);
+        doc.addImage(img, getImageFormatFromDataUrl(img), imgX, imgY, imageW, imageH);
       } catch (error) {
         // Salta immagini non valide.
       }
@@ -866,8 +871,8 @@ function DetailPanel({ rows, title, onReset }: any) {
       return;
     }
 
-    if (file.type !== "image/png") {
-      alert("Caricare una firma in formato .png");
+    if (!isAllowedSignatureImage(file)) {
+      alert("Caricare una firma in formato .png, .jpg o .jpeg");
       return;
     }
 
@@ -884,8 +889,8 @@ function DetailPanel({ rows, title, onReset }: any) {
   function updateFirmaIspettoreImages(files?: FileList | null) {
     const selectedFiles = Array.from(files || []).slice(0, 10);
 
-    if (selectedFiles.some((file) => file.type !== "image/png")) {
-      alert("Caricare solo firme in formato .png");
+    if (selectedFiles.some((file) => !isAllowedSignatureImage(file))) {
+      alert("Caricare solo firme in formato .png, .jpg o .jpeg");
       return;
     }
 
@@ -1044,9 +1049,9 @@ function DetailPanel({ rows, title, onReset }: any) {
                 <input
                   style={inputStyle}
                   type="file"
-                  accept="image/png"
+                  accept="image/png,image/jpeg"
                   onChange={(e) => updateFirmaResponsabileImage(e.target.files?.[0])}
-                  title="Carica firma Responsabile tecnico in formato PNG"
+                  title="Carica firma Responsabile tecnico in formato PNG o JPEG"
                 />
                 {pdfHeader.firmaResponsabileImage && (
                   <div style={{ marginTop: 4, fontSize: 11, color: "#16a34a", fontWeight: 700 }}>
@@ -1058,10 +1063,10 @@ function DetailPanel({ rows, title, onReset }: any) {
                 <input
                   style={inputStyle}
                   type="file"
-                  accept="image/png"
+                  accept="image/png,image/jpeg"
                   multiple
                   onChange={(e) => updateFirmaIspettoreImages(e.target.files)}
-                  title="Carica fino a 10 firme ispettore in formato PNG"
+                  title="Carica fino a 10 firme ispettore in formato PNG o JPEG"
                 />
                 {pdfHeader.firmaIspettoreImages?.length ? (
                   <div style={{ marginTop: 4, fontSize: 11, color: "#16a34a", fontWeight: 700 }}>
