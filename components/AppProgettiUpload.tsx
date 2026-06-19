@@ -352,7 +352,8 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
     .map((key) => getSignatureEntryByKey(key))
     .filter(Boolean) as SignatureDatabaseEntry[];
   const inspectorRows = Math.max(1, inspectorEntries.length);
-  const headerBoxH = 78 + 10 * inspectorRows;
+  const signatoryH = inspectorRows > 12 ? 7 : inspectorRows > 8 ? 8 : 10;
+  const headerBoxH = 68 + 10 + signatoryH * (1 + inspectorRows);
   // Testata solo sulla prima pagina, con colori e logo ricavati dal template Excel ITS.
   doc.setFillColor(ITS_BLUE[0], ITS_BLUE[1], ITS_BLUE[2]);
   doc.rect(marginX, headerY, headerW, 3, "F");
@@ -521,7 +522,7 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
     doc.rect(x + labelW, y, nameW, h, "D");
     doc.setTextColor(35, 35, 35);
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(7.5);
+    doc.setFontSize(h < 8 ? 6.6 : 7.5);
     doc.text(
       headerValue(name).slice(0, Math.max(15, Math.floor(nameW / 2.1))),
       x + labelW + 2,
@@ -535,7 +536,6 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
   }
 
   const valueW = headerW - labelW;
-  const signatoryH = 10;
   const oggettoRowH = 18;
   const notaY = row1Y + rowH + oggettoRowH;
   const dataEmissioneY = notaY + rowH;
@@ -1019,7 +1019,7 @@ function DetailPanel({ rows, title, onReset }: any) {
       const currentKeys = prev.ispettoreKeys || [];
       const nextKeys = currentKeys.includes(key)
         ? currentKeys.filter((item) => item !== key)
-        : [...currentKeys, key].slice(0, 10);
+        : [...currentKeys, key];
       const entries = nextKeys
         .map((item) => getSignatureEntryByKey(item))
         .filter(Boolean) as SignatureDatabaseEntry[];
@@ -1056,7 +1056,7 @@ function DetailPanel({ rows, title, onReset }: any) {
   }
 
   function updateFirmaIspettoreImages(files?: FileList | null) {
-    const selectedFiles = Array.from(files || []).slice(0, 10);
+    const selectedFiles = Array.from(files || []);
 
     if (selectedFiles.some((file) => !isAllowedSignatureImage(file))) {
       alert("Caricare solo firme in formato .png, .jpg o .jpeg");
