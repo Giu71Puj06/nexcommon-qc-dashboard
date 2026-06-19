@@ -279,7 +279,7 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
 
   doc.setDrawColor(210, 210, 210);
   doc.setLineWidth(0.25);
-  doc.rect(marginX, headerY + 3, headerW, 54);
+  doc.rect(marginX, headerY + 3, headerW, 46);
 
   doc.setFillColor(255, 255, 255);
   doc.rect(marginX, headerY + 3, 66, 17, "F");
@@ -349,8 +349,8 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
       try {
         const props = doc.getImageProperties(imageDataUrl);
         const ratio = props.width && props.height ? props.width / props.height : 3.2;
-        const maxW = (w - 4) * 2.2;
-        const maxH = rowH * 0.7;
+        const maxW = Math.min((w - 4) * 1.8, pageWidth - x - 12);
+        const maxH = rowH * 1.15;
         let imageW = Math.min(maxW, pageWidth - x - 12);
         let imageH = imageW / ratio;
 
@@ -359,7 +359,7 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
           imageW = imageH * ratio;
         }
 
-        doc.addImage(imageDataUrl, "PNG", x + 2, y + Math.max(0.5, (rowH - imageH) / 2), imageW, imageH);
+        doc.addImage(imageDataUrl, "PNG", x + 2, y + Math.max(0.8, (rowH - imageH) / 2), imageW, imageH);
         return;
       } catch (error) {
         // In caso di immagine non valida, usa il testo di fallback.
@@ -388,16 +388,13 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
   labelCell("Firma:", midX, row1Y + rowH * 3, 36);
   signatureCell(headerData.firma || "", headerData.firmaImage, midX + 36, row1Y + rowH * 3, headerW - 204);
 
-  doc.setFillColor(255, 255, 255);
-  doc.rect(leftX, row1Y + rowH * 4, labelW + 100, rowH, "D");
+  labelCell("Nota di Ricezione Elaborati e data:", leftX, row1Y + rowH * 4, labelW);
+  valueCell(headerData.notaRicezione || "", leftX + labelW, row1Y + rowH * 4, 100);
   labelCell("Data emissione:", midX, row1Y + rowH * 4, 36);
   valueCell(headerData.dataEmissione || "", midX + 36, row1Y + rowH * 4, headerW - 204);
 
-  labelCell("Nota di Ricezione Elaborati e data:", leftX, row1Y + rowH * 5, labelW);
-  valueCell(headerData.notaRicezione || "", leftX + labelW, row1Y + rowH * 5, headerW - labelW);
-
   // Sezione 4 - Rilievi, coerente con il template.
-  const sectionY = headerY + 84;
+  const sectionY = headerY + 76;
   doc.setFillColor(ITS_BLUE[0], ITS_BLUE[1], ITS_BLUE[2]);
   doc.rect(marginX, sectionY, headerW, 7, "F");
   doc.setTextColor(255, 255, 255);
