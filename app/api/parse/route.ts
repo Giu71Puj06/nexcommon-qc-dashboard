@@ -397,7 +397,7 @@ function getFolderFromPath(path = "") {
 
 function isSolibriCheckingFile(fileName = "") {
   const baseName = String(fileName || "").split("/").pop() || "";
-  return /^solibri_checking_/i.test(baseName);
+  return /solibri/i.test(baseName) && /checking/i.test(baseName);
 }
 
 function extractSolibriCheckingRevision(fileName = "") {
@@ -488,8 +488,9 @@ async function readBcfZip(fileName: string, buffer: Buffer) {
       "Created on": topicData.topicCreationDate,
       "Last modified by": topicData.topicModifiedAuthor,
       "Last modified on": topicData.topicModifiedDate,
-      "Assignee(s)": topicData.topicAssignedTo,
-      Groups: "",
+      "Assignee(s)": isSolibriChecking ? "BIM" : topicData.topicAssignedTo,
+      Groups: isSolibriChecking ? "BIM" : "",
+      disciplina: isSolibriChecking ? "BIM" : "",
       Type: "BCF Topic",
       __source: fileName.toLowerCase().endsWith(".bcf") ? "bcf" : "bcfzip",
     });
@@ -934,7 +935,13 @@ export async function POST(req: Request) {
       const tags = todo.Tags || todo.Labels || matchedBcfTopic?.Tags || "";
       const tipo = detectTipo(tags, description);
       const tipologiaNcOss = detectTipologiaNcOss(tags, description, title, tipo);
-      const disciplina = Boolean(todo.isSolibriChecking || matchedBcfTopic?.isSolibriChecking)
+      const isSolibriCheckingRow = Boolean(
+        todo.isSolibriChecking ||
+        matchedBcfTopic?.isSolibriChecking ||
+        isSolibriCheckingFile(todo.sourceFile || matchedBcfTopic?.sourceFile || "")
+      );
+
+      const disciplina = isSolibriCheckingRow
         ? "BIM"
         : getTodoAssignees(todo) || matchedBcfTopic?.["Assignee(s)"] || "";
       const statoOriginale = matchedBcfTopic?.Status || todo.Status || "";
