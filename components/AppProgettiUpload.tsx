@@ -183,6 +183,12 @@ function addPdfPageNumber(doc: jsPDF) {
   doc.setFontSize(8);
   doc.setTextColor(100);
   doc.text(`Pagina ${pageCount}`, pageWidthCurrent - 10, pageHeight - 6, { align: "right" });
+
+  // Codice qualità aziendale ITS - fisso per tutti i progetti.
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  doc.setTextColor(110, 110, 110);
+  doc.text("Mod.PR 09.1.TR.rev.0 08.01.2026", 6, pageHeight - 38, { angle: 90 });
 }
 
 function formatCommentDateIt(value = "") {
