@@ -397,12 +397,14 @@ function getFolderFromPath(path = "") {
 
 function isSolibriCheckingFile(fileName = "") {
   const baseName = String(fileName || "").split("/").pop() || "";
-  return /solibri/i.test(baseName) && /checking/i.test(baseName);
+  return /^solibri[_\s-]/i.test(baseName) || /solibri/i.test(baseName);
 }
 
 function extractSolibriCheckingRevision(fileName = "") {
   const baseName = String(fileName || "").split("/").pop() || "";
-  const match = baseName.match(/^solibri_checking_(.+?)\.(bcf|bcfzip|zip)$/i);
+  const match =
+    baseName.match(/^solibri_checking_(.+?)\.(bcf|bcfzip|zip)$/i) ||
+    baseName.match(/^solibri[_\s-](.+?)\.(bcf|bcfzip|zip)$/i);
 
   return match ? match[1] : "";
 }
