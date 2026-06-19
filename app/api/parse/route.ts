@@ -934,7 +934,9 @@ export async function POST(req: Request) {
       const tags = todo.Tags || todo.Labels || matchedBcfTopic?.Tags || "";
       const tipo = detectTipo(tags, description);
       const tipologiaNcOss = detectTipologiaNcOss(tags, description, title, tipo);
-      const disciplina = getTodoAssignees(todo) || matchedBcfTopic?.["Assignee(s)"] || "";
+      const disciplina = Boolean(todo.isSolibriChecking || matchedBcfTopic?.isSolibriChecking)
+        ? "BIM"
+        : getTodoAssignees(todo) || matchedBcfTopic?.["Assignee(s)"] || "";
       const statoOriginale = matchedBcfTopic?.Status || todo.Status || "";
       const statoTradotto = translateStatus(statoOriginale);
       const ispettore = todo["Created by"] || todo["Last modified by"] || todo.Owner || "";
