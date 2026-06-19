@@ -122,12 +122,13 @@ function buildElaboratiDisciplinaSummary(rows: any[]) {
 type PdfHeaderData = {
   committente?: string;
   oggetto?: string;
-  codiceCommessa?: string;
   responsabileTecnico?: string;
   ispettore?: string;
   firma?: string;
   firmaImage?: string;
-  allegatoRapporto?: string;
+  firmaResponsabileImage?: string;
+  firmaIspettoreImages?: string[];
+  codiceScheda?: string;
   notaRicezione?: string;
   dataRicezione?: string;
   dataEmissione?: string;
@@ -279,7 +280,7 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
 
   doc.setDrawColor(210, 210, 210);
   doc.setLineWidth(0.25);
-  doc.rect(marginX, headerY + 3, headerW, 46);
+  doc.rect(marginX, headerY + 3, headerW, 72);
 
   doc.setFillColor(255, 255, 255);
   doc.rect(marginX, headerY + 3, 66, 17, "F");
@@ -307,7 +308,7 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
   doc.setTextColor(80, 80, 80);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8);
-  doc.text(headerValue(headerData.allegatoRapporto || "").slice(0, 55), pageWidth - marginX - 4, headerY + 12, { align: "right" });
+  doc.text(headerValue(headerData.codiceScheda || "").slice(0, 55), pageWidth - marginX - 4, headerY + 12, { align: "right" });
 
   // Sezione 1 - Dati commessa
   doc.setFillColor(ITS_BLUE[0], ITS_BLUE[1], ITS_BLUE[2]);
@@ -341,17 +342,17 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
     doc.text(headerValue(value).slice(0, Math.max(15, Math.floor(w / 2.1))), x + 2, y + 4.7);
   }
 
-  function signatureCell(value: string, imageDataUrl: string | undefined, x: number, y: number, w: number) {
+  function signatureCell(value: string, imageDataUrl: string | undefined, x: number, y: number, w: number, h = rowH) {
     doc.setFillColor(255, 255, 255);
-    doc.rect(x, y, w, rowH, "D");
+    doc.rect(x, y, w, h, "D");
 
     if (imageDataUrl) {
       try {
         const props = doc.getImageProperties(imageDataUrl);
         const ratio = props.width && props.height ? props.width / props.height : 3.2;
-        const maxW = Math.min((w - 4) * 1.8, pageWidth - x - 12);
-        const maxH = rowH * 1.15;
-        let imageW = Math.min(maxW, pageWidth - x - 12);
+        const maxW = Math.min(w - 4, pageWidth - x - 12);
+        const maxH = h - 2;
+        let imageW = maxW;
         let imageH = imageW / ratio;
 
         if (imageH > maxH) {
@@ -359,7 +360,7 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
           imageW = imageH * ratio;
         }
 
-        doc.addImage(imageDataUrl, "PNG", x + 2, y + Math.max(0.8, (rowH - imageH) / 2), imageW, imageH);
+        doc.addImage(imageDataUrl, "PNG", x + 2, y + Math.max(1, (h - imageH) / 2), imageW, imageH);
         return;
       } catch (error) {
         // In caso di immagine non valida, usa il testo di fallback.
@@ -369,7 +370,44 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
     doc.setTextColor(35, 35, 35);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7.5);
-    doc.text(headerValue(value).slice(0, Math.max(15, Math.floor(w / 2.1))), x + 2, y + 4.7);
+    doc.text(headerValue(value).slice(0, Math.max(15, Math.floor(w / 2.1))), x + 2, y + Math.min(h - 2, 4.7));
+  }
+
+  function multiSignatureCell(images: string[] = [], x: number, y: number, w: number, h: number) {
+    doc.setFillColor(255, 255, 255);
+    doc.rect(x, y, w, h, "D");
+
+    const validImages = (images || []).filter(Boolean).slice(0, 10);
+    if (validImages.length === 0) return;
+
+    const cols = Math.min(5, validImages.length);
+    const rowsCount = validImages.length > 5 ? 2 : 1;
+    const gap = 1.5;
+    const cellW = (w - 4 - gap * (cols - 1)) / cols;
+    const cellH = (h - 2 - gap * (rowsCount - 1)) / rowsCount;
+
+    validImages.forEach((img, index) => {
+      try {
+        const col = index % 5;
+        const row = Math.floor(index / 5);
+        const props = doc.getImageProperties(img);
+        const ratio = props.width && props.height ? props.width / props.height : 3.2;
+
+        let imageW = cellW;
+        let imageH = imageW / ratio;
+
+        if (imageH > cellH) {
+          imageH = cellH;
+          imageW = imageH * ratio;
+        }
+
+        const imgX = x + 2 + col * (cellW + gap);
+        const imgY = y + 1 + row * (cellH + gap) + Math.max(0, (cellH - imageH) / 2);
+        doc.addImage(img, "PNG", imgX, imgY, imageW, imageH);
+      } catch (error) {
+        // Salta immagini non valide.
+      }
+    });
   }
 
   labelCell("Committente / Stazione Appaltante:", leftX, row1Y, labelW);
@@ -378,23 +416,28 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
   labelCell("Oggetto del Contratto / Accordo Quadro:", leftX, row1Y + rowH, labelW);
   valueCell(headerData.oggetto || "", leftX + labelW, row1Y + rowH, headerW - labelW);
 
-  labelCell("Codice commessa ITS:", leftX, row1Y + rowH * 2, labelW);
-  valueCell(headerData.codiceCommessa || "", leftX + labelW, row1Y + rowH * 2, 100);
-  labelCell("Nome ispettore:", midX, row1Y + rowH * 2, 36);
-  valueCell(headerData.ispettore || "", midX + 36, row1Y + rowH * 2, headerW - 204);
+  labelCell("Nota di Ricezione Elaborati e data:", leftX, row1Y + rowH * 2, labelW);
+  valueCell(headerData.notaRicezione || "", leftX + labelW, row1Y + rowH * 2, 100);
+  labelCell("Nome Responsabile tecnico:", midX, row1Y + rowH * 2, 46);
+  valueCell(headerData.responsabileTecnico || "", midX + 46, row1Y + rowH * 2, headerW - 214);
 
-  labelCell("Nome Responsabile tecnico:", leftX, row1Y + rowH * 3, labelW);
-  valueCell(headerData.responsabileTecnico || "", leftX + labelW, row1Y + rowH * 3, 100);
-  labelCell("Firma:", midX, row1Y + rowH * 3, 36);
-  signatureCell(headerData.firma || "", headerData.firmaImage, midX + 36, row1Y + rowH * 3, headerW - 204);
+  labelCell("Data emissione:", leftX, row1Y + rowH * 3, labelW);
+  valueCell(headerData.dataEmissione || "", leftX + labelW, row1Y + rowH * 3, 100);
+  labelCell("Firma Responsabile:", midX, row1Y + rowH * 3, 46);
+  signatureCell(headerData.firma || "", headerData.firmaResponsabileImage || headerData.firmaImage, midX + 46, row1Y + rowH * 3, headerW - 214, rowH);
 
-  labelCell("Nota di Ricezione Elaborati e data:", leftX, row1Y + rowH * 4, labelW);
-  valueCell(headerData.notaRicezione || "", leftX + labelW, row1Y + rowH * 4, 100);
-  labelCell("Data emissione:", midX, row1Y + rowH * 4, 36);
-  valueCell(headerData.dataEmissione || "", midX + 36, row1Y + rowH * 4, headerW - 204);
+  doc.setFillColor(255, 255, 255);
+  doc.rect(leftX, row1Y + rowH * 4, labelW + 100, rowH, "D");
+  labelCell("Nome ispettore:", midX, row1Y + rowH * 4, 46);
+  valueCell(headerData.ispettore || "", midX + 46, row1Y + rowH * 4, headerW - 214);
+
+  doc.setFillColor(255, 255, 255);
+  doc.rect(leftX, row1Y + rowH * 5, labelW + 100, rowH * 2, "D");
+  labelCell("Firma ispettore:", midX, row1Y + rowH * 5, 46);
+  multiSignatureCell(headerData.firmaIspettoreImages || [], midX + 46, row1Y + rowH * 5, headerW - 214, rowH * 2);
 
   // Sezione 4 - Rilievi, coerente con il template.
-  const sectionY = headerY + 76;
+  const sectionY = headerY + 102;
   doc.setFillColor(ITS_BLUE[0], ITS_BLUE[1], ITS_BLUE[2]);
   doc.rect(marginX, sectionY, headerW, 7, "F");
   doc.setTextColor(255, 255, 255);
@@ -817,9 +860,9 @@ function DetailPanel({ rows, title, onReset }: any) {
     setPdfHeader((prev) => ({ ...prev, [field]: value }));
   }
 
-  function updateFirmaImage(file?: File) {
+  function updateFirmaResponsabileImage(file?: File) {
     if (!file) {
-      setPdfHeader((prev) => ({ ...prev, firmaImage: "" }));
+      setPdfHeader((prev) => ({ ...prev, firmaResponsabileImage: "" }));
       return;
     }
 
@@ -832,10 +875,40 @@ function DetailPanel({ rows, title, onReset }: any) {
     reader.onload = () => {
       setPdfHeader((prev) => ({
         ...prev,
-        firmaImage: typeof reader.result === "string" ? reader.result : "",
+        firmaResponsabileImage: typeof reader.result === "string" ? reader.result : "",
       }));
     };
     reader.readAsDataURL(file);
+  }
+
+  function updateFirmaIspettoreImages(files?: FileList | null) {
+    const selectedFiles = Array.from(files || []).slice(0, 10);
+
+    if (selectedFiles.some((file) => file.type !== "image/png")) {
+      alert("Caricare solo firme in formato .png");
+      return;
+    }
+
+    if (selectedFiles.length === 0) {
+      setPdfHeader((prev) => ({ ...prev, firmaIspettoreImages: [] }));
+      return;
+    }
+
+    Promise.all(
+      selectedFiles.map(
+        (file) =>
+          new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+            reader.readAsDataURL(file);
+          })
+      )
+    ).then((images) => {
+      setPdfHeader((prev) => ({
+        ...prev,
+        firmaIspettoreImages: images.filter(Boolean),
+      }));
+    });
   }
 
   const inputStyle = {
@@ -912,15 +985,7 @@ function DetailPanel({ rows, title, onReset }: any) {
               placeholder="es. RPR - Risorse per Roma S.p.A."
             />
           </div>
-          <div>
-            <label style={labelStyle}>Codice commessa ITS</label>
-            <input
-              style={inputStyle}
-              value={pdfHeader.codiceCommessa || ""}
-              onChange={(e) => updatePdfHeader("codiceCommessa", e.target.value)}
-              placeholder="es. IT25063"
-            />
-          </div>
+
           <div>
             <label style={labelStyle}>Nota di Ricezione Elaborati e data</label>
             <input
@@ -931,12 +996,12 @@ function DetailPanel({ rows, title, onReset }: any) {
             />
           </div>
           <div>
-            <label style={labelStyle}>Allegato al Rapporto</label>
+            <label style={labelStyle}>Codice Scheda</label>
             <input
               style={inputStyle}
-              value={pdfHeader.allegatoRapporto || ""}
-              onChange={(e) => updatePdfHeader("allegatoRapporto", e.target.value)}
-              placeholder="es. Allegato 1 al Rapporto"
+              value={pdfHeader.codiceScheda || ""}
+              onChange={(e) => updatePdfHeader("codiceScheda", e.target.value)}
+              placeholder="es. SP-001 o Allegato 1"
             />
           </div>
           <div>
@@ -967,8 +1032,8 @@ function DetailPanel({ rows, title, onReset }: any) {
             />
           </div>
           <div>
-            <label style={labelStyle}>Data emissione / Firma</label>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <label style={labelStyle}>Data emissione / Firme</label>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
               <input
                 style={inputStyle}
                 value={pdfHeader.dataEmissione || ""}
@@ -980,14 +1045,29 @@ function DetailPanel({ rows, title, onReset }: any) {
                   style={inputStyle}
                   type="file"
                   accept="image/png"
-                  onChange={(e) => updateFirmaImage(e.target.files?.[0])}
-                  title="Carica firma in formato PNG"
+                  onChange={(e) => updateFirmaResponsabileImage(e.target.files?.[0])}
+                  title="Carica firma Responsabile tecnico in formato PNG"
                 />
-                {pdfHeader.firmaImage && (
+                {pdfHeader.firmaResponsabileImage && (
                   <div style={{ marginTop: 4, fontSize: 11, color: "#16a34a", fontWeight: 700 }}>
-                    Firma PNG caricata
+                    Firma Responsabile caricata
                   </div>
                 )}
+              </div>
+              <div>
+                <input
+                  style={inputStyle}
+                  type="file"
+                  accept="image/png"
+                  multiple
+                  onChange={(e) => updateFirmaIspettoreImages(e.target.files)}
+                  title="Carica fino a 10 firme ispettore in formato PNG"
+                />
+                {pdfHeader.firmaIspettoreImages?.length ? (
+                  <div style={{ marginTop: 4, fontSize: 11, color: "#16a34a", fontWeight: 700 }}>
+                    {pdfHeader.firmaIspettoreImages.length} firma/e ispettore caricate
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>
