@@ -248,8 +248,9 @@ function isSolibriCheckingRow(row: any) {
 
   return (
     Boolean(row?.isSolibriChecking) ||
-    (source.includes("solibri") && source.includes("checking")) ||
-    (origine.includes("solibri") && tipoVerifica.includes("checking"))
+    source.includes("solibri") ||
+    origine.includes("solibri") ||
+    tipoVerifica.includes("checking")
   );
 }
 
