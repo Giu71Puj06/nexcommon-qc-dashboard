@@ -491,20 +491,24 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
   }
 
   function signatoryRow(label: string, name: string, signature: string | undefined, x: number, y: number, w: number, h: number) {
-    const signatureW = 72;
+    const signatureW = 82;
     const nameW = w - labelW - signatureW;
 
     labelTallCell(label, x, y, labelW, h);
 
-    // Nome a sinistra
+    // Nome sempre a sinistra.
     doc.setFillColor(255, 255, 255);
     doc.rect(x + labelW, y, nameW, h, "D");
     doc.setTextColor(35, 35, 35);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7.5);
-    doc.text(headerValue(name).slice(0, Math.max(15, Math.floor(nameW / 2.1))), x + labelW + 2, y + Math.min(h - 2, 5.2));
+    doc.text(
+      headerValue(name).slice(0, Math.max(15, Math.floor(nameW / 2.1))),
+      x + labelW + 2,
+      y + Math.min(h - 2, 5.2)
+    );
 
-    // Firma a destra
+    // Firma sempre a destra, dopo il nome.
     doc.setFillColor(255, 255, 255);
     doc.rect(x + labelW + nameW, y, signatureW, h, "D");
     drawSmallSignature(signature, x + labelW + nameW, y, signatureW, h);
