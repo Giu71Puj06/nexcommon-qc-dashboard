@@ -241,6 +241,22 @@ function getRedattoreFromRow(row: any) {
   return getInitialsFromName(createdBy);
 }
 
+function isSolibriCheckingRow(row: any) {
+  const source = String(row?.sourceFile || row?.fileName || "").toLowerCase();
+  const origine = String(row?.origine || "").toLowerCase();
+  const tipoVerifica = String(row?.tipoVerifica || "").toLowerCase();
+
+  return (
+    Boolean(row?.isSolibriChecking) ||
+    (source.includes("solibri") && source.includes("checking")) ||
+    (origine.includes("solibri") && tipoVerifica.includes("checking"))
+  );
+}
+
+function getDisciplinaDisplay(row: any) {
+  return isSolibriCheckingRow(row) ? "BIM" : row?.disciplina || "Non assegnata";
+}
+
 function getRedattoreFromComments(comments: any[] = []) {
   const ispAuthors = comments
     .filter((c: any) => String(c?.role || "").toUpperCase() === "ISP")
@@ -467,7 +483,7 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
       String(i + 1),
       cleanPdfText(r.id),
       cleanPdfText(r.tipo),
-      cleanPdfText(r.disciplina),
+      cleanPdfText(getDisciplinaDisplay(r)),
       cleanPdfText(getRedattoreFromRow(r)),
       cleanPdfText(getElaboratoKey(r)),
       cleanPdfText(r.descrizione),
@@ -676,7 +692,7 @@ function toDashboardExportRows(rows: any[]) {
   return rows.map((r: any) => ({
     ID_Rilievo: r.id || "",
     "Tipologia rilievo": r.tipo || "",
-    Disciplina: r.disciplina || "",
+    Disciplina: getDisciplinaDisplay(r),
     Redattore: getRedattoreFromRow(r),
     Elaborato: getElaboratoKey(r),
     Descrizione: r.descrizione || "",
@@ -1110,7 +1126,7 @@ function DetailPanel({ rows, title, onReset }: any) {
                   <td style={{ ...td, textAlign: "center", fontWeight: 700 }}>{i + 1}</td>
                   <td style={td}>{r.id}</td>
                   <td style={td}>{r.tipo}</td>
-                  <td style={td}>{r.disciplina}</td>
+                  <td style={td}>{getDisciplinaDisplay(r)}</td>
                   <td style={td}>{getRedattoreFromRow(r)}</td>
                   <td style={td}>{getElaboratoKey(r)}</td>
                   <td style={td}>{r.descrizione}</td>
