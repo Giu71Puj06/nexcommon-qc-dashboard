@@ -198,6 +198,37 @@ function normalizeCommentAuthor(author = "") {
   return cleanPdfText(author).replace(/\s+/g, " ").trim();
 }
 
+function getInitialsFromName(value = "") {
+  const cleaned = cleanPdfText(value)
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/\b(arch|architetto|ing|ingegnere|geom|geometra|dott|dottore|dottssa|dott\.ssa|avv|prof)\.?\b/gi, " ")
+    .replace(/[^A-Za-zÀ-ÖØ-öø-ÿ\s'-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleaned) return "";
+
+  const parts = cleaned.split(" ").filter(Boolean);
+
+  if (parts.length === 1) {
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+
+  return `${parts[0][0] || ""}${parts[parts.length - 1][0] || ""}`.toUpperCase();
+}
+
+function getRedattoreFromRow(row: any) {
+  const createdBy =
+    row?.creatoDa ||
+    row?.["Created by"] ||
+    row?.createdBy ||
+    row?.ispettore ||
+    row?.Owner ||
+    "";
+
+  return getInitialsFromName(createdBy);
+}
+
 function getRedattoreFromComments(comments: any[] = []) {
   const ispAuthors = comments
     .filter((c: any) => String(c?.role || "").toUpperCase() === "ISP")
@@ -386,7 +417,7 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
       cleanPdfText(r.id),
       cleanPdfText(r.tipo),
       cleanPdfText(r.disciplina),
-      cleanPdfText(getRedattoreFromComments(allComments)),
+      cleanPdfText(getRedattoreFromRow(r)),
       cleanPdfText(getElaboratoKey(r)),
       cleanPdfText(r.descrizione),
       cleanPdfText(commentsToPdfRichText(allComments)),
@@ -595,7 +626,7 @@ function toDashboardExportRows(rows: any[]) {
     ID_Rilievo: r.id || "",
     "Tipologia rilievo": r.tipo || "",
     Disciplina: r.disciplina || "",
-    Redattore: getRedattoreFromComments(Array.isArray(r.comments) ? r.comments : []),
+    Redattore: getRedattoreFromRow(r),
     Elaborato: getElaboratoKey(r),
     Descrizione: r.descrizione || "",
     "Gestione rilievo": commentsToText(Array.isArray(r.comments) ? r.comments : []),
@@ -992,7 +1023,7 @@ function DetailPanel({ rows, title, onReset }: any) {
                   <td style={td}>{r.id}</td>
                   <td style={td}>{r.tipo}</td>
                   <td style={td}>{r.disciplina}</td>
-                  <td style={td}>{getRedattoreFromComments(allComments)}</td>
+                  <td style={td}>{getRedattoreFromRow(r)}</td>
                   <td style={td}>{getElaboratoKey(r)}</td>
                   <td style={td}>{r.descrizione}</td>
                   <td style={td}>
