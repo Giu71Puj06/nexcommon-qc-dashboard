@@ -1313,6 +1313,138 @@ function ElaboratiPerDisciplinaPanel({ data, activeKey, onClick, onExport }: any
   );
 }
 
+
+function getTrimbleTodoUrl(row: any) {
+  return (
+    row?.trimbleUrl ||
+    row?.todoUrl ||
+    row?.issueUrl ||
+    row?.bcfUrl ||
+    row?.url ||
+    row?.link ||
+    ""
+  );
+}
+
+async function openTrimbleTodo(row: any) {
+  const directUrl = getTrimbleTodoUrl(row);
+
+  if (directUrl) {
+    window.open(directUrl, "_blank", "noopener,noreferrer");
+    return;
+  }
+
+  const todoId = row?.id || row?.ID_Rilievo || row?.["ID rilievo"];
+
+  if (!todoId) {
+    alert("ID rilievo non disponibile per aprire il ToDo in Trimble.");
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/trimble/todos/open?id=${encodeURIComponent(todoId)}`);
+
+    if (!response.ok) {
+      throw new Error("Endpoint Trimble non disponibile");
+    }
+
+    const data = await response.json();
+
+    if (data?.url) {
+      window.open(data.url, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    alert("ToDo trovato, ma il link Trimble non è disponibile nella risposta.");
+  } catch (error) {
+    alert(
+      `Collegamento Trimble non ancora configurato per il ToDo ${todoId}. ` +
+        "Integrare l'endpoint /api/trimble/todos/open riutilizzando trimble_client.py."
+    );
+  }
+}
+
+async function sendTrimbleCorrectionRequest(row: any) {
+  const issues = getTodoQualityIssues(row);
+  const todoId = row?.id || row?.ID_Rilievo || row?.["ID rilievo"];
+
+  if (!todoId) {
+    alert("ID rilievo non disponibile per la correzione.");
+    return;
+  }
+
+  try {
+    const response = await fetch("/api/trimble/todos/correction-request", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        todoId,
+        issues,
+        row,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error("Endpoint Trimble non disponibile");
+    }
+
+    const data = await response.json();
+    alert(data?.message || "Richiesta di correzione inviata a Trimble.");
+  } catch (error) {
+    alert(
+      `Correzione Trimble non ancora configurata per il ToDo ${todoId}. ` +
+        "Predisposto il pulsante; va collegato al servizio Trimble condiviso."
+    );
+  }
+}
+
+function TrimbleActions({ row }: any) {
+  const issues = getTodoQualityIssues(row);
+  const hasIssues = Object.keys(issues).length > 0;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 120 }}>
+      <button
+        type="button"
+        onClick={() => openTrimbleTodo(row)}
+        style={{
+          border: "1px solid #cbd5e1",
+          background: "white",
+          borderRadius: 8,
+          padding: "6px 8px",
+          fontSize: 12,
+          cursor: "pointer",
+          fontWeight: 700,
+        }}
+      >
+        Apri Trimble
+      </button>
+
+      {hasIssues && (
+        <button
+          type="button"
+          onClick={() => sendTrimbleCorrectionRequest(row)}
+          style={{
+            border: "1px solid #f97316",
+            background: "#fff7ed",
+            color: "#9a3412",
+            borderRadius: 8,
+            padding: "6px 8px",
+            fontSize: 12,
+            cursor: "pointer",
+            fontWeight: 700,
+          }}
+          title={Object.values(issues).join("; ")}
+        >
+          Correggi
+        </button>
+      )}
+    </div>
+  );
+}
+
 function DetailPanel({ rows, title, onReset }: any) {
   const [pdfHeader, setPdfHeader] = useState<PdfHeaderData>({});
   const [showOnlyAnomalies, setShowOnlyAnomalies] = useState(false);
@@ -1646,6 +1778,7 @@ function DetailPanel({ rows, title, onReset }: any) {
               <th style={th}>Descrizione</th>
               <th style={th}>Gestione rilievo</th>
               <th style={th}>Stato</th>
+              <th style={th}>Azione Trimble</th>
             </tr>
           </thead>
 
@@ -1685,6 +1818,9 @@ function DetailPanel({ rows, title, onReset }: any) {
                     <CommentList comments={allComments} emptyText="Nessun commento" />
                   </td>
                   <td style={anomalyCellStyle(td, issues.stato)} title={issues.stato || ""}>{translateStatus(r.stato)}</td>
+                  <td style={td}>
+                    <TrimbleActions row={r} />
+                  </td>
                 </tr>
               );
             })}
