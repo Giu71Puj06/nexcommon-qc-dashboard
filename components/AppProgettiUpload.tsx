@@ -1040,6 +1040,60 @@ function ImportSummary({ importedFiles }: any) {
   );
 }
 
+
+function getTodoQualityIssues(row: any) {
+  const tipo = cleanPdfText(row?.tipo);
+  const tipoUpper = tipo.toUpperCase();
+  const disciplina = cleanPdfText(getDisciplinaDisplay(row));
+  const elaborato = cleanPdfText(getElaboratoKey(row));
+  const descrizione = cleanPdfText(row?.descrizione);
+  const stato = cleanPdfText(row?.stato || translateStatus(row?.stato));
+
+  const issues: Record<string, string> = {};
+
+  if (!elaborato || elaborato === "Elaborato non identificato") {
+    issues.elaborato = "Elaborato mancante";
+  }
+
+  if (!disciplina || disciplina === "Non assegnata" || disciplina.toLowerCase() === "null null") {
+    issues.disciplina = "Disciplina mancante o non riconosciuta";
+  }
+
+  if (!tipo || tipoUpper === "ESITO MANCANTE" || tipoUpper === "RILIEVO MANCANTE") {
+    issues.tipo = "Tipologia NC/OSS mancante";
+  }
+
+  if ((tipoUpper === "NC" || tipoUpper === "OSS" || tipoUpper === "DA NC A OSS") && !descrizione) {
+    issues.descrizione = "Descrizione mancante";
+  }
+
+  if (tipoUpper === "NESSUN RILIEVO" && stato && stato !== "Chiusa") {
+    issues.stato = "Stato incoerente con Nessun rilievo";
+  }
+
+  if ((tipoUpper === "NC" || tipoUpper === "OSS" || tipoUpper === "DA NC A OSS") && !row?.hasPrgComment && stato === "Chiusa") {
+    issues.gestione = "Rilievo chiuso senza commento progettista";
+  }
+
+  return issues;
+}
+
+function hasTodoQualityIssues(row: any) {
+  return Object.keys(getTodoQualityIssues(row)).length > 0;
+}
+
+function anomalyCellStyle(baseStyle: any, issue?: string) {
+  if (!issue) return baseStyle;
+
+  return {
+    ...baseStyle,
+    background: "#fee2e2",
+    border: "2px solid #ef4444",
+    color: "#7f1d1d",
+    fontWeight: 700,
+  };
+}
+
 function CommentList({ comments, emptyText = "" }: any) {
   if (!comments || comments.length === 0) {
     return <span style={{ color: "#94a3b8" }}>{emptyText}</span>;
@@ -1069,10 +1123,87 @@ function CommentList({ comments, emptyText = "" }: any) {
   );
 }
 
+
+function ElaboratiPerDisciplinaPanel({ data, activeKey, onClick, onExport }: any) {
+  const grouped = (data || []).reduce((acc: Record<string, any[]>, item: any) => {
+    const key = item.disciplina || "Non assegnata";
+    acc[key] = acc[key] || [];
+    acc[key].push(item);
+    return acc;
+  }, {});
+
+  const discipline = Object.keys(grouped).sort((a, b) => a.localeCompare(b, "it"));
+
+  return (
+    <Card>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+        <h3 style={{ marginTop: 0 }}>Elaborati per disciplina</h3>
+        <ExportButton onClick={onExport}>Export Excel</ExportButton>
+      </div>
+
+      {discipline.length === 0 && (
+        <div style={{ color: "#64748b", fontSize: 13 }}>Nessun dato disponibile</div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: 14 }}>
+        {discipline.map((disciplina) => (
+          <div
+            key={disciplina}
+            style={{
+              border: "1px solid #e2e8f0",
+              borderRadius: 12,
+              padding: 12,
+              background: "#f8fafc",
+            }}
+          >
+            <div style={{ fontWeight: 800, marginBottom: 8 }}>{disciplina}</div>
+            <div style={{ display: "grid", gap: 6 }}>
+              {grouped[disciplina].map((item: any) => {
+                const isActive = activeKey === item.elaboratoKey;
+                return (
+                  <div
+                    key={item.key}
+                    onClick={() => onClick(item.elaboratoKey, item.elaborato)}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 70px 70px 120px",
+                      gap: 8,
+                      alignItems: "center",
+                      cursor: "pointer",
+                      padding: 7,
+                      borderRadius: 8,
+                      background: isActive ? "#e0f2fe" : "white",
+                      border: isActive ? "2px solid #0284c7" : "1px solid #e2e8f0",
+                      fontSize: 12,
+                    }}
+                    title={item.elaborato}
+                  >
+                    <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {item.elaborato}
+                    </div>
+                    <div>NC: <b>{item.nc}</b></div>
+                    <div>OSS: <b>{item.oss}</b></div>
+                    <div style={{ color: item.nc === 0 && item.oss === 0 ? "#15803d" : "#0f172a" }}>
+                      {item.esito}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 function DetailPanel({ rows, title, onReset }: any) {
   const [pdfHeader, setPdfHeader] = useState<PdfHeaderData>({});
+  const [showOnlyAnomalies, setShowOnlyAnomalies] = useState(false);
 
   if (!title) return null;
+
+  const visibleRows = showOnlyAnomalies ? rows.filter((r: any) => hasTodoQualityIssues(r)) : rows;
 
   function updatePdfHeader(field: keyof PdfHeaderData, value: string) {
     setPdfHeader((prev) => ({ ...prev, [field]: value }));
@@ -1185,18 +1316,39 @@ function DetailPanel({ rows, title, onReset }: any) {
             onClick={() =>
               exportExcel(
                 "Dettaglio_selezione",
-                toDashboardExportRows(rows)
+                toDashboardExportRows(visibleRows)
               )
             }
           >
             Export Excel
           </ExportButton>
-          <ExportButton onClick={() => exportDetailPdf(rows, title, pdfHeader)}>
+          <ExportButton onClick={() => exportDetailPdf(visibleRows, title, pdfHeader)}>
             Export PDF
           </ExportButton>
           <ExportButton onClick={() => exportDetailPdf(rows, title, { templateMode: true } as any)}>
             Export PDF Template Qualità
           </ExportButton>
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              fontSize: 12,
+              color: "#475569",
+              border: "1px solid #cbd5e1",
+              background: showOnlyAnomalies ? "#fee2e2" : "white",
+              borderRadius: 10,
+              padding: "8px 10px",
+              height: 38,
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={showOnlyAnomalies}
+              onChange={(e) => setShowOnlyAnomalies(e.target.checked)}
+            />
+            Solo anomalie
+          </label>
           <button
             onClick={onReset}
             style={{
@@ -1368,6 +1520,7 @@ function DetailPanel({ rows, title, onReset }: any) {
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ background: "#f1f5f9" }}>
+              <th style={th}>Qualità</th>
               <th style={th}>N.</th>
               <th style={th}>ID_Rilievo</th>
               <th style={th}>Tipologia rilievo</th>
@@ -1381,22 +1534,41 @@ function DetailPanel({ rows, title, onReset }: any) {
           </thead>
 
           <tbody>
-            {rows.map((r: any, i: number) => {
+            {visibleRows.map((r: any, i: number) => {
               const allComments = Array.isArray(r.comments) ? r.comments : [];
+              const issues = getTodoQualityIssues(r);
+              const issueList = Object.values(issues).join("; ");
+              const rowHasIssues = issueList.length > 0;
 
               return (
-                <tr key={`${r.id}-${i}`}>
+                <tr
+                  key={`${r.id}-${i}`}
+                  style={{
+                    background: rowHasIssues ? "#fff7ed" : "transparent",
+                  }}
+                >
+                  <td
+                    style={{
+                      ...td,
+                      textAlign: "center",
+                      fontWeight: 800,
+                      color: rowHasIssues ? "#b45309" : "#15803d",
+                    }}
+                    title={rowHasIssues ? issueList : "Nessuna anomalia"}
+                  >
+                    {rowHasIssues ? "⚠" : "✓"}
+                  </td>
                   <td style={{ ...td, textAlign: "center", fontWeight: 700 }}>{i + 1}</td>
                   <td style={td}>{r.id}</td>
-                  <td style={td}>{r.tipo}</td>
-                  <td style={td}>{getDisciplinaDisplay(r)}</td>
+                  <td style={anomalyCellStyle(td, issues.tipo)} title={issues.tipo || ""}>{r.tipo}</td>
+                  <td style={anomalyCellStyle(td, issues.disciplina)} title={issues.disciplina || ""}>{getDisciplinaDisplay(r)}</td>
                   <td style={td}>{getRedattoreFromRow(r)}</td>
-                  <td style={td}>{getElaboratoKey(r)}</td>
-                  <td style={td}>{r.descrizione}</td>
-                  <td style={td}>
+                  <td style={anomalyCellStyle(td, issues.elaborato)} title={issues.elaborato || ""}>{getElaboratoKey(r)}</td>
+                  <td style={anomalyCellStyle(td, issues.descrizione)} title={issues.descrizione || ""}>{r.descrizione}</td>
+                  <td style={anomalyCellStyle(td, issues.gestione)} title={issues.gestione || ""}>
                     <CommentList comments={allComments} emptyText="Nessun commento" />
                   </td>
-                  <td style={td}>{translateStatus(r.stato)}</td>
+                  <td style={anomalyCellStyle(td, issues.stato)} title={issues.stato || ""}>{translateStatus(r.stato)}</td>
                 </tr>
               );
             })}
@@ -1618,6 +1790,29 @@ export default function AppProgettiUpload() {
     Stato: r.commentato && r.esitoMancante === 0 ? "Commentato" : "Da verificare",
   }));
 
+  const elaboratiPerDisciplinaRows = useMemo(() => {
+    return coverageRows.map((r: any) => ({
+      key: `${r.disciplina || "Non assegnata"}__${r.key}`,
+      disciplina: r.disciplina || "Non assegnata",
+      elaborato: r.elaborato,
+      nc: r.nc,
+      oss: r.oss,
+      nessunRilievo: r.nessunRilievo,
+      esito: r.nc === 0 && r.oss === 0 ? "Nessuna NC/OSS" : `NC: ${r.nc} - OSS: ${r.oss}`,
+      value: r.nc + r.oss + r.nessunRilievo,
+      elaboratoKey: r.key,
+    }));
+  }, [coverageRows]);
+
+  const elaboratiPerDisciplinaExportRows = elaboratiPerDisciplinaRows.map((r: any) => ({
+    Disciplina: r.disciplina,
+    Elaborato: r.elaborato,
+    NC: r.nc,
+    OSS: r.oss,
+    "Nessun rilievo": r.nessunRilievo,
+    Esito: r.esito,
+  }));
+
   const todoQualityRows = useMemo(() => {
     return enrichedRows.map((r: any) => {
       const tipo = cleanPdfText(r.tipo);
@@ -1674,6 +1869,7 @@ export default function AppProgettiUpload() {
     if (selection.type === "tipo") return enrichedRows.filter((r) => r.tipo === selection.value);
     if (selection.type === "disciplina") return enrichedRows.filter((r) => r.disciplina === selection.value);
     if (selection.type === "elaborato") return enrichedRows.filter((r) => r.elaboratoKey === selection.value);
+    if (selection.type === "elaborato-disciplina") return enrichedRows.filter((r) => r.elaboratoKey === selection.value);
 
     return [];
   }, [enrichedRows, selection, rilieviNCOSS, coverageRows, todoQualityRows]);
@@ -1912,6 +2108,18 @@ export default function AppProgettiUpload() {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         <BarList title="Rilievi per disciplina" data={disciplineData} activeKey={selection?.type === "disciplina" ? selection.value : ""} onClick={(value: string) => setSelection({ type: "disciplina", value, label: "Disciplina" })} onExport={() => exportExcel("Rilievi_per_disciplina", toChartExportRows(disciplineData))} />
         <BarList title="Rilievi" data={esitiData} activeKey={selection?.type === "tipo" ? selection.value : ""} onClick={(value: string) => setSelection({ type: "tipo", value, label: "Rilievi" })} onExport={() => exportExcel("Rilievi", toChartExportRows(esitiData))} />
+      </div>
+
+      <div style={{ marginTop: 16, marginBottom: 16 }}>
+        <ElaboratiPerDisciplinaPanel
+          data={elaboratiPerDisciplinaRows}
+          activeKey={selection?.type === "elaborato-disciplina" ? selection.value : ""}
+          onClick={(value: string, valueLabel: string) => setSelection({ type: "elaborato-disciplina", value, label: "Elaborato", valueLabel })}
+          onExport={() => exportExcel("Elaborati_per_disciplina", elaboratiPerDisciplinaExportRows)}
+        />
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16 }}>
         <BarList title="NC / OSS per elaborato" data={rilieviPerElaboratoData} activeKey={selection?.type === "elaborato" ? selection.value : ""} onClick={(value: string, valueLabel: string) => setSelection({ type: "elaborato", value, label: "Elaborato", valueLabel })} onExport={() => exportExcel("NC_OSS_per_elaborato", toChartExportRows(rilieviPerElaboratoData))} />
       </div>
 
