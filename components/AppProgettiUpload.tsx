@@ -1435,11 +1435,11 @@ async function exportCorrectedTrimbleTodoWorkbook(rows: any[], sourceFiles: File
     }
 
     const issues = getTodoQualityIssues(row);
-    const tipo = cleanPdfText(row?.tipo || row?.["Tipologia rilievo"] || "");
+    const tipo = cleanPdfText(row?.bulkTag || row?.tipo || row?.["Tipologia rilievo"] || "");
     const tipoUpper = tipo.toUpperCase();
     const elaborato = cleanPdfText(getElaboratoKey(row));
     const descrizione = cleanPdfText(row?.descrizione || row?.Description || "");
-    const disciplina = inferTrimbleDiscipline(row);
+    const disciplina = cleanPdfText(row?.bulkDisciplina) || inferTrimbleDiscipline(row);
 
     if (tagsCol >= 0 && (!cleanPdfText(matrix[rowIndex][tagsCol]) || issues.tipo)) {
       const newTag = tipo || cleanPdfText(matrix[rowIndex][tagsCol]);
@@ -1464,7 +1464,10 @@ async function exportCorrectedTrimbleTodoWorkbook(rows: any[], sourceFiles: File
       corrections += 1;
     }
 
-    if (statusCol >= 0 && tipoUpper === "NESSUN RILIEVO") {
+    if (statusCol >= 0 && cleanPdfText(row?.bulkStatus)) {
+      setWorksheetCell(ws, rowIndex, statusCol, cleanPdfText(row.bulkStatus));
+      corrections += 1;
+    } else if (statusCol >= 0 && tipoUpper === "NESSUN RILIEVO") {
       const currentStatus = cleanPdfText(matrix[rowIndex][statusCol]).toUpperCase();
       if (currentStatus !== "CLOSED" && currentStatus !== "CHIUSA") {
         setWorksheetCell(ws, rowIndex, statusCol, "CLOSED");
@@ -1576,54 +1579,45 @@ function TrimbleActions({ row, sourceFiles = [] }: any) {
   const issues = getTodoQualityIssues(row);
   const hasIssues = Object.keys(issues).length > 0;
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 120 }}>
-      <button
-        type="button"
-        onClick={() => openTrimbleTodo(row)}
-        style={{
-          border: "1px solid #cbd5e1",
-          background: "white",
-          borderRadius: 8,
-          padding: "6px 8px",
-          fontSize: 12,
-          cursor: "pointer",
-          fontWeight: 700,
-        }}
-      >
-        Apri Trimble
-      </button>
+  if (!hasIssues) {
+    return <span style={{ color: "#94a3b8", fontSize: 12 }}>Nessuna azione</span>;
+  }
 
-      {hasIssues && (
-        <button
-          type="button"
-          onClick={() => exportCorrectedTrimbleTodoWorkbook([row], sourceFiles)}
-          style={{
-            border: "1px solid #f97316",
-            background: "#fff7ed",
-            color: "#9a3412",
-            borderRadius: 8,
-            padding: "6px 8px",
-            fontSize: 12,
-            cursor: "pointer",
-            fontWeight: 700,
-          }}
-          title={Object.values(issues).join("; ")}
-        >
-          Export correzione
-        </button>
-      )}
-    </div>
+  return (
+    <button
+      type="button"
+      onClick={() => exportCorrectedTrimbleTodoWorkbook([row], sourceFiles)}
+      style={{
+        border: "1px solid #f97316",
+        background: "#fff7ed",
+        color: "#9a3412",
+        borderRadius: 8,
+        padding: "6px 8px",
+        fontSize: 12,
+        cursor: "pointer",
+        fontWeight: 700,
+      }}
+      title={Object.values(issues).join("; ")}
+    >
+      Export correzione
+    </button>
   );
 }
 
 function DetailPanel({ rows, title, onReset, sourceFiles = [] }: any) {
   const [pdfHeader, setPdfHeader] = useState<PdfHeaderData>({});
   const [showOnlyAnomalies, setShowOnlyAnomalies] = useState(false);
+  const [selectedTodoIds, setSelectedTodoIds] = useState<string[]>([]);
+  const [bulkStatus, setBulkStatus] = useState("");
+  const [bulkTag, setBulkTag] = useState("");
+  const [bulkDisciplina, setBulkDisciplina] = useState("");
 
   if (!title) return null;
 
   const visibleRows = showOnlyAnomalies ? rows.filter((r: any) => hasTodoQualityIssues(r)) : rows;
+  const visibleTodoIds = visibleRows.map((r: any) => getTodoCorrectionId(r)).filter(Boolean);
+  const selectedRows = visibleRows.filter((r: any) => selectedTodoIds.includes(getTodoCorrectionId(r)));
+  const allVisibleSelected = visibleTodoIds.length > 0 && visibleTodoIds.every((id: string) => selectedTodoIds.includes(id));
 
   function updatePdfHeader(field: keyof PdfHeaderData, value: string) {
     setPdfHeader((prev) => ({ ...prev, [field]: value }));
@@ -1727,13 +1721,57 @@ function DetailPanel({ rows, title, onReset, sourceFiles = [] }: any) {
     marginBottom: 4,
   };
 
+  function toggleTodoSelection(row: any) {
+    const id = getTodoCorrectionId(row);
+    if (!id) return;
+
+    setSelectedTodoIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  }
+
+  function selectRowsByPredicate(predicate: (row: any) => boolean) {
+    const ids = visibleRows
+      .filter(predicate)
+      .map((r: any) => getTodoCorrectionId(r))
+      .filter(Boolean);
+
+    setSelectedTodoIds(Array.from(new Set(ids)));
+  }
+
+  function toggleAllVisibleRows() {
+    setSelectedTodoIds(allVisibleSelected ? [] : Array.from(new Set(visibleTodoIds)));
+  }
+
+  function clearBulkSelection() {
+    setSelectedTodoIds([]);
+    setBulkStatus("");
+    setBulkTag("");
+    setBulkDisciplina("");
+  }
+
+  function applyBulkValues(rowsToUpdate: any[]) {
+    return rowsToUpdate.map((row: any) => ({
+      ...row,
+      stato: bulkStatus || row.stato,
+      tipo: bulkTag || row.tipo,
+      disciplina: bulkDisciplina || row.disciplina,
+      bulkStatus,
+      bulkTag,
+      bulkDisciplina,
+    }));
+  }
+
+  const rowsForTodoExport = selectedRows.length > 0 ? applyBulkValues(selectedRows) : visibleRows;
+  const selectedCount = selectedRows.length;
+
   return (
     <Card>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
         <h2 style={{ marginTop: 0 }}>Dettaglio selezione: {title}</h2>
         <div style={{ display: "flex", gap: 10 }}>
-          <ExportButton onClick={() => exportCorrectedTrimbleTodoWorkbook(visibleRows, sourceFiles)}>
-            Export ToDo corretto
+          <ExportButton onClick={() => exportCorrectedTrimbleTodoWorkbook(rowsForTodoExport, sourceFiles)}>
+            Export ToDo Trimble
           </ExportButton>
           <ExportButton
             onClick={() =>
@@ -1786,6 +1824,74 @@ function DetailPanel({ rows, title, onReset, sourceFiles = [] }: any) {
             Reset selezione
           </button>
         </div>
+      </div>
+
+      <div
+        style={{
+          marginTop: 12,
+          marginBottom: 14,
+          padding: 12,
+          border: "1px solid #cbd5e1",
+          borderRadius: 12,
+          background: "#ffffff",
+        }}
+      >
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+          <b>{selectedCount} ToDo selezionati</b>
+          <button type="button" onClick={toggleAllVisibleRows} style={miniButtonStyle}>
+            {allVisibleSelected ? "Deseleziona visibili" : "Seleziona visibili"}
+          </button>
+          <button type="button" onClick={() => selectRowsByPredicate((r: any) => translateStatus(r.stato) === "Aperta")} style={miniButtonStyle}>
+            Seleziona aperti
+          </button>
+          <button type="button" onClick={() => selectRowsByPredicate((r: any) => translateStatus(r.stato) === "Chiusa")} style={miniButtonStyle}>
+            Seleziona chiusi
+          </button>
+          <button type="button" onClick={() => selectRowsByPredicate((r: any) => String(r.tipo || "").toUpperCase() === "NC")} style={miniButtonStyle}>
+            Seleziona NC
+          </button>
+          <button type="button" onClick={() => selectRowsByPredicate((r: any) => String(r.tipo || "").toUpperCase() === "OSS")} style={miniButtonStyle}>
+            Seleziona OSS
+          </button>
+          <button type="button" onClick={() => selectRowsByPredicate((r: any) => hasTodoQualityIssues(r))} style={miniButtonStyle}>
+            Seleziona anomalie
+          </button>
+          <button type="button" onClick={() => selectRowsByPredicate((r: any) => getDisciplinaDisplay(r) === "BIM")} style={miniButtonStyle}>
+            Seleziona BIM
+          </button>
+          <button type="button" onClick={clearBulkSelection} style={miniButtonStyle}>
+            Pulisci selezione
+          </button>
+        </div>
+
+        {selectedCount > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginTop: 12 }}>
+            <select value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value)} style={smallSelectStyle}>
+              <option value="">Stato invariato</option>
+              <option value="New">Aperta / New</option>
+              <option value="Closed">Chiusa / Closed</option>
+              <option value="Waiting">In attesa / Waiting</option>
+            </select>
+            <select value={bulkTag} onChange={(e) => setBulkTag(e.target.value)} style={smallSelectStyle}>
+              <option value="">Tag invariato</option>
+              <option value="NC">NC</option>
+              <option value="OSS">OSS</option>
+              <option value="Da NC a OSS">Da NC a OSS</option>
+              <option value="Nessun rilievo">Nessun rilievo</option>
+            </select>
+            <select value={bulkDisciplina} onChange={(e) => setBulkDisciplina(e.target.value)} style={smallSelectStyle}>
+              <option value="">Disciplina invariata</option>
+              <option value="Documentazione generale">Documentazione generale</option>
+              <option value="Architettonico">Architettonico</option>
+              <option value="Strutture">Strutture</option>
+              <option value="Impianti">Impianti</option>
+              <option value="BIM">BIM</option>
+            </select>
+            <ExportButton onClick={() => exportCorrectedTrimbleTodoWorkbook(rowsForTodoExport, sourceFiles)}>
+              Export ToDo selezionati
+            </ExportButton>
+          </div>
+        )}
       </div>
 
       <div
@@ -1943,6 +2049,9 @@ function DetailPanel({ rows, title, onReset, sourceFiles = [] }: any) {
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ background: "#f1f5f9" }}>
+              <th style={th}>
+                <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisibleRows} />
+              </th>
               <th style={th}>Qualità</th>
               <th style={th}>N.</th>
               <th style={th}>ID_Rilievo</th>
@@ -1953,7 +2062,6 @@ function DetailPanel({ rows, title, onReset, sourceFiles = [] }: any) {
               <th style={th}>Descrizione</th>
               <th style={th}>Gestione rilievo</th>
               <th style={th}>Stato</th>
-              <th style={th}>Azione Trimble</th>
             </tr>
           </thead>
 
@@ -1971,6 +2079,13 @@ function DetailPanel({ rows, title, onReset, sourceFiles = [] }: any) {
                     background: rowHasIssues ? "#fff7ed" : "transparent",
                   }}
                 >
+                  <td style={{ ...td, textAlign: "center" }}>
+                    <input
+                      type="checkbox"
+                      checked={selectedTodoIds.includes(getTodoCorrectionId(r))}
+                      onChange={() => toggleTodoSelection(r)}
+                    />
+                  </td>
                   <td
                     style={{
                       ...td,
@@ -1993,9 +2108,6 @@ function DetailPanel({ rows, title, onReset, sourceFiles = [] }: any) {
                     <CommentList comments={allComments} emptyText="Nessun commento" />
                   </td>
                   <td style={anomalyCellStyle(td, issues.stato)} title={issues.stato || ""}>{translateStatus(r.stato)}</td>
-                  <td style={td}>
-                    <TrimbleActions row={r} sourceFiles={sourceFiles} />
-                  </td>
                 </tr>
               );
             })}
@@ -2016,6 +2128,24 @@ const td = {
   border: "1px solid #e2e8f0",
   padding: 8,
   verticalAlign: "top" as const,
+};
+
+const miniButtonStyle = {
+  border: "1px solid #cbd5e1",
+  background: "white",
+  borderRadius: 8,
+  padding: "6px 8px",
+  fontSize: 12,
+  cursor: "pointer",
+  fontWeight: 700,
+};
+
+const smallSelectStyle = {
+  border: "1px solid #cbd5e1",
+  borderRadius: 8,
+  padding: "7px 8px",
+  fontSize: 12,
+  background: "white",
 };
 
 const defaultDashboardModules = [
