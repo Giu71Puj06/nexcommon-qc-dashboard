@@ -1162,10 +1162,9 @@ function getTodoQualityIssues(row: any) {
     issues.gestione = "Rilievo chiuso senza commento progettista";
   }
 
-  if (isGeneralElaboratoValue(elaborato) && !describesMissingDocumentOrElaborato(descrizione)) {
-    issues.elaborato = "Rilievo/Osservazione generale usato impropriamente: associare il rilievo a uno o più elaborati specifici";
-  }
-
+  // RILIEVO/I GENERALE/I e OSSERVAZIONE/I GENERALE/I sono valori ammessi:
+  // indicano che il rilievo riguarda un documento/elaborato non presente o non associabile.
+  // Non devono quindi essere considerati anomalia bloccante.
   return issues;
 }
 
