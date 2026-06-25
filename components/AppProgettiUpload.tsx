@@ -1777,7 +1777,7 @@ export default function AppProgettiUpload() {
   const rilieviPerElaborato: any = {};
 
   enrichedRows.forEach((r) => {
-    const d = r.disciplina || "Non assegnata";
+    const d = getDisciplinaDisplay(r);
     discipline[d] = (discipline[d] || 0) + 1;
 
     const e = r.tipo || "Rilievo mancante";
@@ -1944,7 +1944,7 @@ export default function AppProgettiUpload() {
     }
 
     if (selection.type === "tipo") return enrichedRows.filter((r) => r.tipo === selection.value);
-    if (selection.type === "disciplina") return enrichedRows.filter((r) => r.disciplina === selection.value);
+    if (selection.type === "disciplina") return enrichedRows.filter((r) => getDisciplinaDisplay(r) === selection.value);
     if (selection.type === "elaborato") return enrichedRows.filter((r) => r.elaboratoKey === selection.value);
     if (selection.type === "elaborato-disciplina") return enrichedRows.filter((r) => r.elaboratoKey === selection.value);
 
