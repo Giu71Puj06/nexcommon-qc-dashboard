@@ -1314,6 +1314,178 @@ function ElaboratiPerDisciplinaPanel({ data, activeKey, onClick, onExport }: any
 }
 
 
+
+function normalizeHeaderName(value: any) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function findHeaderIndex(headers: any[], candidates: string[]) {
+  const normalizedCandidates = candidates.map((item) => normalizeHeaderName(item));
+  return headers.findIndex((header) => normalizedCandidates.includes(normalizeHeaderName(header)));
+}
+
+function getTodoCorrectionId(row: any) {
+  return cleanPdfText(row?.id || row?.ID_Rilievo || row?.["ID rilievo"] || row?.Label || row?.label || "");
+}
+
+function getCreatedByName(row: any) {
+  return cleanPdfText(
+    row?.creatoDa ||
+      row?.["Created by"] ||
+      row?.createdBy ||
+      row?.ispettore ||
+      row?.Owner ||
+      ""
+  );
+}
+
+function findSignatureEntryByPersonName(name: string) {
+  const normalized = normalizeCommentAuthor(name || "").toLowerCase();
+  if (!normalized) return null;
+
+  return (
+    SIGNATURE_DATABASE.find((entry) => {
+      const entryName = normalizeCommentAuthor(entry.name || "").toLowerCase();
+      return entryName && (entryName.includes(normalized) || normalized.includes(entryName));
+    }) || null
+  );
+}
+
+function inferTrimbleDiscipline(row: any) {
+  const display = cleanPdfText(getDisciplinaDisplay(row));
+  if (display && display !== "Non assegnata" && display.toLowerCase() !== "null" && display.toLowerCase() !== "null null") {
+    return display;
+  }
+
+  const createdBy = getCreatedByName(row);
+  const entry = findSignatureEntryByPersonName(createdBy);
+  const discipline = cleanPdfText(entry?.discipline || "");
+
+  if (discipline && discipline.toLowerCase() !== "null" && discipline.toLowerCase() !== "null null") {
+    return discipline;
+  }
+
+  return "";
+}
+
+function setWorksheetCell(ws: any, rowIndex: number, colIndex: number, value: any) {
+  if (rowIndex < 0 || colIndex < 0) return false;
+  const address = XLSX.utils.encode_cell({ r: rowIndex, c: colIndex });
+  ws[address] = { t: "s", v: String(value ?? "") };
+  return true;
+}
+
+async function exportCorrectedTrimbleTodoWorkbook(rows: any[], sourceFiles: File[] = []) {
+  const todoFile = (sourceFiles || []).find((file) => {
+    const name = file.name.toLowerCase();
+    return name.endsWith(".xlsx") && (name.includes("todo") || name.includes("to_do") || name.includes("todos"));
+  }) || (sourceFiles || []).find((file) => file.name.toLowerCase().endsWith(".xlsx"));
+
+  if (!todoFile) {
+    alert("File ToDo Excel non disponibile. Carica anche l'export ToDo .xlsx di Trimble prima di esportare la correzione.");
+    return;
+  }
+
+  const arrayBuffer = await todoFile.arrayBuffer();
+  const wb = XLSX.read(arrayBuffer, { type: "array" });
+  const sheetName = wb.SheetNames[0];
+  const ws = wb.Sheets[sheetName];
+  const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }) as any[][];
+
+  if (!matrix.length) {
+    alert("Il file ToDo Excel risulta vuoto o non leggibile.");
+    return;
+  }
+
+  const headers = matrix[0] || [];
+  const labelCol = findHeaderIndex(headers, ["Label", "ID_Rilievo", "ID rilievo", "ID"]);
+  const titleCol = findHeaderIndex(headers, ["Title", "Titolo", "Elaborato"]);
+  const descriptionCol = findHeaderIndex(headers, ["Description", "Descrizione"]);
+  const assigneeCol = findHeaderIndex(headers, ["Assignee(s)", "Assignee(s) ", "Assignees", "Disciplina"]);
+  const tagsCol = findHeaderIndex(headers, ["Tags", "Tag", "Tipologia rilievo"]);
+  const statusCol = findHeaderIndex(headers, ["Status", "Stato"]);
+
+  if (labelCol < 0) {
+    alert("Nel file ToDo non trovo la colonna Label/ID. Impossibile associare le correzioni ai ToDo.");
+    return;
+  }
+
+  const rowIndexById = new Map<string, number>();
+  matrix.slice(1).forEach((row, idx) => {
+    const id = cleanPdfText(row[labelCol]);
+    if (id) rowIndexById.set(id, idx + 1);
+  });
+
+  let corrections = 0;
+  let unresolved = 0;
+  const missingIds: string[] = [];
+
+  (rows || []).forEach((row) => {
+    const todoId = getTodoCorrectionId(row);
+    if (!todoId) {
+      unresolved += 1;
+      return;
+    }
+
+    const rowIndex = rowIndexById.get(todoId);
+    if (rowIndex === undefined) {
+      missingIds.push(todoId);
+      unresolved += 1;
+      return;
+    }
+
+    const issues = getTodoQualityIssues(row);
+    const tipo = cleanPdfText(row?.tipo || row?.["Tipologia rilievo"] || "");
+    const tipoUpper = tipo.toUpperCase();
+    const elaborato = cleanPdfText(getElaboratoKey(row));
+    const descrizione = cleanPdfText(row?.descrizione || row?.Description || "");
+    const disciplina = inferTrimbleDiscipline(row);
+
+    if (tagsCol >= 0 && (!cleanPdfText(matrix[rowIndex][tagsCol]) || issues.tipo)) {
+      const newTag = tipo || cleanPdfText(matrix[rowIndex][tagsCol]);
+      if (newTag) {
+        setWorksheetCell(ws, rowIndex, tagsCol, newTag);
+        corrections += 1;
+      }
+    }
+
+    if (assigneeCol >= 0 && disciplina && (!cleanPdfText(matrix[rowIndex][assigneeCol]) || issues.disciplina)) {
+      setWorksheetCell(ws, rowIndex, assigneeCol, disciplina);
+      corrections += 1;
+    }
+
+    if (titleCol >= 0 && elaborato && (!cleanPdfText(matrix[rowIndex][titleCol]) || issues.elaborato)) {
+      setWorksheetCell(ws, rowIndex, titleCol, elaborato);
+      corrections += 1;
+    }
+
+    if (descriptionCol >= 0 && descrizione && (!cleanPdfText(matrix[rowIndex][descriptionCol]) || issues.descrizione)) {
+      setWorksheetCell(ws, rowIndex, descriptionCol, descrizione);
+      corrections += 1;
+    }
+
+    if (statusCol >= 0 && tipoUpper === "NESSUN RILIEVO") {
+      const currentStatus = cleanPdfText(matrix[rowIndex][statusCol]).toUpperCase();
+      if (currentStatus !== "CLOSED" && currentStatus !== "CHIUSA") {
+        setWorksheetCell(ws, rowIndex, statusCol, "CLOSED");
+        corrections += 1;
+      }
+    }
+  });
+
+  const baseName = todoFile.name.replace(/\.xlsx$/i, "");
+  XLSX.writeFile(wb, `${baseName}_CORRETTO_NEXCOMMON.xlsx`);
+
+  const msg = [
+    `File ToDo corretto generato: ${baseName}_CORRETTO_NEXCOMMON.xlsx`,
+    `Correzioni automatiche applicate: ${corrections}`,
+    unresolved ? `Righe non corrette automaticamente: ${unresolved}` : "",
+    missingIds.length ? `ID non trovati nel ToDo: ${missingIds.slice(0, 10).join(", ")}${missingIds.length > 10 ? "..." : ""}` : "",
+  ].filter(Boolean).join("\n");
+
+  alert(msg);
+}
+
 function getTrimbleTodoUrl(row: any) {
   return (
     row?.trimbleUrl ||
@@ -1400,7 +1572,7 @@ async function sendTrimbleCorrectionRequest(row: any) {
   }
 }
 
-function TrimbleActions({ row }: any) {
+function TrimbleActions({ row, sourceFiles = [] }: any) {
   const issues = getTodoQualityIssues(row);
   const hasIssues = Object.keys(issues).length > 0;
 
@@ -1425,7 +1597,7 @@ function TrimbleActions({ row }: any) {
       {hasIssues && (
         <button
           type="button"
-          onClick={() => sendTrimbleCorrectionRequest(row)}
+          onClick={() => exportCorrectedTrimbleTodoWorkbook([row], sourceFiles)}
           style={{
             border: "1px solid #f97316",
             background: "#fff7ed",
@@ -1438,14 +1610,14 @@ function TrimbleActions({ row }: any) {
           }}
           title={Object.values(issues).join("; ")}
         >
-          Correggi
+          Export correzione
         </button>
       )}
     </div>
   );
 }
 
-function DetailPanel({ rows, title, onReset }: any) {
+function DetailPanel({ rows, title, onReset, sourceFiles = [] }: any) {
   const [pdfHeader, setPdfHeader] = useState<PdfHeaderData>({});
   const [showOnlyAnomalies, setShowOnlyAnomalies] = useState(false);
 
@@ -1560,6 +1732,9 @@ function DetailPanel({ rows, title, onReset }: any) {
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
         <h2 style={{ marginTop: 0 }}>Dettaglio selezione: {title}</h2>
         <div style={{ display: "flex", gap: 10 }}>
+          <ExportButton onClick={() => exportCorrectedTrimbleTodoWorkbook(visibleRows, sourceFiles)}>
+            Export ToDo corretto
+          </ExportButton>
           <ExportButton
             onClick={() =>
               exportExcel(
@@ -1819,7 +1994,7 @@ function DetailPanel({ rows, title, onReset }: any) {
                   </td>
                   <td style={anomalyCellStyle(td, issues.stato)} title={issues.stato || ""}>{translateStatus(r.stato)}</td>
                   <td style={td}>
-                    <TrimbleActions row={r} />
+                    <TrimbleActions row={r} sourceFiles={sourceFiles} />
                   </td>
                 </tr>
               );
@@ -2374,7 +2549,7 @@ export default function AppProgettiUpload() {
       </div>
 
       <div style={{ marginTop: 24 }}>
-        <DetailPanel title={selectionTitle} rows={filteredRows} onReset={() => setSelection(null)} />
+        <DetailPanel title={selectionTitle} rows={filteredRows} sourceFiles={files} onReset={() => setSelection(null)} />
       </div>
 
       <div
