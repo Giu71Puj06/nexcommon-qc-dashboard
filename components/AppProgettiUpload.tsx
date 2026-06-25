@@ -368,7 +368,26 @@ function isSolibriCheckingRow(row: any) {
 }
 
 function getDisciplinaDisplay(row: any) {
-  return isSolibriCheckingRow(row) ? "BIM" : row?.disciplina || "Non assegnata";
+  const rawDisciplina = String(row?.disciplina || "").trim();
+  const isAccountDiscipline = /@/.test(rawDisciplina);
+
+  return isSolibriCheckingRow(row) || isAccountDiscipline ? "BIM" : row?.disciplina || "Non assegnata";
+}
+
+function isBimModelRow(row: any) {
+  const elaborato = String(getElaboratoKey(row) || "").toLowerCase();
+  const rawDisciplina = String(row?.disciplina || "").trim();
+
+  return (
+    isSolibriCheckingRow(row) ||
+    /@/.test(rawDisciplina) ||
+    elaborato.includes(".ifc") ||
+    Boolean(row?.isBimModel)
+  );
+}
+
+function getOggettoVerificaTipo(row: any) {
+  return isBimModelRow(row) ? "modello" : "elaborato";
 }
 
 function getRedattoreFromComments(comments: any[] = []) {
@@ -1168,10 +1187,55 @@ function ElaboratiPerDisciplinaPanel({ data, activeKey, onClick, onExport }: any
 
   const discipline = Object.keys(grouped).sort((a, b) => a.localeCompare(b, "it"));
 
+  function renderItems(items: any[], tipoLabel: string) {
+    if (!items || items.length === 0) return null;
+
+    return (
+      <div style={{ marginTop: 8 }}>
+        <div style={{ fontSize: 12, fontWeight: 800, color: "#475569", marginBottom: 6 }}>
+          {tipoLabel} ({items.length})
+        </div>
+        <div style={{ display: "grid", gap: 6 }}>
+          {items.map((item: any) => {
+            const isActive = activeKey === item.elaboratoKey;
+            return (
+              <div
+                key={item.key}
+                onClick={() => onClick(item.elaboratoKey, item.elaborato)}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 70px 70px 120px",
+                  gap: 8,
+                  alignItems: "center",
+                  cursor: "pointer",
+                  padding: 7,
+                  borderRadius: 8,
+                  background: isActive ? "#e0f2fe" : "white",
+                  border: isActive ? "2px solid #0284c7" : "1px solid #e2e8f0",
+                  fontSize: 12,
+                }}
+                title={item.elaborato}
+              >
+                <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {item.elaborato}
+                </div>
+                <div>NC: <b>{item.nc}</b></div>
+                <div>OSS: <b>{item.oss}</b></div>
+                <div style={{ color: item.nc === 0 && item.oss === 0 ? "#15803d" : "#0f172a" }}>
+                  {item.esito}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <Card>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-        <h3 style={{ marginTop: 0 }}>Elaborati per disciplina</h3>
+        <h3 style={{ marginTop: 0 }}>Elaborati / Modelli per disciplina</h3>
         <ExportButton onClick={onExport}>Export Excel</ExportButton>
       </div>
 
@@ -1180,57 +1244,33 @@ function ElaboratiPerDisciplinaPanel({ data, activeKey, onClick, onExport }: any
       )}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: 14 }}>
-        {discipline.map((disciplina) => (
-          <div
-            key={disciplina}
-            style={{
-              border: "1px solid #e2e8f0",
-              borderRadius: 12,
-              padding: 12,
-              background: "#f8fafc",
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", marginBottom: 8 }}>
-              <div style={{ fontWeight: 800 }}>{disciplina}</div>
-              <div style={{ fontSize: 12, color: "#475569", fontWeight: 700 }}>
-                {grouped[disciplina].length} elaborati
+        {discipline.map((disciplina) => {
+          const items = grouped[disciplina] || [];
+          const modelli = items.filter((item: any) => item.tipoOggetto === "modello");
+          const elaborati = items.filter((item: any) => item.tipoOggetto !== "modello");
+
+          return (
+            <div
+              key={disciplina}
+              style={{
+                border: "1px solid #e2e8f0",
+                borderRadius: 12,
+                padding: 12,
+                background: "#f8fafc",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                <div style={{ fontWeight: 800 }}>{disciplina}</div>
+                <div style={{ fontSize: 12, color: "#475569", fontWeight: 700 }}>
+                  {elaborati.length} elaborati · {modelli.length} modelli
+                </div>
               </div>
+
+              {renderItems(elaborati, "Elaborati")}
+              {renderItems(modelli, "Modelli 3D IFC")}
             </div>
-            <div style={{ display: "grid", gap: 6 }}>
-              {grouped[disciplina].map((item: any) => {
-                const isActive = activeKey === item.elaboratoKey;
-                return (
-                  <div
-                    key={item.key}
-                    onClick={() => onClick(item.elaboratoKey, item.elaborato)}
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 70px 70px 120px",
-                      gap: 8,
-                      alignItems: "center",
-                      cursor: "pointer",
-                      padding: 7,
-                      borderRadius: 8,
-                      background: isActive ? "#e0f2fe" : "white",
-                      border: isActive ? "2px solid #0284c7" : "1px solid #e2e8f0",
-                      fontSize: 12,
-                    }}
-                    title={item.elaborato}
-                  >
-                    <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {item.elaborato}
-                    </div>
-                    <div>NC: <b>{item.nc}</b></div>
-                    <div>OSS: <b>{item.oss}</b></div>
-                    <div style={{ color: item.nc === 0 && item.oss === 0 ? "#15803d" : "#0f172a" }}>
-                      {item.esito}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </Card>
   );
@@ -1791,6 +1831,7 @@ export default function AppProgettiUpload() {
           key,
           elaborato: r.elaboratoDisplay || getElaboratoDisplay(r),
           disciplina: getDisciplinaDisplay(r),
+          tipoOggetto: getOggettoVerificaTipo(r),
           nc: 0,
           oss: 0,
           nessunRilievo: 0,
@@ -1804,6 +1845,11 @@ export default function AppProgettiUpload() {
       if (tipo === "OSS" || tipo === "DA NC A OSS") grouped[key].oss += 1;
       if (tipo === "NESSUN RILIEVO") grouped[key].nessunRilievo += 1;
       if (!tipo || tipo === "ESITO MANCANTE" || tipo === "RILIEVO MANCANTE") grouped[key].esitoMancante += 1;
+
+      if (getOggettoVerificaTipo(r) === "modello") {
+        grouped[key].tipoOggetto = "modello";
+        grouped[key].disciplina = "BIM";
+      }
 
       if (tipo === "NC" || tipo === "OSS" || tipo === "DA NC A OSS" || tipo === "NESSUN RILIEVO") {
         grouped[key].commentato = true;
@@ -1830,22 +1876,28 @@ export default function AppProgettiUpload() {
   }));
 
   const elaboratiPerDisciplinaRows = useMemo(() => {
-    return coverageRows.map((r: any) => ({
-      key: `${r.disciplina || "Non assegnata"}__${r.key}`,
-      disciplina: r.disciplina || "Non assegnata",
-      elaborato: r.elaborato,
-      nc: r.nc,
-      oss: r.oss,
-      nessunRilievo: r.nessunRilievo,
-      esito: r.nc === 0 && r.oss === 0 ? "Nessuna NC/OSS" : `NC: ${r.nc} - OSS: ${r.oss}`,
-      value: r.nc + r.oss + r.nessunRilievo,
-      elaboratoKey: r.key,
-    }));
+    return coverageRows.map((r: any) => {
+      const tipoOggetto = r.tipoOggetto === "modello" ? "modello" : "elaborato";
+
+      return {
+        key: `${r.disciplina || "Non assegnata"}__${tipoOggetto}__${r.key}`,
+        disciplina: r.disciplina || "Non assegnata",
+        tipoOggetto,
+        elaborato: r.elaborato,
+        nc: r.nc,
+        oss: r.oss,
+        nessunRilievo: r.nessunRilievo,
+        esito: r.nc === 0 && r.oss === 0 ? "Nessuna NC/OSS" : `NC: ${r.nc} - OSS: ${r.oss}`,
+        value: r.nc + r.oss + r.nessunRilievo,
+        elaboratoKey: r.key,
+      };
+    });
   }, [coverageRows]);
 
   const elaboratiPerDisciplinaExportRows = elaboratiPerDisciplinaRows.map((r: any) => ({
     Disciplina: r.disciplina,
-    Elaborato: r.elaborato,
+    Tipo: r.tipoOggetto === "modello" ? "Modello 3D IFC" : "Elaborato",
+    Nome: r.elaborato,
     NC: r.nc,
     OSS: r.oss,
     "Nessun rilievo": r.nessunRilievo,
