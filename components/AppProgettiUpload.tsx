@@ -1067,31 +1067,6 @@ function hasProjectComment(row: any) {
   return Boolean(row?.hasPrgComment) || comments.some((comment: any) => isProjectComment(comment));
 }
 
-function hasInspectorClosingIntent(row: any) {
-  const tipo = cleanPdfText(row?.tipo).toUpperCase();
-  const stato = cleanPdfText(row?.stato || translateStatus(row?.stato));
-  const comments = Array.isArray(row?.comments) ? row.comments : [];
-  const ispText = comments
-    .filter((comment: any) => String(comment?.role || "").toUpperCase() === "ISP" || isKnownInspectorAuthor(comment?.author))
-    .map((comment: any) => cleanPdfText(comment?.comment || "").toLowerCase())
-    .join(" ");
-
-  if (stato !== "Chiusa") return true;
-  if (tipo !== "NC" && tipo !== "OSS" && tipo !== "DA NC A OSS") return true;
-
-  return (
-    ispText.includes("non conformità risolta") ||
-    ispText.includes("non conformita risolta") ||
-    ispText.includes("osservazione risolta") ||
-    ispText.includes("declassata") ||
-    ispText.includes("declassamento") ||
-    ispText.includes("da nc a oss") ||
-    ispText.includes("chiusa") ||
-    ispText.includes("si chiude") ||
-    ispText.includes("rilievo chiuso")
-  );
-}
-
 function getTodoQualityIssues(row: any) {
   const tipo = cleanPdfText(row?.tipo);
   const tipoUpper = tipo.toUpperCase();
@@ -1126,8 +1101,12 @@ function getTodoQualityIssues(row: any) {
     issues.gestione = "Rilievo chiuso senza commento progettista";
   }
 
-  if ((tipoUpper === "NC" || tipoUpper === "OSS" || tipoUpper === "DA NC A OSS") && stato === "Chiusa" && !hasInspectorClosingIntent(row)) {
-    issues.chiusura = "Alert: manca una frase chiara dell'ispettore di chiusura o declassamento";
+  if (
+    elaborato.toUpperCase() === "RILIEVO GENERALE" ||
+    elaborato.toUpperCase() === "RILIEVI GENERALI" ||
+    elaborato.toUpperCase() === "OSSERVAZIONI GENERALI"
+  ) {
+    issues.elaborato = "Rilievo generale: associare il rilievo a uno o più elaborati specifici";
   }
 
   return issues;
@@ -1140,13 +1119,11 @@ function hasTodoQualityIssues(row: any) {
 function anomalyCellStyle(baseStyle: any, issue?: string) {
   if (!issue) return baseStyle;
 
-  const isAlert = String(issue).toLowerCase().startsWith("alert");
-
   return {
     ...baseStyle,
-    background: isAlert ? "#fef9c3" : "#fee2e2",
-    border: isAlert ? "2px solid #eab308" : "2px solid #ef4444",
-    color: isAlert ? "#713f12" : "#7f1d1d",
+    background: "#fee2e2",
+    border: "2px solid #ef4444",
+    color: "#7f1d1d",
     fontWeight: 700,
   };
 }
@@ -1601,13 +1578,12 @@ function DetailPanel({ rows, title, onReset }: any) {
               const issues = getTodoQualityIssues(r);
               const issueList = Object.values(issues).join("; ");
               const rowHasIssues = issueList.length > 0;
-              const isOnlyAlert = rowHasIssues && Object.values(issues).every((issue: any) => String(issue).toLowerCase().startsWith("alert"));
 
               return (
                 <tr
                   key={`${r.id}-${i}`}
                   style={{
-                    background: rowHasIssues ? (isOnlyAlert ? "#fefce8" : "#fff7ed") : "transparent",
+                    background: rowHasIssues ? "#fff7ed" : "transparent",
                   }}
                 >
                   <td
@@ -1615,11 +1591,11 @@ function DetailPanel({ rows, title, onReset }: any) {
                       ...td,
                       textAlign: "center",
                       fontWeight: 800,
-                      color: rowHasIssues ? (isOnlyAlert ? "#a16207" : "#b45309") : "#15803d",
+                      color: rowHasIssues ? "#b45309" : "#15803d",
                     }}
                     title={rowHasIssues ? issueList : "Nessuna anomalia"}
                   >
-                    {rowHasIssues ? (isOnlyAlert ? "!" : "⚠") : "✓"}
+                    {rowHasIssues ? "⚠" : "✓"}
                   </td>
                   <td style={{ ...td, textAlign: "center", fontWeight: 700 }}>{i + 1}</td>
                   <td style={td}>{r.id}</td>
