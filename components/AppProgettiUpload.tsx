@@ -1262,12 +1262,12 @@ function ElaboratiPerDisciplinaPanel({ data, activeKey, onClick, onExport }: any
               <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", marginBottom: 8 }}>
                 <div style={{ fontWeight: 800 }}>{disciplina}</div>
                 <div style={{ fontSize: 12, color: "#475569", fontWeight: 700 }}>
-                  {elaborati.length} elaborati · {modelli.length} modelli
+                  {elaborati.length} elaborati
                 </div>
               </div>
 
               {renderItems(elaborati, "Elaborati")}
-              {renderItems(modelli, "Modelli 3D IFC")}
+              {renderItems(modelli, "Modelli 3D")}
             </div>
           );
         })}
