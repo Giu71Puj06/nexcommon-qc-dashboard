@@ -390,6 +390,48 @@ function getOggettoVerificaTipo(row: any) {
   return isBimModelRow(row) ? "modello" : "elaborato";
 }
 
+function isGeneralElaboratoValue(value: any) {
+  const normalized = cleanPdfText(value).toUpperCase();
+  return (
+    normalized === "RILIEVO GENERALE" ||
+    normalized === "RILIEVI GENERALI" ||
+    normalized === "OSSERVAZIONE GENERALE" ||
+    normalized === "OSSERVAZIONI GENERALI"
+  );
+}
+
+function describesMissingDocumentOrElaborato(value: any) {
+  const text = cleanPdfText(value).toLowerCase();
+
+  return (
+    text.includes("non è stata redatta") ||
+    text.includes("non e stata redatta") ||
+    text.includes("non è stato redatto") ||
+    text.includes("non e stato redatto") ||
+    text.includes("non è stata consegnata") ||
+    text.includes("non e stata consegnata") ||
+    text.includes("non è stato consegnato") ||
+    text.includes("non e stato consegnato") ||
+    text.includes("non è presente") ||
+    text.includes("non e presente") ||
+    text.includes("non risulta presente") ||
+    text.includes("non risulta depositato") ||
+    text.includes("non risulta consegnato") ||
+    text.includes("manca ") ||
+    text.includes("mancante") ||
+    text.includes("assente") ||
+    text.includes("non depositato") ||
+    text.includes("non consegnato") ||
+    text.includes("da produrre") ||
+    text.includes("da redigere") ||
+    text.includes("documento mancante") ||
+    text.includes("elaborato mancante") ||
+    text.includes("relazione mancante") ||
+    text.includes("modello mancante") ||
+    text.includes("modello ifc non consegnato")
+  );
+}
+
 function getRedattoreFromComments(comments: any[] = []) {
   const ispAuthors = comments
     .filter((c: any) => String(c?.role || "").toUpperCase() === "ISP")
@@ -1120,12 +1162,8 @@ function getTodoQualityIssues(row: any) {
     issues.gestione = "Rilievo chiuso senza commento progettista";
   }
 
-  if (
-    elaborato.toUpperCase() === "RILIEVO GENERALE" ||
-    elaborato.toUpperCase() === "RILIEVI GENERALI" ||
-    elaborato.toUpperCase() === "OSSERVAZIONI GENERALI"
-  ) {
-    issues.elaborato = "Rilievo generale: associare il rilievo a uno o più elaborati specifici";
+  if (isGeneralElaboratoValue(elaborato) && !describesMissingDocumentOrElaborato(descrizione)) {
+    issues.elaborato = "Rilievo/Osservazione generale usato impropriamente: associare il rilievo a uno o più elaborati specifici";
   }
 
   return issues;
