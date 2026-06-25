@@ -1041,6 +1041,57 @@ function ImportSummary({ importedFiles }: any) {
 }
 
 
+function isKnownInspectorAuthor(author: any) {
+  const normalized = normalizeCommentAuthor(author || "").toLowerCase();
+  if (!normalized) return false;
+
+  return SIGNATURE_DATABASE.some((entry) => {
+    const entryName = normalizeCommentAuthor(entry.name || "").toLowerCase();
+    return entry.role === "Ispettore Tecnico" && entryName && normalized.includes(entryName);
+  });
+}
+
+function isProjectComment(comment: any) {
+  const role = String(comment?.role || "").toUpperCase();
+  const author = comment?.author || "";
+
+  if (role === "PRG") return true;
+  if (role === "ISP") return false;
+
+  // Se l'autore non è un ispettore noto, lo considero progettista.
+  return !isKnownInspectorAuthor(author);
+}
+
+function hasProjectComment(row: any) {
+  const comments = Array.isArray(row?.comments) ? row.comments : [];
+  return Boolean(row?.hasPrgComment) || comments.some((comment: any) => isProjectComment(comment));
+}
+
+function hasInspectorClosingIntent(row: any) {
+  const tipo = cleanPdfText(row?.tipo).toUpperCase();
+  const stato = cleanPdfText(row?.stato || translateStatus(row?.stato));
+  const comments = Array.isArray(row?.comments) ? row.comments : [];
+  const ispText = comments
+    .filter((comment: any) => String(comment?.role || "").toUpperCase() === "ISP" || isKnownInspectorAuthor(comment?.author))
+    .map((comment: any) => cleanPdfText(comment?.comment || "").toLowerCase())
+    .join(" ");
+
+  if (stato !== "Chiusa") return true;
+  if (tipo !== "NC" && tipo !== "OSS" && tipo !== "DA NC A OSS") return true;
+
+  return (
+    ispText.includes("non conformità risolta") ||
+    ispText.includes("non conformita risolta") ||
+    ispText.includes("osservazione risolta") ||
+    ispText.includes("declassata") ||
+    ispText.includes("declassamento") ||
+    ispText.includes("da nc a oss") ||
+    ispText.includes("chiusa") ||
+    ispText.includes("si chiude") ||
+    ispText.includes("rilievo chiuso")
+  );
+}
+
 function getTodoQualityIssues(row: any) {
   const tipo = cleanPdfText(row?.tipo);
   const tipoUpper = tipo.toUpperCase();
@@ -1071,8 +1122,12 @@ function getTodoQualityIssues(row: any) {
     issues.stato = "Stato incoerente con Nessun rilievo";
   }
 
-  if ((tipoUpper === "NC" || tipoUpper === "OSS" || tipoUpper === "DA NC A OSS") && !row?.hasPrgComment && stato === "Chiusa") {
+  if ((tipoUpper === "NC" || tipoUpper === "OSS" || tipoUpper === "DA NC A OSS") && stato === "Chiusa" && !hasProjectComment(row)) {
     issues.gestione = "Rilievo chiuso senza commento progettista";
+  }
+
+  if ((tipoUpper === "NC" || tipoUpper === "OSS" || tipoUpper === "DA NC A OSS") && stato === "Chiusa" && !hasInspectorClosingIntent(row)) {
+    issues.chiusura = "Alert: manca una frase chiara dell'ispettore di chiusura o declassamento";
   }
 
   return issues;
@@ -1085,11 +1140,13 @@ function hasTodoQualityIssues(row: any) {
 function anomalyCellStyle(baseStyle: any, issue?: string) {
   if (!issue) return baseStyle;
 
+  const isAlert = String(issue).toLowerCase().startsWith("alert");
+
   return {
     ...baseStyle,
-    background: "#fee2e2",
-    border: "2px solid #ef4444",
-    color: "#7f1d1d",
+    background: isAlert ? "#fef9c3" : "#fee2e2",
+    border: isAlert ? "2px solid #eab308" : "2px solid #ef4444",
+    color: isAlert ? "#713f12" : "#7f1d1d",
     fontWeight: 700,
   };
 }
@@ -1156,7 +1213,12 @@ function ElaboratiPerDisciplinaPanel({ data, activeKey, onClick, onExport }: any
               background: "#f8fafc",
             }}
           >
-            <div style={{ fontWeight: 800, marginBottom: 8 }}>{disciplina}</div>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", marginBottom: 8 }}>
+              <div style={{ fontWeight: 800 }}>{disciplina}</div>
+              <div style={{ fontSize: 12, color: "#475569", fontWeight: 700 }}>
+                {grouped[disciplina].length} elaborati
+              </div>
+            </div>
             <div style={{ display: "grid", gap: 6 }}>
               {grouped[disciplina].map((item: any) => {
                 const isActive = activeKey === item.elaboratoKey;
@@ -1539,12 +1601,13 @@ function DetailPanel({ rows, title, onReset }: any) {
               const issues = getTodoQualityIssues(r);
               const issueList = Object.values(issues).join("; ");
               const rowHasIssues = issueList.length > 0;
+              const isOnlyAlert = rowHasIssues && Object.values(issues).every((issue: any) => String(issue).toLowerCase().startsWith("alert"));
 
               return (
                 <tr
                   key={`${r.id}-${i}`}
                   style={{
-                    background: rowHasIssues ? "#fff7ed" : "transparent",
+                    background: rowHasIssues ? (isOnlyAlert ? "#fefce8" : "#fff7ed") : "transparent",
                   }}
                 >
                   <td
@@ -1552,11 +1615,11 @@ function DetailPanel({ rows, title, onReset }: any) {
                       ...td,
                       textAlign: "center",
                       fontWeight: 800,
-                      color: rowHasIssues ? "#b45309" : "#15803d",
+                      color: rowHasIssues ? (isOnlyAlert ? "#a16207" : "#b45309") : "#15803d",
                     }}
                     title={rowHasIssues ? issueList : "Nessuna anomalia"}
                   >
-                    {rowHasIssues ? "⚠" : "✓"}
+                    {rowHasIssues ? (isOnlyAlert ? "!" : "⚠") : "✓"}
                   </td>
                   <td style={{ ...td, textAlign: "center", fontWeight: 700 }}>{i + 1}</td>
                   <td style={td}>{r.id}</td>
@@ -1815,31 +1878,17 @@ export default function AppProgettiUpload() {
 
   const todoQualityRows = useMemo(() => {
     return enrichedRows.map((r: any) => {
-      const tipo = cleanPdfText(r.tipo);
-      const tipoUpper = tipo.toUpperCase();
-      const disciplina = cleanPdfText(getDisciplinaDisplay(r));
-      const elaborato = cleanPdfText(getElaboratoKey(r));
-      const descrizione = cleanPdfText(r.descrizione);
-      const stato = cleanPdfText(r.stato);
-      const issues: string[] = [];
-
-      if (!elaborato || elaborato === "Elaborato non identificato") issues.push("Elaborato mancante");
-      if (!disciplina || disciplina === "Non assegnata") issues.push("Disciplina mancante");
-      if (!tipo || tipoUpper === "ESITO MANCANTE" || tipoUpper === "RILIEVO MANCANTE") issues.push("Tipologia NC/OSS mancante");
-      if ((tipoUpper === "NC" || tipoUpper === "OSS" || tipoUpper === "DA NC A OSS") && !descrizione) issues.push("Descrizione mancante");
-      if (tipoUpper === "NESSUN RILIEVO" && stato && stato !== "Chiusa") issues.push("Stato incoerente con Nessun rilievo");
-      if ((tipoUpper === "NC" || tipoUpper === "OSS" || tipoUpper === "DA NC A OSS") && !r.hasPrgComment && stato === "Chiusa") {
-        issues.push("Chiuso senza commento progettista");
-      }
+      const issuesMap = getTodoQualityIssues(r);
+      const issues = Object.values(issuesMap);
 
       return {
         id: r.id || "",
-        elaborato: elaborato || "Elaborato non identificato",
-        disciplina,
-        tipo: tipo || "Mancante",
-        descrizionePresente: descrizione ? "Sì" : "No",
-        stato,
-        esito: issues.length === 0 ? "OK" : "Da correggere",
+        elaborato: cleanPdfText(getElaboratoKey(r)) || "Elaborato non identificato",
+        disciplina: cleanPdfText(getDisciplinaDisplay(r)),
+        tipo: cleanPdfText(r.tipo) || "Mancante",
+        descrizionePresente: cleanPdfText(r.descrizione) ? "Sì" : "No",
+        stato: cleanPdfText(r.stato),
+        esito: issues.length === 0 ? "OK" : "Da verificare",
         anomalie: issues.join("; "),
       };
     }).filter((item: any) => item.esito !== "OK");
