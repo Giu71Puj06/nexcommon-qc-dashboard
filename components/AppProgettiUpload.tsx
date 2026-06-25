@@ -80,25 +80,98 @@ function cleanPdfText(value: any) {
 }
 
 
+
+function splitElaboratiValue(value: any) {
+  const raw = cleanPdfText(value);
+  if (!raw) return [];
+
+  const normalized = raw
+    .replace(/\s*\|\s*/g, "\n")
+    .replace(/\s*;\s*/g, "\n")
+    .replace(/\s+\/\s+/g, "\n");
+
+  return Array.from(
+    new Set(
+      normalized
+        .split(/\n+/)
+        .map((item) => cleanPdfText(item))
+        .filter(Boolean)
+    )
+  );
+}
+
+function getElaboratiForExportRow(row: any) {
+  const raw = getElaboratoKey(row);
+  const split = splitElaboratiValue(raw);
+  return split.length > 0 ? split : [cleanPdfText(raw)].filter(Boolean);
+}
+
+function isGeneralSummaryRow(row: any) {
+  const elaborato = cleanPdfText(getElaboratoKey(row));
+  const normalized = normalizeElaboratoCode(elaborato);
+  const descrizione = cleanPdfText(row?.descrizione || row?.title || row?.titolo || "").toLowerCase();
+
+  if (!elaborato || elaborato === "Elaborato non identificato") return true;
+  if (normalized.includes("GENERAL") || normalized.includes("GENERALE") || normalized.includes("GENERALI")) return true;
+  if (descrizione.includes("rilievi generali") || descrizione.includes("osservazioni generali")) return true;
+
+  return false;
+}
+
+function prepareRowsForPdfExport(rows: any[]) {
+  const result: any[] = [];
+
+  (rows || []).forEach((row: any) => {
+    const elaborati = getElaboratiForExportRow(row);
+
+    if (elaborati.length <= 1) {
+      result.push(row);
+      return;
+    }
+
+    elaborati.forEach((elaborato) => {
+      result.push({
+        ...row,
+        elaborato,
+        elaboratoDisplay: elaborato,
+        elaboratoKey: normalizeElaboratoCode(elaborato),
+      });
+    });
+  });
+
+  return result;
+}
+
 function buildElaboratiDisciplinaSummary(rows: any[]) {
-  const grouped: Record<string, { elaborato: string; nc: number; oss: number }> = {};
+  const grouped: Record<string, { elaborato: string; nc: number; oss: number; nessun: number }> = {};
 
   rows.forEach((r: any) => {
-    const elaborato = cleanPdfText(getElaboratoKey(r)) || "Elaborato non identificato";
-    const tipo = cleanPdfText(r.tipo).toUpperCase();
+    if (isGeneralSummaryRow(r)) return;
 
-    if (!grouped[elaborato]) {
-      grouped[elaborato] = { elaborato, nc: 0, oss: 0 };
-    }
+    const tipo = cleanPdfText(r.tipo || r["Tipologia rilievo"]).toUpperCase();
+    const elaborati = getElaboratiForExportRow(r);
 
-    if (tipo === "NC") {
-      grouped[elaborato].nc += 1;
-    }
+    elaborati.forEach((elaboratoRaw) => {
+      const elaborato = cleanPdfText(elaboratoRaw) || "Elaborato non identificato";
+      const key = normalizeElaboratoCode(elaborato) || elaborato;
 
-    // Le righe "Da NC a OSS" vanno conteggiate come OSS.
-    if (tipo === "OSS" || tipo === "DA NC A OSS") {
-      grouped[elaborato].oss += 1;
-    }
+      if (!grouped[key]) {
+        grouped[key] = { elaborato, nc: 0, oss: 0, nessun: 0 };
+      }
+
+      if (tipo === "NC") {
+        grouped[key].nc += 1;
+      }
+
+      // Le righe "Da NC a OSS" vanno conteggiate come OSS.
+      if (tipo === "OSS" || tipo === "DA NC A OSS") {
+        grouped[key].oss += 1;
+      }
+
+      if (tipo === "NESSUN RILIEVO") {
+        grouped[key].nessun += 1;
+      }
+    });
   });
 
   return Object.values(grouped)
@@ -324,13 +397,14 @@ function commentsToPdfRichText(comments: any[] = []) {
 
 function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}) {
   const templateMode = Boolean((headerData as any)?.templateMode);
+  const sourceRowsForSummary = Array.isArray(rows) ? rows : [];
 
   if (!templateMode && (!rows || rows.length === 0)) return;
 
   if (templateMode) {
     rows = [];
   } else {
-    const printableRows = rows.filter((r: any) => {
+    const printableRows = prepareRowsForPdfExport(rows).filter((r: any) => {
       const tipo = cleanPdfText(r.tipo || r["Tipologia rilievo"]).toUpperCase();
       return tipo === "NC" || tipo === "OSS" || tipo === "DA NC A OSS";
     });
@@ -654,7 +728,7 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
   });
 
 
-  const summaryRows = buildElaboratiDisciplinaSummary(rows);
+  const summaryRows = buildElaboratiDisciplinaSummary(sourceRowsForSummary);
   const lastAutoTable = (doc as any).lastAutoTable;
   let summaryStartY = (lastAutoTable?.finalY || 20) + 10;
 
@@ -1445,25 +1519,7 @@ export default function AppProgettiUpload() {
   const daVerificareISP = enrichedRows.filter((r) => r.chiDeveAgire === "ISP").length;
   const daRisponderePRG = enrichedRows.filter((r) => r.chiDeveAgire === "PRG").length;
 
-  const filteredRows = useMemo(() => {
-    if (!selection) return [];
 
-    if (selection.type === "kpi") {
-      if (selection.value === "totali") return enrichedRows;
-      if (selection.value === "nc") return enrichedRows.filter((r) => r.tipo === "NC");
-      if (selection.value === "oss") return enrichedRows.filter((r) => r.tipo === "OSS");
-      if (selection.value === "nessun") return enrichedRows.filter((r) => r.tipo === "Nessun rilievo");
-      if (selection.value === "risoluzione-prg") return rilieviNCOSS.filter((r) => r.hasPrgComment);
-      if (selection.value === "da-verificare-isp") return enrichedRows.filter((r) => r.chiDeveAgire === "ISP");
-      if (selection.value === "da-rispondere-prg") return enrichedRows.filter((r) => r.chiDeveAgire === "PRG");
-    }
-
-    if (selection.type === "tipo") return enrichedRows.filter((r) => r.tipo === selection.value);
-    if (selection.type === "disciplina") return enrichedRows.filter((r) => r.disciplina === selection.value);
-    if (selection.type === "elaborato") return enrichedRows.filter((r) => r.elaboratoKey === selection.value);
-
-    return [];
-  }, [enrichedRows, selection, rilieviNCOSS]);
 
   const discipline: any = {};
   const esiti: any = {};
@@ -1511,6 +1567,116 @@ export default function AppProgettiUpload() {
   const rilieviPerElaboratoData = Object.values(rilieviPerElaborato)
     .filter((d: any) => d.value > 0)
     .sort((a: any, b: any) => b.value - a.value);
+
+  const coverageRows = useMemo(() => {
+    const grouped: Record<string, any> = {};
+
+    enrichedRows.forEach((r: any) => {
+      const key = r.elaboratoKey || normalizeElaboratoCode(getElaboratoKey(r));
+      if (!key) return;
+
+      if (!grouped[key]) {
+        grouped[key] = {
+          key,
+          elaborato: r.elaboratoDisplay || getElaboratoDisplay(r),
+          disciplina: getDisciplinaDisplay(r),
+          nc: 0,
+          oss: 0,
+          nessunRilievo: 0,
+          esitoMancante: 0,
+          commentato: false,
+        };
+      }
+
+      const tipo = cleanPdfText(r.tipo).toUpperCase();
+      if (tipo === "NC") grouped[key].nc += 1;
+      if (tipo === "OSS" || tipo === "DA NC A OSS") grouped[key].oss += 1;
+      if (tipo === "NESSUN RILIEVO") grouped[key].nessunRilievo += 1;
+      if (!tipo || tipo === "ESITO MANCANTE" || tipo === "RILIEVO MANCANTE") grouped[key].esitoMancante += 1;
+
+      if (tipo === "NC" || tipo === "OSS" || tipo === "DA NC A OSS" || tipo === "NESSUN RILIEVO") {
+        grouped[key].commentato = true;
+      }
+    });
+
+    return Object.values(grouped).sort((a: any, b: any) => a.elaborato.localeCompare(b.elaborato, "it"));
+  }, [enrichedRows]);
+
+  const elaboratiCommentati = coverageRows.filter((r: any) => r.commentato).length;
+  const elaboratiNonCommentati = coverageRows.filter((r: any) => !r.commentato || r.esitoMancante > 0).length;
+  const percentualeCopertura = coverageRows.length > 0
+    ? Math.round((elaboratiCommentati / coverageRows.length) * 100)
+    : 0;
+
+  const coverageExportRows = coverageRows.map((r: any) => ({
+    Elaborato: r.elaborato,
+    Disciplina: r.disciplina,
+    NC: r.nc,
+    OSS: r.oss,
+    "Nessun rilievo": r.nessunRilievo,
+    "Esito mancante": r.esitoMancante,
+    Stato: r.commentato && r.esitoMancante === 0 ? "Commentato" : "Da verificare",
+  }));
+
+  const todoQualityRows = useMemo(() => {
+    return enrichedRows.map((r: any) => {
+      const tipo = cleanPdfText(r.tipo);
+      const tipoUpper = tipo.toUpperCase();
+      const disciplina = cleanPdfText(getDisciplinaDisplay(r));
+      const elaborato = cleanPdfText(getElaboratoKey(r));
+      const descrizione = cleanPdfText(r.descrizione);
+      const stato = cleanPdfText(r.stato);
+      const issues: string[] = [];
+
+      if (!elaborato || elaborato === "Elaborato non identificato") issues.push("Elaborato mancante");
+      if (!disciplina || disciplina === "Non assegnata") issues.push("Disciplina mancante");
+      if (!tipo || tipoUpper === "ESITO MANCANTE" || tipoUpper === "RILIEVO MANCANTE") issues.push("Tipologia NC/OSS mancante");
+      if ((tipoUpper === "NC" || tipoUpper === "OSS" || tipoUpper === "DA NC A OSS") && !descrizione) issues.push("Descrizione mancante");
+      if (tipoUpper === "NESSUN RILIEVO" && stato && stato !== "Chiusa") issues.push("Stato incoerente con Nessun rilievo");
+      if ((tipoUpper === "NC" || tipoUpper === "OSS" || tipoUpper === "DA NC A OSS") && !r.hasPrgComment && stato === "Chiusa") {
+        issues.push("Chiuso senza commento progettista");
+      }
+
+      return {
+        id: r.id || "",
+        elaborato: elaborato || "Elaborato non identificato",
+        disciplina,
+        tipo: tipo || "Mancante",
+        descrizionePresente: descrizione ? "Sì" : "No",
+        stato,
+        esito: issues.length === 0 ? "OK" : "Da correggere",
+        anomalie: issues.join("; "),
+      };
+    }).filter((item: any) => item.esito !== "OK");
+  }, [enrichedRows]);
+
+  const filteredRows = useMemo(() => {
+    if (!selection) return [];
+
+    if (selection.type === "kpi") {
+      if (selection.value === "totali") return enrichedRows;
+      if (selection.value === "nc") return enrichedRows.filter((r) => r.tipo === "NC");
+      if (selection.value === "oss") return enrichedRows.filter((r) => r.tipo === "OSS");
+      if (selection.value === "nessun") return enrichedRows.filter((r) => r.tipo === "Nessun rilievo");
+      if (selection.value === "risoluzione-prg") return rilieviNCOSS.filter((r) => r.hasPrgComment);
+      if (selection.value === "da-verificare-isp") return enrichedRows.filter((r) => r.chiDeveAgire === "ISP");
+      if (selection.value === "da-rispondere-prg") return enrichedRows.filter((r) => r.chiDeveAgire === "PRG");
+      if (selection.value === "copertura-mancanti") {
+        const missingKeys = new Set(coverageRows.filter((r: any) => !r.commentato || r.esitoMancante > 0).map((r: any) => r.key));
+        return enrichedRows.filter((r) => missingKeys.has(r.elaboratoKey));
+      }
+      if (selection.value === "qualita-todo") {
+        const issueIds = new Set(todoQualityRows.map((r: any) => r.id).filter(Boolean));
+        return enrichedRows.filter((r) => issueIds.has(r.id));
+      }
+    }
+
+    if (selection.type === "tipo") return enrichedRows.filter((r) => r.tipo === selection.value);
+    if (selection.type === "disciplina") return enrichedRows.filter((r) => r.disciplina === selection.value);
+    if (selection.type === "elaborato") return enrichedRows.filter((r) => r.elaboratoKey === selection.value);
+
+    return [];
+  }, [enrichedRows, selection, rilieviNCOSS, coverageRows, todoQualityRows]);
 
   const selectionTitle = selection
     ? `${selection.label}: ${selection.valueLabel || selection.value}`
@@ -1704,6 +1870,43 @@ export default function AppProgettiUpload() {
         <KPI title="Totale Rilievi" value={totaleNCOSS} onClick={() => setSelection({ type: "kpi", value: "totali", label: "KPI", valueLabel: "Tutti i rilievi" })} />
         <KPI title="In attesa di riscontro dell'ispettore" value={daVerificareISP} subtitle="Ultimo commento PRG" onClick={() => setSelection({ type: "kpi", value: "da-verificare-isp", label: "KPI", valueLabel: "Da verificare ISP" })} />
         <KPI title="In attesa di risposta del progettista" value={daRisponderePRG} subtitle="Nessun PRG o ultimo ISP" onClick={() => setSelection({ type: "kpi", value: "da-rispondere-prg", label: "KPI", valueLabel: "Da rispondere PRG" })} />
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
+        <Card>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+            <h3 style={{ marginTop: 0 }}>Controllo copertura elaborati</h3>
+            <ExportButton onClick={() => exportExcel("Controllo_copertura_elaborati", coverageExportRows)}>
+              Export Excel
+            </ExportButton>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+            <KPI title="Da controllare" value={coverageRows.length} />
+            <KPI title="Commentati" value={elaboratiCommentati} />
+            <KPI title="Da verificare" value={elaboratiNonCommentati} onClick={() => setSelection({ type: "kpi", value: "copertura-mancanti", label: "Controllo", valueLabel: "Elaborati da verificare" })} colorValue={elaboratiNonCommentati > 0 ? "#b45309" : "#0f172a"} />
+            <KPI title="Copertura" value={`${percentualeCopertura}%`} />
+          </div>
+          <div style={{ marginTop: 10, color: "#64748b", fontSize: 13 }}>
+            Verifica se ogni elaborato ha un esito: NC, OSS, Da NC a OSS o Nessun rilievo.
+          </div>
+        </Card>
+
+        <Card>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+            <h3 style={{ marginTop: 0 }}>Qualità compilazione ToDo</h3>
+            <ExportButton onClick={() => exportExcel("Qualita_compilazione_ToDo", todoQualityRows)}>
+              Export Excel
+            </ExportButton>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+            <KPI title="ToDo controllati" value={enrichedRows.length} />
+            <KPI title="Anomalie" value={todoQualityRows.length} onClick={() => setSelection({ type: "kpi", value: "qualita-todo", label: "Qualità ToDo", valueLabel: "Anomalie compilazione" })} colorValue={todoQualityRows.length > 0 ? "#b45309" : "#0f172a"} />
+            <KPI title="Esito" value={todoQualityRows.length === 0 ? "OK" : "KO"} />
+          </div>
+          <div style={{ marginTop: 10, color: "#64748b", fontSize: 13 }}>
+            Controlla campi obbligatori: elaborato, disciplina, tipologia, descrizione e coerenza stato.
+          </div>
+        </Card>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
