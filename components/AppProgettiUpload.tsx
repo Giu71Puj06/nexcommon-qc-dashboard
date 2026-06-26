@@ -261,9 +261,33 @@ async function buildReferenceElaboratiFromFiles(sourceFiles: File[] = []) {
   return map;
 }
 
+function findReferenceElaboratoByText(value: any, referenceElaboratiByCode: ReferenceElaboratiMap = {}) {
+  const raw = cleanPdfText(value);
+  if (!raw) return undefined;
+
+  const normalizedRaw = normalizeElaboratoCode(raw.replace(/\.pdf$/i, ""));
+
+  if (normalizedRaw && referenceElaboratiByCode[normalizedRaw]) {
+    return referenceElaboratiByCode[normalizedRaw];
+  }
+
+  // Caso frequente: Title = "CODICE.pdf" oppure "CODICE - titolo".
+  // Si cerca il codice ufficiale come prefisso del testo normalizzato.
+  const candidates = Object.values(referenceElaboratiByCode || [])
+    .filter((ref: any) => {
+      const codeKey = normalizeElaboratoCode(ref?.codice || "");
+      return codeKey && normalizedRaw.startsWith(codeKey);
+    })
+    .sort((a: any, b: any) => normalizeElaboratoCode(b.codice).length - normalizeElaboratoCode(a.codice).length);
+
+  return candidates[0];
+}
+
 function getReferenceElaborato(row: any, referenceElaboratiByCode: ReferenceElaboratiMap = {}) {
-  const key = normalizeElaboratoCode(getElaboratoKey(row));
-  return key ? referenceElaboratiByCode[key] : undefined;
+  return (
+    findReferenceElaboratoByText(getElaboratoKey(row), referenceElaboratiByCode) ||
+    findReferenceElaboratoByText(getTodoTitleValue(row), referenceElaboratiByCode)
+  );
 }
 
 function getReferenceElaboratoDisplay(row: any, referenceElaboratiByCode: ReferenceElaboratiMap = {}) {
@@ -276,7 +300,6 @@ function getReferenceElaboratoIssue(row: any, referenceElaboratiByCode: Referenc
   if (keys.length === 0) return "";
 
   const raw = cleanPdfText(getElaboratoKey(row));
-  const normalized = normalizeElaboratoCode(raw);
 
   if (!raw || raw === "Elaborato non identificato") {
     return "Elaborato mancante";
@@ -286,8 +309,9 @@ function getReferenceElaboratoIssue(row: any, referenceElaboratiByCode: Referenc
     return "";
   }
 
-  if (!normalized || !referenceElaboratiByCode[normalized]) {
-    return "Elaborato non presente nell'elenco elaborati di progetto oppure Title non conforme al solo codice";
+  const ref = getReferenceElaborato(row, referenceElaboratiByCode);
+  if (!ref) {
+    return "Elaborato non presente nell'elenco elaborati di progetto";
   }
 
   return "";
@@ -298,8 +322,16 @@ function isAllowedGeneralOrMultipleTitle(row: any) {
   return normalized.startsWith("RILIEVOGENERALE") || normalized.startsWith("RILIEVOMULTIPLO");
 }
 
-function isTodoTitleEqualToElaboratoCode(row: any) {
-  const titleKey = normalizeElaboratoCode(getTodoTitleValue(row));
+function isTodoTitleEqualToElaboratoCode(row: any, referenceElaboratiByCode: ReferenceElaboratiMap = {}) {
+  const rawTitle = cleanPdfText(getTodoTitleValue(row));
+  const titleWithoutPdf = rawTitle.replace(/\.pdf$/i, "");
+  const titleKey = normalizeElaboratoCode(titleWithoutPdf);
+
+  const ref = getReferenceElaborato(row, referenceElaboratiByCode);
+  if (ref) {
+    return titleKey === normalizeElaboratoCode(ref.codice);
+  }
+
   const elaborati = getElaboratiForExportRow(row)
     .map((item) => normalizeElaboratoCode(item))
     .filter(Boolean);
@@ -378,7 +410,7 @@ function getInvalidGeneralOrMultipleTitleMessage(row: any, referenceElaboratiByC
     return "";
   }
 
-  if (elaborati.length === 1 && !isTodoTitleEqualToElaboratoCode(row)) {
+  if (elaborati.length === 1 && !isTodoTitleEqualToElaboratoCode(row, referenceElaboratiByCode)) {
     return "Title non conforme: per un ToDo ordinario il Title deve contenere esclusivamente il codice elaborato, senza titolo descrittivo";
   }
 
@@ -1778,11 +1810,12 @@ async function exportCorrectedTrimbleTodoWorkbook(rows: any[], sourceFiles: File
     if (titleCol >= 0 && issues.title) {
       const normalizedTitle = normalizeTodoTitleKeyword(getTodoTitleValue(row));
       const elaborati = getElaboratiForExportRow(row).filter(Boolean);
+      const ref = getReferenceElaborato(row, referenceElaboratiByCode);
       const correctedTitle = normalizedTitle.includes("MULTIPL") || elaborati.length > 1
         ? "Rilievo_Multiplo"
         : normalizedTitle.includes("GENERAL")
           ? "Rilievo_Generale"
-          : elaborato;
+          : (ref?.codice || elaborato);
       setWorksheetCell(ws, rowIndex, titleCol, correctedTitle);
       corrections += 1;
     } else if (titleCol >= 0 && elaborato && (!cleanPdfText(matrix[rowIndex][titleCol]) || issues.elaborato)) {
@@ -2896,6 +2929,7 @@ export default function AppProgettiUpload() {
             </div>
             <div style={{ color: "#64748b", fontSize: 12, marginBottom: 10 }}>
               Puoi aggiungere i file uno o due per volta: i file già caricati restano in elenco.
+              Carica anche l'Elenco Elaborati .xlsx per validare la colonna Elaborato e mostrare codice + descrizione.
             </div>
 
             <input
