@@ -283,35 +283,43 @@ function findReferenceElaboratoByText(value: any, referenceElaboratiByCode: Refe
   return candidates[0];
 }
 
+function getOfficialReferenceFromTodoTitle(row: any, referenceElaboratiByCode: ReferenceElaboratiMap = {}) {
+  // Scelta architetturale: la colonna Elaborato viene costruita dal dizionario
+  // ufficiale EE_Assegnazione.xlsx. Il ToDo serve solo a fornire il codice nel Title.
+  return findReferenceElaboratoByText(getTodoTitleValue(row), referenceElaboratiByCode);
+}
+
 function getReferenceElaborato(row: any, referenceElaboratiByCode: ReferenceElaboratiMap = {}) {
-  return (
-    findReferenceElaboratoByText(getElaboratoKey(row), referenceElaboratiByCode) ||
-    findReferenceElaboratoByText(getTodoTitleValue(row), referenceElaboratiByCode)
-  );
+  return getOfficialReferenceFromTodoTitle(row, referenceElaboratiByCode);
 }
 
 function getReferenceElaboratoDisplay(row: any, referenceElaboratiByCode: ReferenceElaboratiMap = {}) {
   const ref = getReferenceElaborato(row, referenceElaboratiByCode);
-  return ref?.display || displayTechnicalText(getElaboratoKey(row));
+  if (ref?.display) return ref.display;
+
+  if (Object.keys(referenceElaboratiByCode || {}).length > 0 && !isAllowedGeneralOrMultipleTitle(row)) {
+    return "Elaborato non riconosciuto nell'EE_Assegnazione";
+  }
+
+  return displayTechnicalText(getTodoTitleValue(row) || getElaboratoKey(row));
 }
 
 function getReferenceElaboratoIssue(row: any, referenceElaboratiByCode: ReferenceElaboratiMap = {}) {
   const keys = Object.keys(referenceElaboratiByCode || {});
   if (keys.length === 0) return "";
 
-  const raw = cleanPdfText(getElaboratoKey(row));
-
-  if (!raw || raw === "Elaborato non identificato") {
-    return "Elaborato mancante";
-  }
-
   if (isAllowedGeneralOrMultipleTitle(row)) {
     return "";
   }
 
+  const title = cleanPdfText(getTodoTitleValue(row));
+  if (!title) {
+    return "Title mancante: il ToDo deve fornire il codice elaborato";
+  }
+
   const ref = getReferenceElaborato(row, referenceElaboratiByCode);
   if (!ref) {
-    return "Elaborato non presente nell'elenco elaborati di progetto";
+    return "Codice Title non presente nell'EE_Assegnazione.xlsx";
   }
 
   return "";
@@ -324,8 +332,7 @@ function isAllowedGeneralOrMultipleTitle(row: any) {
 
 function isTodoTitleEqualToElaboratoCode(row: any, referenceElaboratiByCode: ReferenceElaboratiMap = {}) {
   const rawTitle = cleanPdfText(getTodoTitleValue(row));
-  const titleWithoutPdf = rawTitle.replace(/\.pdf$/i, "");
-  const titleKey = normalizeElaboratoCode(titleWithoutPdf);
+  const titleKey = normalizeElaboratoCode(rawTitle);
 
   const ref = getReferenceElaborato(row, referenceElaboratiByCode);
   if (ref) {
@@ -410,13 +417,18 @@ function getInvalidGeneralOrMultipleTitleMessage(row: any, referenceElaboratiByC
     return "";
   }
 
-  if (elaborati.length === 1 && !isTodoTitleEqualToElaboratoCode(row, referenceElaboratiByCode)) {
-    return "Title non conforme: per un ToDo ordinario il Title deve contenere esclusivamente il codice elaborato, senza titolo descrittivo";
+  const referenceIssue = getReferenceElaboratoIssue(row, referenceElaboratiByCode);
+  if (referenceIssue && !isGeneralTitle && !isMultipleTitle) {
+    return referenceIssue;
   }
 
-  const referenceIssue = getReferenceElaboratoIssue(row, referenceElaboratiByCode);
-  if (referenceIssue && elaborati.length === 1) {
-    return referenceIssue;
+  const hasReferenceDictionary = Object.keys(referenceElaboratiByCode || {}).length > 0;
+  if (hasReferenceDictionary && !isTodoTitleEqualToElaboratoCode(row, referenceElaboratiByCode)) {
+    return "Title non conforme: il ToDo deve contenere esclusivamente il codice elaborato ufficiale, senza .pdf, titolo descrittivo o altri valori";
+  }
+
+  if (!hasReferenceDictionary && elaborati.length === 1 && !isTodoTitleEqualToElaboratoCode(row, referenceElaboratiByCode)) {
+    return "Title non conforme: per un ToDo ordinario il Title deve contenere esclusivamente il codice elaborato, senza titolo descrittivo";
   }
 
   return "";
@@ -2810,7 +2822,7 @@ export default function AppProgettiUpload() {
 
       return {
         id: r.id || "",
-        elaborato: cleanPdfText(getElaboratoKey(r)) || "Elaborato non identificato",
+        elaborato: getReferenceElaboratoDisplay(r, referenceElaboratiByCode) || "Elaborato non identificato",
         disciplina: cleanPdfText(getDisciplinaDisplay(r)),
         tipo: cleanPdfText(r.tipo) || "Mancante",
         descrizionePresente: cleanPdfText(r.descrizione) ? "Sì" : "No",
