@@ -2551,6 +2551,38 @@ export default function AppProgettiUpload() {
     };
   }, [files]);
 
+  function addFilesIncrementally(selected: FileList | null) {
+    const incoming = Array.from(selected || []);
+    if (!incoming.length) return;
+
+    setFiles((prev) => {
+      const byKey = new Map<string, File>();
+
+      prev.forEach((file) => {
+        byKey.set(`${file.name}__${file.size}__${file.lastModified}`, file);
+      });
+
+      incoming.forEach((file) => {
+        byKey.set(`${file.name}__${file.size}__${file.lastModified}`, file);
+      });
+
+      return Array.from(byKey.values());
+    });
+  }
+
+  function resetLoadedFiles() {
+    setFiles([]);
+    setRows([]);
+    setSelection(null);
+    setImportedFiles([]);
+    setReferenceElaboratiByCode({});
+    setError("");
+  }
+
+  function removeLoadedFile(indexToRemove: number) {
+    setFiles((prev) => prev.filter((_, index) => index !== indexToRemove));
+  }
+
   async function generaDashboard() {
     setError("");
 
@@ -2859,32 +2891,102 @@ export default function AppProgettiUpload() {
           </button>
 
           <Card>
+            <div style={{ fontWeight: 800, marginBottom: 8 }}>
+              Caricamento file
+            </div>
+            <div style={{ color: "#64748b", fontSize: 12, marginBottom: 10 }}>
+              Puoi aggiungere i file uno o due per volta: i file già caricati restano in elenco.
+            </div>
+
             <input
+              key={`file-input-${files.length}`}
               type="file"
               multiple
               accept=".xlsx,.xls,.bcf,.bcfzip,.zip,.docx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-              onChange={(e) => setFiles(Array.from(e.target.files || []))}
-            />
-            <button
-              onClick={generaDashboard}
-              disabled={!files.length}
-              style={{
-                marginTop: 10,
-                width: "100%",
-                padding: 10,
-                background: "#0f172a",
-                color: "white",
-                borderRadius: 10,
-                border: "none",
-                cursor: files.length ? "pointer" : "not-allowed",
+              onChange={(e) => {
+                addFilesIncrementally(e.target.files);
+                e.currentTarget.value = "";
               }}
-            >
-              Analizza ToDo / BCF / BCFZIP / SCHEDE WORD
-            </button>
+            />
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 160px", gap: 10, marginTop: 10 }}>
+              <button
+                onClick={generaDashboard}
+                disabled={!files.length}
+                style={{
+                  width: "100%",
+                  padding: 10,
+                  background: "#0f172a",
+                  color: "white",
+                  borderRadius: 10,
+                  border: "none",
+                  cursor: files.length ? "pointer" : "not-allowed",
+                  fontWeight: 700,
+                }}
+              >
+                Analizza ToDo / BCF / BCFZIP / SCHEDE WORD
+              </button>
+
+              <button
+                type="button"
+                onClick={resetLoadedFiles}
+                disabled={!files.length && !rows.length}
+                style={{
+                  width: "100%",
+                  padding: 10,
+                  background: "#ffffff",
+                  color: "#991b1b",
+                  borderRadius: 10,
+                  border: "1px solid #fecaca",
+                  cursor: files.length || rows.length ? "pointer" : "not-allowed",
+                  fontWeight: 700,
+                }}
+              >
+                Reset file
+              </button>
+            </div>
 
             {files.length > 0 && (
-              <div style={{ marginTop: 10, color: "#64748b", fontSize: 12 }}>
-                File selezionati: {files.map((f) => f.name).join(", ")}
+              <div style={{ marginTop: 12 }}>
+                <div style={{ color: "#334155", fontSize: 12, fontWeight: 800, marginBottom: 6 }}>
+                  File caricati: {files.length}
+                </div>
+                <div style={{ display: "grid", gap: 6 }}>
+                  {files.map((file, index) => (
+                    <div
+                      key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "1fr 80px",
+                        gap: 8,
+                        alignItems: "center",
+                        border: "1px solid #e2e8f0",
+                        borderRadius: 8,
+                        padding: "6px 8px",
+                        background: "#f8fafc",
+                        fontSize: 12,
+                      }}
+                    >
+                      <span style={{ color: "#475569", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {file.name}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removeLoadedFile(index)}
+                        style={{
+                          border: "1px solid #cbd5e1",
+                          background: "white",
+                          borderRadius: 8,
+                          padding: "4px 6px",
+                          fontSize: 11,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Rimuovi
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </Card>
