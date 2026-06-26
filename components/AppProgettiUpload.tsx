@@ -153,11 +153,43 @@ function isAllowedGeneralOrMultipleTitle(row: any) {
   return normalized.startsWith("RILIEVOGENERALE") || normalized.startsWith("RILIEVOMULTIPLO");
 }
 
+function isTodoTitleEqualToElaboratoCode(row: any) {
+  const titleKey = normalizeElaboratoCode(getTodoTitleValue(row));
+  const elaborati = getElaboratiForExportRow(row)
+    .map((item) => normalizeElaboratoCode(item))
+    .filter(Boolean);
+
+  return Boolean(titleKey && elaborati.length === 1 && titleKey === elaborati[0]);
+}
+
+function isTodoTitleGeneralOrMultipleCandidate(row: any) {
+  const normalized = normalizeTodoTitleKeyword(getTodoTitleValue(row));
+
+  if (!normalized) return false;
+
+  return (
+    normalized.includes("GENERALE") ||
+    normalized.includes("GENERALI") ||
+    normalized.includes("MULTIPLO") ||
+    normalized.includes("MULTIPLI") ||
+    normalized.startsWith("RILIEVO") ||
+    normalized.startsWith("RILIEVI") ||
+    normalized.startsWith("OSSERVAZIONE") ||
+    normalized.startsWith("OSSERVAZIONI") ||
+    normalized.startsWith("NC") ||
+    normalized.startsWith("NONCONFORMITA")
+  );
+}
+
 function getInvalidGeneralOrMultipleTitleMessage(row: any) {
   const rawTitle = cleanPdfText(getTodoTitleValue(row));
   const normalized = normalizeTodoTitleKeyword(rawTitle);
 
   if (!normalized) return "";
+
+  const elaborati = getElaboratiForExportRow(row).filter(Boolean);
+  const isGeneralTitle = normalized.startsWith("RILIEVOGENERALE");
+  const isMultipleTitle = normalized.startsWith("RILIEVOMULTIPLO");
 
   const startsWithForbiddenKeyword =
     normalized.startsWith("OSSERVAZIONEGENERALE") ||
@@ -177,12 +209,32 @@ function getInvalidGeneralOrMultipleTitleMessage(row: any) {
 
   const isProbablyGeneralOrMultipleTodo =
     startsWithForbiddenKeyword ||
-    normalized.startsWith("RILIEVO") && (normalized.includes("GENERALE") || normalized.includes("MULTIPLO") || normalized.includes("MULTIPLI")) ||
+    (normalized.startsWith("RILIEVO") && (normalized.includes("GENERALE") || normalized.includes("MULTIPLO") || normalized.includes("MULTIPLI"))) ||
     normalized.startsWith("OSSERVAZIONE") ||
     normalized.startsWith("OSSERVAZIONI");
 
   if (isProbablyGeneralOrMultipleTodo && !isAllowedGeneralOrMultipleTitle(row)) {
     return "Title non conforme: usare solo Rilievo_Generale oppure Rilievo_Multiplo_con_descrizione_personalizzata";
+  }
+
+  if (elaborati.length > 1 && !isMultipleTitle) {
+    return "Title non conforme: per un ToDo riferito a più elaborati usare Rilievo_Multiplo_con_descrizione_personalizzata";
+  }
+
+  if (elaborati.length <= 1 && isMultipleTitle) {
+    return "Title non conforme: Rilievo_Multiplo va usato solo quando il ToDo è associato a più elaborati";
+  }
+
+  if (isGeneralTitle) {
+    return "";
+  }
+
+  if (isMultipleTitle) {
+    return "";
+  }
+
+  if (elaborati.length === 1 && !isTodoTitleEqualToElaboratoCode(row)) {
+    return "Title non conforme: per un ToDo ordinario il Title deve contenere esclusivamente il codice elaborato, senza titolo descrittivo";
   }
 
   return "";
@@ -1570,9 +1622,12 @@ async function exportCorrectedTrimbleTodoWorkbook(rows: any[], sourceFiles: File
 
     if (titleCol >= 0 && issues.title) {
       const normalizedTitle = normalizeTodoTitleKeyword(getTodoTitleValue(row));
-      const correctedTitle = normalizedTitle.includes("MULTIPL")
+      const elaborati = getElaboratiForExportRow(row).filter(Boolean);
+      const correctedTitle = normalizedTitle.includes("MULTIPL") || elaborati.length > 1
         ? "Rilievo_Multiplo"
-        : "Rilievo_Generale";
+        : normalizedTitle.includes("GENERAL")
+          ? "Rilievo_Generale"
+          : elaborato;
       setWorksheetCell(ws, rowIndex, titleCol, correctedTitle);
       corrections += 1;
     } else if (titleCol >= 0 && elaborato && (!cleanPdfText(matrix[rowIndex][titleCol]) || issues.elaborato)) {
