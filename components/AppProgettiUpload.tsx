@@ -72,11 +72,62 @@ function exportExcel(nomeFile: string, dati: any[]) {
   XLSX.writeFile(wb, `${nomeFile}.xlsx`);
 }
 
-function cleanPdfText(value: any) {
+function normalizeTechnicalSymbols(value: any) {
   return String(value ?? "")
+    // Simboli greci e tecnici frequenti nelle verifiche strutturali/impiantistiche.
+    // jsPDF con font standard non gestisce bene diversi glifi Unicode:
+    // li normalizziamo in testo tecnico leggibile senza alterare il significato.
+    .replace(/Ø/g, "diam. ")
+    .replace(/ø/g, "diam. ")
+    .replace(/Φ/g, "Phi")
+    .replace(/φ/g, "phi")
+    .replace(/ϕ/g, "phi")
+    .replace(/Σ/g, "Sigma")
+    .replace(/σ/g, "sigma")
+    .replace(/ς/g, "sigma")
+    .replace(/Τ/g, "Tau")
+    .replace(/τ/g, "tau")
+    .replace(/Δ/g, "Delta")
+    .replace(/δ/g, "delta")
+    .replace(/Θ/g, "Theta")
+    .replace(/θ/g, "theta")
+    .replace(/Λ/g, "Lambda")
+    .replace(/λ/g, "lambda")
+    .replace(/Ω/g, "Omega")
+    .replace(/ω/g, "omega")
+    .replace(/Α/g, "Alpha")
+    .replace(/α/g, "alpha")
+    .replace(/Β/g, "Beta")
+    .replace(/β/g, "beta")
+    .replace(/Γ/g, "Gamma")
+    .replace(/γ/g, "gamma")
+    .replace(/Μ/g, "Mu")
+    .replace(/μ/g, "mu")
+    .replace(/Ν/g, "Nu")
+    .replace(/ν/g, "nu")
+    .replace(/Π/g, "Pi")
+    .replace(/π/g, "pi")
+    .replace(/Ρ/g, "Rho")
+    .replace(/ρ/g, "rho")
+    .replace(/Ε/g, "Epsilon")
+    .replace(/ε/g, "epsilon")
+    .replace(/≤/g, "<=")
+    .replace(/≥/g, ">=")
+    .replace(/≠/g, "!=")
+    .replace(/±/g, "+/-")
+    .replace(/×/g, "x")
+    .replace(/·/g, "*");
+}
+
+function cleanPdfText(value: any) {
+  return normalizeTechnicalSymbols(value)
     .replace(/[\u0000-\u001f\u007f]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function displayTechnicalText(value: any) {
+  return normalizeTechnicalSymbols(value);
 }
 
 
@@ -1206,7 +1257,7 @@ function CommentList({ comments, emptyText = "" }: any) {
             {c.author || "Autore non indicato"}
           </div>
           {c.date && <div style={{ color: "#64748b", fontSize: 12 }}>{c.date}</div>}
-          <div style={{ marginTop: 4 }}>{c.comment || ""}</div>
+          <div style={{ marginTop: 4 }}>{displayTechnicalText(c.comment || "")}</div>
         </div>
       ))}
     </div>
@@ -2102,8 +2153,8 @@ function DetailPanel({ rows, title, onReset, sourceFiles = [] }: any) {
                   <td style={anomalyCellStyle(td, issues.tipo)} title={issues.tipo || ""}>{r.tipo}</td>
                   <td style={anomalyCellStyle(td, issues.disciplina)} title={issues.disciplina || ""}>{getDisciplinaDisplay(r)}</td>
                   <td style={td}>{getRedattoreFromRow(r)}</td>
-                  <td style={anomalyCellStyle(td, issues.elaborato)} title={issues.elaborato || ""}>{getElaboratoKey(r)}</td>
-                  <td style={anomalyCellStyle(td, issues.descrizione)} title={issues.descrizione || ""}>{r.descrizione}</td>
+                  <td style={anomalyCellStyle(td, issues.elaborato)} title={issues.elaborato || ""}>{displayTechnicalText(getElaboratoKey(r))}</td>
+                  <td style={anomalyCellStyle(td, issues.descrizione)} title={issues.descrizione || ""}>{displayTechnicalText(r.descrizione)}</td>
                   <td style={anomalyCellStyle(td, issues.gestione)} title={issues.gestione || ""}>
                     <CommentList comments={allComments} emptyText="Nessun commento" />
                   </td>
