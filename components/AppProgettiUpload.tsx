@@ -130,6 +130,64 @@ function displayTechnicalText(value: any) {
   return normalizeTechnicalSymbols(value);
 }
 
+function normalizeTodoTitleKeyword(value: any) {
+  return cleanPdfText(value)
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+}
+
+function getTodoTitleValue(row: any) {
+  return (
+    row?.title ||
+    row?.Title ||
+    row?.titolo ||
+    row?.Titolo ||
+    row?.elaborato ||
+    row?.Elaborato ||
+    ""
+  );
+}
+
+function isAllowedGeneralOrMultipleTitle(row: any) {
+  const normalized = normalizeTodoTitleKeyword(getTodoTitleValue(row));
+  return normalized.startsWith("RILIEVOGENERALE") || normalized.startsWith("RILIEVOMULTIPLO");
+}
+
+function getInvalidGeneralOrMultipleTitleMessage(row: any) {
+  const rawTitle = cleanPdfText(getTodoTitleValue(row));
+  const normalized = normalizeTodoTitleKeyword(rawTitle);
+
+  if (!normalized) return "";
+
+  const startsWithForbiddenKeyword =
+    normalized.startsWith("OSSERVAZIONEGENERALE") ||
+    normalized.startsWith("OSSERVAZIONIGENERALI") ||
+    normalized.startsWith("OSSERVAZIONEMULTIPLA") ||
+    normalized.startsWith("OSSERVAZIONIMULTIPLE") ||
+    normalized.startsWith("OSSMULTIPLA") ||
+    normalized.startsWith("OSSMULTIPLE") ||
+    normalized.startsWith("NCMULTIPLA") ||
+    normalized.startsWith("NCMULTIPLE") ||
+    normalized.startsWith("NCGENERALE") ||
+    normalized.startsWith("NONCONFORMITAMULTIPLA") ||
+    normalized.startsWith("NONCONFORMITAMULTIPLE") ||
+    normalized.startsWith("NONCONFORMITAGENERALE") ||
+    normalized.startsWith("RILIEVIMULTIPLI") ||
+    normalized.startsWith("RILIEVIMULTIPLO");
+
+  const isProbablyGeneralOrMultipleTodo =
+    startsWithForbiddenKeyword ||
+    normalized.startsWith("RILIEVO") && (normalized.includes("GENERALE") || normalized.includes("MULTIPLO") || normalized.includes("MULTIPLI")) ||
+    normalized.startsWith("OSSERVAZIONE") ||
+    normalized.startsWith("OSSERVAZIONI");
+
+  if (isProbablyGeneralOrMultipleTodo && !isAllowedGeneralOrMultipleTitle(row)) {
+    return "Title non conforme: usare solo Rilievo_Generale oppure Rilievo_Multiplo_con_descrizione_personalizzata";
+  }
+
+  return "";
+}
+
 
 
 function splitElaboratiValue(value: any) {
@@ -1188,6 +1246,11 @@ function getTodoQualityIssues(row: any) {
   const stato = cleanPdfText(row?.stato || translateStatus(row?.stato));
 
   const issues: Record<string, string> = {};
+  const titleIssue = getInvalidGeneralOrMultipleTitleMessage(row);
+
+  if (titleIssue) {
+    issues.title = titleIssue;
+  }
 
   if (!elaborato || elaborato === "Elaborato non identificato") {
     issues.elaborato = "Elaborato mancante";
@@ -1505,7 +1568,14 @@ async function exportCorrectedTrimbleTodoWorkbook(rows: any[], sourceFiles: File
       corrections += 1;
     }
 
-    if (titleCol >= 0 && elaborato && (!cleanPdfText(matrix[rowIndex][titleCol]) || issues.elaborato)) {
+    if (titleCol >= 0 && issues.title) {
+      const normalizedTitle = normalizeTodoTitleKeyword(getTodoTitleValue(row));
+      const correctedTitle = normalizedTitle.includes("MULTIPL")
+        ? "Rilievo_Multiplo"
+        : "Rilievo_Generale";
+      setWorksheetCell(ws, rowIndex, titleCol, correctedTitle);
+      corrections += 1;
+    } else if (titleCol >= 0 && elaborato && (!cleanPdfText(matrix[rowIndex][titleCol]) || issues.elaborato)) {
       setWorksheetCell(ws, rowIndex, titleCol, elaborato);
       corrections += 1;
     }
@@ -2153,7 +2223,7 @@ function DetailPanel({ rows, title, onReset, sourceFiles = [] }: any) {
                   <td style={anomalyCellStyle(td, issues.tipo)} title={issues.tipo || ""}>{r.tipo}</td>
                   <td style={anomalyCellStyle(td, issues.disciplina)} title={issues.disciplina || ""}>{getDisciplinaDisplay(r)}</td>
                   <td style={td}>{getRedattoreFromRow(r)}</td>
-                  <td style={anomalyCellStyle(td, issues.elaborato)} title={issues.elaborato || ""}>{displayTechnicalText(getElaboratoKey(r))}</td>
+                  <td style={anomalyCellStyle(td, issues.elaborato || issues.title)} title={issues.elaborato || issues.title || ""}>{displayTechnicalText(getElaboratoKey(r))}</td>
                   <td style={anomalyCellStyle(td, issues.descrizione)} title={issues.descrizione || ""}>{displayTechnicalText(r.descrizione)}</td>
                   <td style={anomalyCellStyle(td, issues.gestione)} title={issues.gestione || ""}>
                     <CommentList comments={allComments} emptyText="Nessun commento" />
