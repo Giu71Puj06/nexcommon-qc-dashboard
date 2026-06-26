@@ -1906,8 +1906,8 @@ async function sendTrimbleCorrectionRequest(row: any) {
   }
 }
 
-function TrimbleActions({ row, sourceFiles = [] }: any) {
-  const issues = getTodoQualityIssues(row);
+function TrimbleActions({ row, sourceFiles = [], referenceElaboratiByCode = {} }: any) {
+  const issues = getTodoQualityIssues(row, referenceElaboratiByCode);
   const hasIssues = Object.keys(issues).length > 0;
 
   if (!hasIssues) {
