@@ -148,6 +148,151 @@ function getTodoTitleValue(row: any) {
   );
 }
 
+type ReferenceElaborato = {
+  codice: string;
+  titolo: string;
+  ispettore: string;
+  scheda: string;
+  tema: string;
+  display: string;
+};
+
+type ReferenceElaboratiMap = Record<string, ReferenceElaborato>;
+
+function formatCodePart(value: any, isProgressivo = false) {
+  const raw = cleanPdfText(value);
+  if (!raw) return "";
+
+  if (typeof value === "number" || /^\d+$/.test(raw)) {
+    const numeric = String(parseInt(raw, 10));
+    return isProgressivo ? numeric.padStart(3, "0") : numeric.padStart(2, "0");
+  }
+
+  return raw.replace(/\s+/g, "").replace(/[_-]+$/g, "");
+}
+
+function buildReferenceCodeFromRow(row: any[], codeCols: number[]) {
+  const parts = codeCols
+    .map((col, idx) => formatCodePart(row[col], idx === codeCols.length - 1))
+    .filter(Boolean);
+
+  if (parts.length < 2) return "";
+
+  return parts.join("_").replace(/_+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+function findHeaderColumn(headers: any[], labels: string[]) {
+  const normalizedLabels = labels.map((label) => cleanPdfText(label).toUpperCase());
+
+  return headers.findIndex((header) => {
+    const h = cleanPdfText(header).toUpperCase();
+    return normalizedLabels.some((label) => h === label || h.includes(label));
+  });
+}
+
+async function buildReferenceElaboratiFromFiles(sourceFiles: File[] = []) {
+  const map: ReferenceElaboratiMap = {};
+  const excelFiles = (sourceFiles || []).filter((file) => file.name.toLowerCase().endsWith(".xlsx"));
+
+  for (const file of excelFiles) {
+    const arrayBuffer = await file.arrayBuffer();
+    const wb = XLSX.read(arrayBuffer, { type: "array" });
+
+    wb.SheetNames.forEach((sheetName) => {
+      const ws = wb.Sheets[sheetName];
+      const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }) as any[][];
+
+      matrix.forEach((row, rowIndex) => {
+        const titleCol = row.findIndex((cell: any) => cleanPdfText(cell).toUpperCase() === "TITOLO");
+        const versCol = row.findIndex((cell: any) => cleanPdfText(cell).toUpperCase().startsWith("VERS"));
+        const codeCol = row.findIndex((cell: any) => cleanPdfText(cell).toUpperCase() === "CODICE");
+
+        if (titleCol < 0 || codeCol < 0) return;
+
+        const headers = row;
+        const ispCol = findHeaderColumn(headers, ["ISP", "ISPETTORE", "NOME REDATTORE"]);
+        const schedaCol = findHeaderColumn(headers, ["SCHEDA DI RIFERIMENTO", "SCHEDA"]);
+        const temaCol = findHeaderColumn(headers, ["TEMA", "DISCIPLINA"]);
+
+        const codeCols = [];
+        const lastCodeCol = versCol > codeCol ? versCol : titleCol;
+        for (let c = codeCol; c < lastCodeCol; c += 1) {
+          codeCols.push(c);
+        }
+
+        for (let r = rowIndex + 1; r < matrix.length; r += 1) {
+          const dataRow = matrix[r] || [];
+          const titolo = cleanPdfText(dataRow[titleCol]);
+
+          if (!titolo) continue;
+
+          const firstCell = cleanPdfText(dataRow[codeCol]).toUpperCase();
+          if (
+            firstCell.includes("DOCUMENTI") ||
+            firstCell.includes("ARCHITETTONICO") ||
+            firstCell.includes("STRUTTURE") ||
+            firstCell.includes("IMPIANTI") ||
+            firstCell.includes("BIM") ||
+            firstCell.includes("ECONOMIC")
+          ) {
+            continue;
+          }
+
+          const codice = buildReferenceCodeFromRow(dataRow, codeCols);
+          const key = normalizeElaboratoCode(codice);
+
+          if (!codice || !key) continue;
+
+          const record: ReferenceElaborato = {
+            codice,
+            titolo,
+            ispettore: ispCol >= 0 ? cleanPdfText(dataRow[ispCol]) : "",
+            scheda: schedaCol >= 0 ? cleanPdfText(dataRow[schedaCol]) : "",
+            tema: temaCol >= 0 ? cleanPdfText(dataRow[temaCol]) : "",
+            display: `${codice} - ${titolo}`,
+          };
+
+          map[key] = record;
+        }
+      });
+    });
+  }
+
+  return map;
+}
+
+function getReferenceElaborato(row: any, referenceElaboratiByCode: ReferenceElaboratiMap = {}) {
+  const key = normalizeElaboratoCode(getElaboratoKey(row));
+  return key ? referenceElaboratiByCode[key] : undefined;
+}
+
+function getReferenceElaboratoDisplay(row: any, referenceElaboratiByCode: ReferenceElaboratiMap = {}) {
+  const ref = getReferenceElaborato(row, referenceElaboratiByCode);
+  return ref?.display || displayTechnicalText(getElaboratoKey(row));
+}
+
+function getReferenceElaboratoIssue(row: any, referenceElaboratiByCode: ReferenceElaboratiMap = {}) {
+  const keys = Object.keys(referenceElaboratiByCode || {});
+  if (keys.length === 0) return "";
+
+  const raw = cleanPdfText(getElaboratoKey(row));
+  const normalized = normalizeElaboratoCode(raw);
+
+  if (!raw || raw === "Elaborato non identificato") {
+    return "Elaborato mancante";
+  }
+
+  if (isAllowedGeneralOrMultipleTitle(row)) {
+    return "";
+  }
+
+  if (!normalized || !referenceElaboratiByCode[normalized]) {
+    return "Elaborato non presente nell'elenco elaborati di progetto oppure Title non conforme al solo codice";
+  }
+
+  return "";
+}
+
 function isAllowedGeneralOrMultipleTitle(row: any) {
   const normalized = normalizeTodoTitleKeyword(getTodoTitleValue(row));
   return normalized.startsWith("RILIEVOGENERALE") || normalized.startsWith("RILIEVOMULTIPLO");
@@ -181,7 +326,7 @@ function isTodoTitleGeneralOrMultipleCandidate(row: any) {
   );
 }
 
-function getInvalidGeneralOrMultipleTitleMessage(row: any) {
+function getInvalidGeneralOrMultipleTitleMessage(row: any, referenceElaboratiByCode: ReferenceElaboratiMap = {}) {
   const rawTitle = cleanPdfText(getTodoTitleValue(row));
   const normalized = normalizeTodoTitleKeyword(rawTitle);
 
@@ -235,6 +380,11 @@ function getInvalidGeneralOrMultipleTitleMessage(row: any) {
 
   if (elaborati.length === 1 && !isTodoTitleEqualToElaboratoCode(row)) {
     return "Title non conforme: per un ToDo ordinario il Title deve contenere esclusivamente il codice elaborato, senza titolo descrittivo";
+  }
+
+  const referenceIssue = getReferenceElaboratoIssue(row, referenceElaboratiByCode);
+  if (referenceIssue && elaborati.length === 1) {
+    return referenceIssue;
   }
 
   return "";
@@ -1289,7 +1439,7 @@ function hasProjectComment(row: any) {
   return Boolean(row?.hasPrgComment) || comments.some((comment: any) => isProjectComment(comment));
 }
 
-function getTodoQualityIssues(row: any) {
+function getTodoQualityIssues(row: any, referenceElaboratiByCode: ReferenceElaboratiMap = {}) {
   const tipo = cleanPdfText(row?.tipo);
   const tipoUpper = tipo.toUpperCase();
   const disciplina = cleanPdfText(getDisciplinaDisplay(row));
@@ -1298,13 +1448,18 @@ function getTodoQualityIssues(row: any) {
   const stato = cleanPdfText(row?.stato || translateStatus(row?.stato));
 
   const issues: Record<string, string> = {};
-  const titleIssue = getInvalidGeneralOrMultipleTitleMessage(row);
+  const titleIssue = getInvalidGeneralOrMultipleTitleMessage(row, referenceElaboratiByCode);
 
   if (titleIssue) {
     issues.title = titleIssue;
   }
 
-  if (!elaborato || elaborato === "Elaborato non identificato") {
+  const referenceElaboratoIssue = getReferenceElaboratoIssue(row, referenceElaboratiByCode);
+  if (referenceElaboratoIssue) {
+    issues.elaborato = referenceElaboratoIssue;
+  }
+
+  if (!issues.elaborato && (!elaborato || elaborato === "Elaborato non identificato")) {
     issues.elaborato = "Elaborato mancante";
   }
 
@@ -1541,7 +1696,7 @@ function setWorksheetCell(ws: any, rowIndex: number, colIndex: number, value: an
   return true;
 }
 
-async function exportCorrectedTrimbleTodoWorkbook(rows: any[], sourceFiles: File[] = []) {
+async function exportCorrectedTrimbleTodoWorkbook(rows: any[], sourceFiles: File[] = [], referenceElaboratiByCode: ReferenceElaboratiMap = {}) {
   const todoFile = (sourceFiles || []).find((file) => {
     const name = file.name.toLowerCase();
     return name.endsWith(".xlsx") && (name.includes("todo") || name.includes("to_do") || name.includes("todos"));
@@ -1600,7 +1755,7 @@ async function exportCorrectedTrimbleTodoWorkbook(rows: any[], sourceFiles: File
       return;
     }
 
-    const issues = getTodoQualityIssues(row);
+    const issues = getTodoQualityIssues(row, referenceElaboratiByCode);
     const tipo = cleanPdfText(row?.bulkTag || row?.tipo || row?.["Tipologia rilievo"] || "");
     const tipoUpper = tipo.toUpperCase();
     const elaborato = cleanPdfText(getElaboratoKey(row));
@@ -1762,7 +1917,7 @@ function TrimbleActions({ row, sourceFiles = [] }: any) {
   return (
     <button
       type="button"
-      onClick={() => exportCorrectedTrimbleTodoWorkbook([row], sourceFiles)}
+      onClick={() => exportCorrectedTrimbleTodoWorkbook([row], sourceFiles, referenceElaboratiByCode)}
       style={{
         border: "1px solid #f97316",
         background: "#fff7ed",
@@ -1780,7 +1935,7 @@ function TrimbleActions({ row, sourceFiles = [] }: any) {
   );
 }
 
-function DetailPanel({ rows, title, onReset, sourceFiles = [] }: any) {
+function DetailPanel({ rows, title, onReset, sourceFiles = [], referenceElaboratiByCode = {} }: any) {
   const [pdfHeader, setPdfHeader] = useState<PdfHeaderData>({});
   const [showOnlyAnomalies, setShowOnlyAnomalies] = useState(false);
   const [selectedTodoIds, setSelectedTodoIds] = useState<string[]>([]);
@@ -1946,7 +2101,7 @@ function DetailPanel({ rows, title, onReset, sourceFiles = [] }: any) {
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
         <h2 style={{ marginTop: 0 }}>Dettaglio selezione: {title}</h2>
         <div style={{ display: "flex", gap: 10 }}>
-          <ExportButton onClick={() => exportCorrectedTrimbleTodoWorkbook(rowsForTodoExport, sourceFiles)}>
+          <ExportButton onClick={() => exportCorrectedTrimbleTodoWorkbook(rowsForTodoExport, sourceFiles, referenceElaboratiByCode)}>
             Export ToDo Trimble
           </ExportButton>
           <ExportButton
@@ -2063,7 +2218,7 @@ function DetailPanel({ rows, title, onReset, sourceFiles = [] }: any) {
               <option value="Impianti">Impianti</option>
               <option value="BIM">BIM</option>
             </select>
-            <ExportButton onClick={() => exportCorrectedTrimbleTodoWorkbook(rowsForTodoExport, sourceFiles)}>
+            <ExportButton onClick={() => exportCorrectedTrimbleTodoWorkbook(rowsForTodoExport, sourceFiles, referenceElaboratiByCode)}>
               Export ToDo selezionati
             </ExportButton>
           </div>
@@ -2244,7 +2399,7 @@ function DetailPanel({ rows, title, onReset, sourceFiles = [] }: any) {
           <tbody>
             {visibleRows.map((r: any, i: number) => {
               const allComments = Array.isArray(r.comments) ? r.comments : [];
-              const issues = getTodoQualityIssues(r);
+              const issues = getTodoQualityIssues(r, referenceElaboratiByCode);
               const issueList = Object.values(issues).join("; ");
               const rowHasIssues = issueList.length > 0;
 
@@ -2278,7 +2433,7 @@ function DetailPanel({ rows, title, onReset, sourceFiles = [] }: any) {
                   <td style={anomalyCellStyle(td, issues.tipo)} title={issues.tipo || ""}>{r.tipo}</td>
                   <td style={anomalyCellStyle(td, issues.disciplina)} title={issues.disciplina || ""}>{getDisciplinaDisplay(r)}</td>
                   <td style={td}>{getRedattoreFromRow(r)}</td>
-                  <td style={anomalyCellStyle(td, issues.elaborato || issues.title)} title={issues.elaborato || issues.title || ""}>{displayTechnicalText(getElaboratoKey(r))}</td>
+                  <td style={anomalyCellStyle(td, issues.elaborato || issues.title)} title={issues.elaborato || issues.title || ""}>{getReferenceElaboratoDisplay(r, referenceElaboratiByCode)}</td>
                   <td style={anomalyCellStyle(td, issues.descrizione)} title={issues.descrizione || ""}>{displayTechnicalText(r.descrizione)}</td>
                   <td style={anomalyCellStyle(td, issues.gestione)} title={issues.gestione || ""}>
                     <CommentList comments={allComments} emptyText="Nessun commento" />
@@ -2346,6 +2501,7 @@ export default function AppProgettiUpload() {
   }, []);
 
   const [files, setFiles] = useState<File[]>([]);
+  const [referenceElaboratiByCode, setReferenceElaboratiByCode] = useState<ReferenceElaboratiMap>({});
   const [rows, setRows] = useState<any[]>([]);
   const [selection, setSelection] = useState<any>(null);
   const [importedFiles, setImportedFiles] = useState<any[]>([]);
@@ -2370,6 +2526,30 @@ export default function AppProgettiUpload() {
 
     loadDashboardModules();
   }, []);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadReferenceElaborati() {
+      try {
+        const map = await buildReferenceElaboratiFromFiles(files);
+        if (!cancelled) {
+          setReferenceElaboratiByCode(map);
+        }
+      } catch (error) {
+        console.error("Errore lettura elenco elaborati di riferimento:", error);
+        if (!cancelled) {
+          setReferenceElaboratiByCode({});
+        }
+      }
+    }
+
+    loadReferenceElaborati();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [files]);
 
   async function generaDashboard() {
     setError("");
@@ -2511,7 +2691,7 @@ export default function AppProgettiUpload() {
     });
 
     return Object.values(grouped).sort((a: any, b: any) => a.elaborato.localeCompare(b.elaborato, "it"));
-  }, [enrichedRows]);
+  }, [enrichedRows, referenceElaboratiByCode]);
 
   const elaboratiCommentati = coverageRows.filter((r: any) => r.commentato).length;
   const elaboratiNonCommentati = coverageRows.filter((r: any) => !r.commentato || r.esitoMancante > 0).length;
@@ -2560,7 +2740,7 @@ export default function AppProgettiUpload() {
 
   const todoQualityRows = useMemo(() => {
     return enrichedRows.map((r: any) => {
-      const issuesMap = getTodoQualityIssues(r);
+      const issuesMap = getTodoQualityIssues(r, referenceElaboratiByCode);
       const issues = Object.values(issuesMap);
 
       return {
@@ -2574,7 +2754,7 @@ export default function AppProgettiUpload() {
         anomalie: issues.join("; "),
       };
     }).filter((item: any) => item.esito !== "OK");
-  }, [enrichedRows]);
+  }, [enrichedRows, referenceElaboratiByCode]);
 
   const filteredRows = useMemo(() => {
     if (!selection) return [];
@@ -2855,7 +3035,7 @@ export default function AppProgettiUpload() {
       </div>
 
       <div style={{ marginTop: 24 }}>
-        <DetailPanel title={selectionTitle} rows={filteredRows} sourceFiles={files} onReset={() => setSelection(null)} />
+        <DetailPanel title={selectionTitle} rows={filteredRows} sourceFiles={files} referenceElaboratiByCode={referenceElaboratiByCode} onReset={() => setSelection(null)} />
       </div>
 
       <div
