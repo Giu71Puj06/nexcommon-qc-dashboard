@@ -371,12 +371,48 @@ function getElaboratoForPdfCell(row: any) {
   return cleanPdfText(getElaboratoKey(row));
 }
 
+function isRilievoGeneraleRow(row: any) {
+  const elaborato = cleanPdfText(getElaboratoKey(row));
+  const normalized = normalizeTodoTitleKeyword(elaborato);
+  const titleNormalized = normalizeTodoTitleKeyword(getTodoTitleValue(row));
+  const descrizione = cleanPdfText(row?.descrizione || row?.Description || "").toLowerCase();
+
+  return (
+    !elaborato ||
+    elaborato === "Elaborato non identificato" ||
+    isGeneralElaboratoValue(elaborato) ||
+    normalized.startsWith("RILIEVOGENERALE") ||
+    normalized.startsWith("RILIEVIGENERALI") ||
+    titleNormalized.startsWith("RILIEVOGENERALE") ||
+    titleNormalized.startsWith("RILIEVIGENERALI") ||
+    titleNormalized.startsWith("OSSERVAZIONEGENERALE") ||
+    titleNormalized.startsWith("OSSERVAZIONIGENERALI") ||
+    descrizione.includes("rilievo generale") ||
+    descrizione.includes("rilievi generali") ||
+    descrizione.includes("osservazione generale") ||
+    descrizione.includes("osservazioni generali")
+  );
+}
+
+function sortRilieviForPdf(rows: any[]) {
+  return [...(rows || [])].sort((a: any, b: any) => {
+    const ag = isRilievoGeneraleRow(a) ? 0 : 1;
+    const bg = isRilievoGeneraleRow(b) ? 0 : 1;
+
+    if (ag !== bg) return ag - bg;
+
+    const aid = cleanPdfText(a?.id || a?.ID_Rilievo || a?.["ID rilievo"] || "");
+    const bid = cleanPdfText(b?.id || b?.ID_Rilievo || b?.["ID rilievo"] || "");
+    return aid.localeCompare(bid, "it", { numeric: true, sensitivity: "base" });
+  });
+}
+
 function isGeneralSummaryRow(row: any) {
   const elaborato = cleanPdfText(getElaboratoKey(row));
   const normalized = normalizeElaboratoCode(elaborato);
   const descrizione = cleanPdfText(row?.descrizione || row?.title || row?.titolo || "").toLowerCase();
 
-  if (!elaborato || elaborato === "Elaborato non identificato") return true;
+  if (isRilievoGeneraleRow(row)) return true;
 
   if (isRilievoMultiploRow(row) && extractSelectedItemsFromRow(row).length === 0) return true;
 
@@ -742,7 +778,7 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
 
     if (printableRows.length === 0) return;
 
-    rows = printableRows;
+    rows = sortRilieviForPdf(printableRows);
   }
 
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
