@@ -261,10 +261,114 @@ function splitElaboratiValue(value: any) {
   );
 }
 
+function isRilievoMultiploValue(value: any) {
+  const normalized = normalizeTodoTitleKeyword(value);
+  return normalized.startsWith("RILIEVOMULTIPLO") || normalized.startsWith("RILIEVIMULTIPLI");
+}
+
+function isRilievoMultiploRow(row: any) {
+  return (
+    isRilievoMultiploValue(getTodoTitleValue(row)) ||
+    isRilievoMultiploValue(getElaboratoKey(row)) ||
+    isRilievoMultiploValue(row?.titolo) ||
+    isRilievoMultiploValue(row?.Title)
+  );
+}
+
+function cleanSelectedItemName(value: any) {
+  const cleaned = cleanPdfText(value)
+    .replace(/^[-•\s]+/g, "")
+    .replace(/\s*\|\s*/g, " ")
+    .trim();
+
+  if (!cleaned) return "";
+
+  // Rimuove estensione finale, mantenendo il titolo descrittivo se presente.
+  return cleaned.replace(/\.pdf$/i, "");
+}
+
+function extractSelectedItemsFromRow(row: any) {
+  const values: any[] = [];
+
+  const directFields = [
+    "selectedItems",
+    "selected_items",
+    "Selected Items",
+    "Selected items",
+    "selectedFiles",
+    "selected_files",
+    "Selected Files",
+    "Selected files",
+    "attachments",
+    "Attachments",
+    "documentiSelezionati",
+    "elaboratiSelezionati",
+    "files",
+    "Files",
+    "relatedFiles",
+    "related_files",
+    "linkedDocuments",
+    "linked_documents",
+    "documents",
+    "Documents",
+  ];
+
+  directFields.forEach((field) => {
+    const value = row?.[field];
+
+    if (Array.isArray(value)) {
+      value.forEach((item) => {
+        if (typeof item === "string") {
+          values.push(item);
+        } else if (item && typeof item === "object") {
+          values.push(
+            item.name ||
+              item.fileName ||
+              item.filename ||
+              item.title ||
+              item.Title ||
+              item.label ||
+              item.path ||
+              ""
+          );
+        }
+      });
+    } else if (value && typeof value === "object") {
+      values.push(value.name || value.fileName || value.filename || value.title || value.Title || "");
+    } else if (typeof value === "string") {
+      values.push(...splitElaboratiValue(value));
+    }
+  });
+
+  return Array.from(
+    new Set(
+      values
+        .map(cleanSelectedItemName)
+        .filter(Boolean)
+        .filter((item) => !isRilievoMultiploValue(item))
+    )
+  );
+}
+
 function getElaboratiForExportRow(row: any) {
+  if (isRilievoMultiploRow(row)) {
+    const selectedItems = extractSelectedItemsFromRow(row);
+    if (selectedItems.length > 0) return selectedItems;
+  }
+
   const raw = getElaboratoKey(row);
   const split = splitElaboratiValue(raw);
   return split.length > 0 ? split : [cleanPdfText(raw)].filter(Boolean);
+}
+
+function getElaboratoForPdfCell(row: any) {
+  const items = getElaboratiForExportRow(row).filter(Boolean);
+
+  if (isRilievoMultiploRow(row) && items.length > 0) {
+    return items.join("\n");
+  }
+
+  return cleanPdfText(getElaboratoKey(row));
 }
 
 function isGeneralSummaryRow(row: any) {
@@ -273,6 +377,9 @@ function isGeneralSummaryRow(row: any) {
   const descrizione = cleanPdfText(row?.descrizione || row?.title || row?.titolo || "").toLowerCase();
 
   if (!elaborato || elaborato === "Elaborato non identificato") return true;
+
+  if (isRilievoMultiploRow(row) && extractSelectedItemsFromRow(row).length === 0) return true;
+
   if (normalized.includes("GENERAL") || normalized.includes("GENERALE") || normalized.includes("GENERALI")) return true;
   if (descrizione.includes("rilievi generali") || descrizione.includes("osservazioni generali")) return true;
 
@@ -900,7 +1007,7 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
       cleanPdfText(r.tipo),
       cleanPdfText(getDisciplinaDisplay(r)),
       cleanPdfText(getRedattoreFromRow(r)),
-      cleanPdfText(getElaboratoKey(r)),
+      cleanPdfText(getElaboratoForPdfCell(r)),
       cleanPdfText(r.descrizione),
       cleanPdfText(commentsToPdfRichText(allComments)),
       cleanPdfText(translateStatus(r.stato)),
@@ -2483,8 +2590,12 @@ export default function AppProgettiUpload() {
       ...r,
       tipologiaNcOss: r.tipologiaNcOss || r.tipologiaDocumento || "",
       tipologia: r.tipologiaNcOss || r.tipologiaDocumento || "",
-      elaboratoKey: getElaboratoNormalizedKey(r),
-      elaboratoDisplay: getElaboratoDisplay(r),
+      elaboratoKey: isRilievoMultiploRow(r) && extractSelectedItemsFromRow(r).length > 0
+        ? extractSelectedItemsFromRow(r).map((item) => normalizeElaboratoCode(item)).join("|")
+        : getElaboratoNormalizedKey(r),
+      elaboratoDisplay: isRilievoMultiploRow(r) && extractSelectedItemsFromRow(r).length > 0
+        ? extractSelectedItemsFromRow(r).join(" | ")
+        : getElaboratoDisplay(r),
       stato: translateStatus(r.stato),
     }));
   }, [rows]);
