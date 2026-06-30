@@ -214,7 +214,7 @@ function getInvalidGeneralOrMultipleTitleMessage(row: any) {
     normalized.startsWith("OSSERVAZIONI");
 
   if (isProbablyGeneralOrMultipleTodo && !isAllowedGeneralOrMultipleTitle(row)) {
-    return "Title non conforme: usare solo Rilievo_Generale oppure Rilievo_Multiplo_con_descrizione_personalizzata";
+    return "Title non conforme: usare solo RILIEVO GENERALE oppure Rilievo_Multiplo_con_descrizione_personalizzata";
   }
 
   if (elaborati.length > 1 && !isMultipleTitle) {
@@ -1641,7 +1641,7 @@ async function exportCorrectedTrimbleTodoWorkbook(rows: any[], sourceFiles: File
       const correctedTitle = isMultipleTitleLike
         ? "Rilievo_Multiplo"
         : isGeneralTitleLike
-          ? "Rilievo_Generale"
+          ? "RILIEVO GENERALE"
           : elaborato;
       setWorksheetCell(ws, rowIndex, titleCol, correctedTitle);
       corrections += 1;
