@@ -1623,9 +1623,24 @@ async function exportCorrectedTrimbleTodoWorkbook(rows: any[], sourceFiles: File
     if (titleCol >= 0 && issues.title) {
       const normalizedTitle = normalizeTodoTitleKeyword(getTodoTitleValue(row));
       const elaborati = getElaboratiForExportRow(row).filter(Boolean);
-      const correctedTitle = normalizedTitle.includes("MULTIPL") || elaborati.length > 1
+      const isMultipleTitleLike =
+        normalizedTitle.includes("MULTIPL") ||
+        normalizedTitle.includes("MULTIPLO") ||
+        normalizedTitle.includes("MULTIPLI") ||
+        elaborati.length > 1;
+
+      const isGeneralTitleLike =
+        normalizedTitle.includes("GENERAL") ||
+        normalizedTitle.includes("GENERALE") ||
+        normalizedTitle.includes("GENERALI") ||
+        normalizedTitle.includes("OSSERVAZIONE") ||
+        normalizedTitle.includes("OSSERVAZIONI") ||
+        normalizedTitle.includes("NCGENERALE") ||
+        normalizedTitle.includes("NONCONFORMITAGENERALE");
+
+      const correctedTitle = isMultipleTitleLike
         ? "Rilievo_Multiplo"
-        : normalizedTitle.includes("GENERAL")
+        : isGeneralTitleLike
           ? "Rilievo_Generale"
           : elaborato;
       setWorksheetCell(ws, rowIndex, titleCol, correctedTitle);
