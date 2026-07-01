@@ -217,8 +217,10 @@ function getInvalidGeneralOrMultipleTitleMessage(row: any) {
     return "Title non conforme: usare solo RILIEVO GENERALE oppure Rilievo_Multiplo_con_descrizione_personalizzata";
   }
 
+  // Se nel campo Elaborato sono presenti più codici separati da ";",
+  // il ToDo è valido: in PDF verrà spacchettato in una riga per ogni codice.
   if (elaborati.length > 1 && !isMultipleTitle) {
-    return "Title non conforme: per un ToDo riferito a più elaborati usare Rilievo_Multiplo_con_descrizione_personalizzata";
+    return "";
   }
 
   if (elaborati.length <= 1 && isMultipleTitle) {
@@ -249,16 +251,21 @@ function splitElaboratiValue(value: any) {
   const normalized = raw
     .replace(/\s*\|\s*/g, "\n")
     .replace(/\s*;\s*/g, "\n")
+    .replace(/\s*,\s*(?=[A-Z0-9]{2,}[_-])/gi, "\n")
     .replace(/\s+\/\s+/g, "\n");
 
   return Array.from(
     new Set(
       normalized
         .split(/\n+/)
-        .map((item) => cleanPdfText(item))
+        .map((item) => cleanPdfText(item).replace(/\.pdf$/i, ""))
         .filter(Boolean)
     )
   );
+}
+
+function hasMultipleElaboratiCodes(row: any) {
+  return getElaboratiForExportRow(row).length > 1;
 }
 
 function isRilievoMultiploValue(value: any) {
