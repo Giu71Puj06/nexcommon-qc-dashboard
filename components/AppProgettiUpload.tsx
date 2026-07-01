@@ -401,12 +401,53 @@ function isRilievoGeneraleRow(row: any) {
   );
 }
 
+function getRilievoSortElaboratoKey(row: any) {
+  const items = getElaboratiForExportRow(row).filter(Boolean);
+  const first = items[0] || getElaboratoKey(row) || "";
+  return cleanPdfText(first);
+}
+
+function getRilievoSortTipoRank(row: any) {
+  const tipo = cleanPdfText(row?.tipo || row?.["Tipologia rilievo"] || "").toUpperCase();
+
+  if (tipo === "NC") return 0;
+  if (tipo === "DA NC A OSS") return 1;
+  if (tipo === "OSS") return 2;
+  if (tipo === "NESSUN RILIEVO") return 3;
+
+  return 4;
+}
+
 function sortRilieviForPdf(rows: any[]) {
   return [...(rows || [])].sort((a: any, b: any) => {
+    // 1. I Rilievi Generali restano sempre in testa alla scheda.
     const ag = isRilievoGeneraleRow(a) ? 0 : 1;
     const bg = isRilievoGeneraleRow(b) ? 0 : 1;
 
     if (ag !== bg) return ag - bg;
+
+    // 2. Poi rispettiamo l'ordine della rappresentazione "Elaborati per disciplina":
+    // disciplina -> elaborato. In questo modo le NC/OSS dello stesso elaborato
+    // rimangono susseguenti anche nella stampa PDF.
+    const disciplinaA = cleanPdfText(getDisciplinaDisplay(a));
+    const disciplinaB = cleanPdfText(getDisciplinaDisplay(b));
+    const disciplinaCompare = disciplinaA.localeCompare(disciplinaB, "it", {
+      numeric: true,
+      sensitivity: "base",
+    });
+    if (disciplinaCompare !== 0) return disciplinaCompare;
+
+    const elaboratoA = getRilievoSortElaboratoKey(a);
+    const elaboratoB = getRilievoSortElaboratoKey(b);
+    const elaboratoCompare = elaboratoA.localeCompare(elaboratoB, "it", {
+      numeric: true,
+      sensitivity: "base",
+    });
+    if (elaboratoCompare !== 0) return elaboratoCompare;
+
+    // 3. A parità di elaborato, NC prima di OSS, poi ID rilievo.
+    const tipoCompare = getRilievoSortTipoRank(a) - getRilievoSortTipoRank(b);
+    if (tipoCompare !== 0) return tipoCompare;
 
     const aid = cleanPdfText(a?.id || a?.ID_Rilievo || a?.["ID rilievo"] || "");
     const bid = cleanPdfText(b?.id || b?.ID_Rilievo || b?.["ID rilievo"] || "");
@@ -2812,32 +2853,36 @@ export default function AppProgettiUpload() {
   }, [enrichedRows]);
 
   const filteredRows = useMemo(() => {
-    if (!selection) return [];
+    let result: any[] = [];
+
+    if (!selection) return result;
 
     if (selection.type === "kpi") {
-      if (selection.value === "totali") return enrichedRows;
-      if (selection.value === "nc") return enrichedRows.filter((r) => r.tipo === "NC");
-      if (selection.value === "oss") return enrichedRows.filter((r) => r.tipo === "OSS");
-      if (selection.value === "nessun") return enrichedRows.filter((r) => r.tipo === "Nessun rilievo");
-      if (selection.value === "risoluzione-prg") return rilieviNCOSS.filter((r) => r.hasPrgComment);
-      if (selection.value === "da-verificare-isp") return enrichedRows.filter((r) => r.chiDeveAgire === "ISP");
-      if (selection.value === "da-rispondere-prg") return enrichedRows.filter((r) => r.chiDeveAgire === "PRG");
-      if (selection.value === "copertura-mancanti") {
+      if (selection.value === "totali") result = enrichedRows;
+      else if (selection.value === "nc") result = enrichedRows.filter((r) => r.tipo === "NC");
+      else if (selection.value === "oss") result = enrichedRows.filter((r) => r.tipo === "OSS");
+      else if (selection.value === "nessun") result = enrichedRows.filter((r) => r.tipo === "Nessun rilievo");
+      else if (selection.value === "risoluzione-prg") result = rilieviNCOSS.filter((r) => r.hasPrgComment);
+      else if (selection.value === "da-verificare-isp") result = enrichedRows.filter((r) => r.chiDeveAgire === "ISP");
+      else if (selection.value === "da-rispondere-prg") result = enrichedRows.filter((r) => r.chiDeveAgire === "PRG");
+      else if (selection.value === "copertura-mancanti") {
         const missingKeys = new Set(coverageRows.filter((r: any) => !r.commentato || r.esitoMancante > 0).map((r: any) => r.key));
-        return enrichedRows.filter((r) => missingKeys.has(r.elaboratoKey));
-      }
-      if (selection.value === "qualita-todo") {
+        result = enrichedRows.filter((r) => missingKeys.has(r.elaboratoKey));
+      } else if (selection.value === "qualita-todo") {
         const issueIds = new Set(todoQualityRows.map((r: any) => r.id).filter(Boolean));
-        return enrichedRows.filter((r) => issueIds.has(r.id));
+        result = enrichedRows.filter((r) => issueIds.has(r.id));
       }
+    } else if (selection.type === "tipo") {
+      result = enrichedRows.filter((r) => r.tipo === selection.value);
+    } else if (selection.type === "disciplina") {
+      result = enrichedRows.filter((r) => getDisciplinaDisplay(r) === selection.value);
+    } else if (selection.type === "elaborato") {
+      result = enrichedRows.filter((r) => r.elaboratoKey === selection.value);
+    } else if (selection.type === "elaborato-disciplina") {
+      result = enrichedRows.filter((r) => r.elaboratoKey === selection.value);
     }
 
-    if (selection.type === "tipo") return enrichedRows.filter((r) => r.tipo === selection.value);
-    if (selection.type === "disciplina") return enrichedRows.filter((r) => getDisciplinaDisplay(r) === selection.value);
-    if (selection.type === "elaborato") return enrichedRows.filter((r) => r.elaboratoKey === selection.value);
-    if (selection.type === "elaborato-disciplina") return enrichedRows.filter((r) => r.elaboratoKey === selection.value);
-
-    return [];
+    return sortRilieviForPdf(result);
   }, [enrichedRows, selection, rilieviNCOSS, coverageRows, todoQualityRows]);
 
   const selectionTitle = selection
