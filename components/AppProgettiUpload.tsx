@@ -244,8 +244,36 @@ function getInvalidGeneralOrMultipleTitleMessage(row: any) {
 
 
 
-function splitElaboratiValue(value: any) {
+function expandCompactElaboratiValue(value: any) {
   const raw = cleanPdfText(value);
+  if (!raw) return "";
+
+  // Formato urgente per superare limite 255 caratteri Trimble:
+  // RM:920_E_DES_ED|DR_A|XX415;XX412;03409
+  // diventa:
+  // 920_E_DES_ED_XX_DR_A_415;920_E_DES_ED_XX_DR_A_412;920_E_DES_ED_03_DR_A_409
+  return raw.replace(
+    /RM\s*:\s*([A-Z0-9_]+)\s*\|\s*([A-Z0-9_]+)\s*\|\s*([A-Z0-9;\s,_-]+)/gi,
+    (_match, prefix, tail, list) => {
+      const items = String(list || "")
+        .split(/[;,\s]+/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .map((item) => {
+          const m = item.match(/^([A-Z0-9]+?)(\d{3})$/i);
+          if (!m) return item;
+          const mid = m[1].toUpperCase();
+          const num = m[2];
+          return `${prefix}_${mid}_${tail}_${num}`;
+        });
+
+      return items.join(";");
+    }
+  );
+}
+
+function splitElaboratiValue(value: any) {
+  const raw = expandCompactElaboratiValue(value);
   if (!raw) return [];
 
   const normalized = raw
