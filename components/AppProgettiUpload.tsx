@@ -2547,7 +2547,20 @@ function DetailPanel({ rows, title, onReset, sourceFiles = [] }: any) {
                   <td style={anomalyCellStyle(td, issues.tipo)} title={issues.tipo || ""}>{r.tipo}</td>
                   <td style={anomalyCellStyle(td, issues.disciplina)} title={issues.disciplina || ""}>{getDisciplinaDisplay(r)}</td>
                   <td style={td}>{getRedattoreFromRow(r)}</td>
-                  <td style={anomalyCellStyle(td, issues.elaborato || issues.title)} title={issues.elaborato || issues.title || ""}>{displayTechnicalText(getElaboratoKey(r))}</td>
+                  <td
+                    style={{
+                      ...anomalyCellStyle(td, issues.elaborato || issues.title),
+                      verticalAlign: "top",
+                      whiteSpace: "normal",
+                    }}
+                    title={issues.elaborato || issues.title || ""}
+                  >
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2, lineHeight: 1.35 }}>
+                      {getElaboratiForExportRow(r).map((elaborato: string, idx: number) => (
+                        <span key={`${r.id}-elaborato-${idx}`}>{displayTechnicalText(elaborato)}</span>
+                      ))}
+                    </div>
+                  </td>
                   <td style={anomalyCellStyle(td, issues.descrizione)} title={issues.descrizione || ""}>{displayTechnicalText(r.descrizione)}</td>
                   <td style={anomalyCellStyle(td, issues.gestione)} title={issues.gestione || ""}>
                     <CommentList comments={allComments} emptyText="Nessun commento" />
