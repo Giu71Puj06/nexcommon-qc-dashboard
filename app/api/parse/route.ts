@@ -3,8 +3,6 @@ import * as XLSX from "xlsx";
 import JSZip from "jszip";
 import { XMLParser } from "fast-xml-parser";
 
-const BCF_PARSER_VERSION = "2026-07-07_v4_title_author_direct_comments";
-
 function arr<T>(v: T | T[] | undefined): T[] {
   if (!v) return [];
   return Array.isArray(v) ? v : [v];
@@ -162,6 +160,8 @@ function roleFromText(text = "") {
   return m ? m[1].toUpperCase() : "";
 }
 
+const BCF_PARSER_VERSION = "2026-07-07_v5_trimble_comment_object_fix";
+
 const ISPETTORI_ITS = [
   "Arch. Veronica Laino",
   "Arch. Arianna Brunetti",
@@ -206,27 +206,39 @@ function roleFromAuthor(author = "", text = "") {
 }
 
 function getCommentTextFromBcfComment(c: any) {
+  if (typeof c === "string" || typeof c === "number") return cleanText(c);
+
   return cleanText(
     getXmlText(getAny(c, ["Comment", "comment", "CommentText", "commentText", "Text", "text", "Description", "description"])) ||
-    getXmlText(c?.Comment) ||
-    getXmlText(c?.comment) ||
-    getXmlText(c?.CommentText) ||
-    getXmlText(c?.commentText) ||
-    ""
+      getXmlText(c?.Comment) ||
+      getXmlText(c?.comment) ||
+      getXmlText(c?.CommentText) ||
+      getXmlText(c?.commentText) ||
+      getXmlText(c?.Text) ||
+      getXmlText(c?.text) ||
+      ""
   );
 }
 
 function getCommentAuthorFromBcfComment(c: any) {
+  if (!c || typeof c !== "object") return "Autore non indicato";
+
   return cleanText(
-    getXmlText(getAny(c, ["Author", "author", "ModifiedAuthor", "modifiedAuthor", "CreatedBy", "createdBy"])) ||
-    "Autore non indicato"
+    getXmlText(getAny(c, ["Author", "author", "ModifiedAuthor", "modifiedAuthor", "CreationAuthor", "creationAuthor"])) ||
+      getXmlText(c?.Author) ||
+      getXmlText(c?.author) ||
+      "Autore non indicato"
   );
 }
 
 function getCommentDateFromBcfComment(c: any) {
+  if (!c || typeof c !== "object") return "";
+
   return cleanText(
     getXmlText(getAny(c, ["Date", "date", "ModifiedDate", "modifiedDate", "CreationDate", "creationDate"])) ||
-    ""
+      getXmlText(c?.Date) ||
+      getXmlText(c?.date) ||
+      ""
   );
 }
 
@@ -309,18 +321,8 @@ function findBestComments(todo: any, commentsByTopic: Map<string, any[]>, matche
   const collected: any[] = [];
   const usedKeys = new Set<string>();
 
-  function addCandidate(value: any) {
-    const key = normalize(value || "");
-    if (!key || usedKeys.has(key)) return;
-    usedKeys.add(key);
-
-    if (commentsByTopic.has(key)) {
-      collected.push(...(commentsByTopic.get(key) || []));
-    }
-  }
-
-  function addRawCandidate(value: any) {
-    const key = cleanText(value || "");
+  function addFromKey(value: any, isAlreadyNormalized = false) {
+    const key = isAlreadyNormalized ? String(value || "") : normalize(value || "");
     if (!key || usedKeys.has(key)) return;
     usedKeys.add(key);
 
@@ -331,56 +333,70 @@ function findBestComments(todo: any, commentsByTopic: Map<string, any[]>, matche
 
   const todoTitle = todo?.Title || todo?.title || todo?.titolo || todo?.elaborato || "";
   const todoDescription = todo?.Description || todo?.description || todo?.descrizione || "";
-  const bcfTitle = matchedBcfTopic?.Title || "";
-  const bcfDescription = matchedBcfTopic?.Description || "";
+  const bcfTitle = matchedBcfTopic?.Title || matchedBcfTopic?.title || "";
+  const bcfDescription = matchedBcfTopic?.Description || matchedBcfTopic?.description || "";
 
+  // 1. Match diretto tramite GUID / ID / Label.
   [
     matchedBcfTopic?.Guid,
     matchedBcfTopic?.GUID,
     matchedBcfTopic?.ID,
     matchedBcfTopic?.Label,
+    todo?.Label,
+    todo?.ID,
     todo?.Guid,
     todo?.GUID,
-    todo?.ID,
-    todo?.Label,
-    getTodoLabel(todo),
+  ].forEach((value) => addFromKey(value));
+
+  // 2. Match diretto tramite Title.
+  [
     todoTitle,
     bcfTitle,
     String(todoTitle || "").replace(/\.pdf/gi, ""),
     String(bcfTitle || "").replace(/\.pdf/gi, ""),
-    todoDescription,
-    bcfDescription,
-  ].forEach(addCandidate);
+  ].forEach((value) => addFromKey(value));
 
+  // 3. Match diretto tramite Description.
+  [todoDescription, bcfDescription].forEach((value) => addFromKey(value));
+
+  // 4. Match combinato Title + Description.
   [
-    buildTopicMatchKey(bcfTitle, bcfDescription),
     buildTopicMatchKey(todoTitle, todoDescription),
+    buildTopicMatchKey(bcfTitle, bcfDescription),
     buildTopicMatchKey(todoTitle, bcfDescription),
     buildTopicMatchKey(bcfTitle, todoDescription),
-  ].forEach(addRawCandidate);
+  ]
+    .filter(Boolean)
+    .forEach((value) => addFromKey(value, true));
 
-  // Ultimo tentativo: associa per somiglianza fra Title/Description.
-  // Utile quando il BCFZIP non conserva lo stesso ID visibile del ToDo Trimble.
-  const normalizedTodoTitle = normalize(todoTitle);
-  const normalizedBcfTitle = normalize(bcfTitle);
-  const normalizedTodoDescription = normalize(todoDescription);
-  const normalizedBcfDescription = normalize(bcfDescription);
+  // 5. Se il topic BCF è stato individuato, usa direttamente i commenti del topic.
+  if (Array.isArray(matchedBcfTopic?.comments)) {
+    collected.push(...matchedBcfTopic.comments);
+  }
 
-  for (const [key, comments] of commentsByTopic.entries()) {
-    if (!key) continue;
+  // 6. Fallback robusto: scorre tutti i commenti BCF e associa per similarità Title + Description.
+  // Serve quando Trimble non esporta nel ToDo lo stesso GUID del BCF.
+  const todoTitleNorm = normalize(todoTitle);
+  const todoDescriptionNorm = normalize(todoDescription);
+  const bcfTitleNorm = normalize(bcfTitle);
+  const bcfDescriptionNorm = normalize(bcfDescription);
 
-    const keyNorm = normalize(key);
+  for (const comments of commentsByTopic.values()) {
+    for (const comment of comments || []) {
+      const ct = normalize(comment?.topicTitle || "");
+      const cd = normalize(comment?.topicDescription || "");
 
-    const titleMatch =
-      (normalizedTodoTitle && keyNorm.includes(normalizedTodoTitle)) ||
-      (normalizedBcfTitle && keyNorm.includes(normalizedBcfTitle));
+      const titleOk =
+        Boolean(todoTitleNorm && ct && (todoTitleNorm === ct || similarity(todoTitleNorm, ct) >= 0.92)) ||
+        Boolean(bcfTitleNorm && ct && (bcfTitleNorm === ct || similarity(bcfTitleNorm, ct) >= 0.92));
 
-    const descriptionMatch =
-      (normalizedTodoDescription && keyNorm.includes(normalizedTodoDescription.slice(0, 120))) ||
-      (normalizedBcfDescription && keyNorm.includes(normalizedBcfDescription.slice(0, 120)));
+      const descriptionOk =
+        Boolean(todoDescriptionNorm && cd && (todoDescriptionNorm === cd || similarity(todoDescriptionNorm, cd) >= 0.75)) ||
+        Boolean(bcfDescriptionNorm && cd && (bcfDescriptionNorm === cd || similarity(bcfDescriptionNorm, cd) >= 0.75));
 
-    if (titleMatch || descriptionMatch) {
-      collected.push(...comments);
+      if (titleOk && descriptionOk) {
+        collected.push(comment);
+      }
     }
   }
 
@@ -552,12 +568,29 @@ function extractTopic(markup: any, fallbackGuid: string) {
 }
 
 function extractComments(markup: any) {
-  const raw = getAny(markup, ["Comment", "comment", "Comments", "comments"]) || getAny(markup?.Comments, ["Comment", "comment"]) || getAny(markup?.comments, ["Comment", "comment"]);
+  const commentsContainer = getAny(markup, ["Comments", "comments"]);
 
-  if (Array.isArray(raw)) return raw;
-  if (raw?.Comment) return arr(raw.Comment);
-  if (raw?.comment) return arr(raw.comment);
-  return arr(raw);
+  if (commentsContainer) {
+    if (Array.isArray(commentsContainer)) return commentsContainer;
+
+    const nested = getAny(commentsContainer, ["Comment", "comment"]);
+    if (nested) return arr(nested);
+
+    // Alcuni export salvano direttamente l'oggetto commento dentro Comments.
+    if (typeof commentsContainer === "object") return [commentsContainer];
+  }
+
+  const direct = getAny(markup, ["Comment", "comment"]);
+  if (!direct) return [];
+
+  // Caso Trimble reale:
+  // <Comment Guid="..."><Date>...</Date><Author>...</Author><Comment>testo</Comment></Comment>
+  // Il nodo esterno è già l'oggetto completo del commento. Non bisogna restituire direct.Comment,
+  // altrimenti si perde Author e Date e resta solo una stringa.
+  if (Array.isArray(direct)) return direct;
+  if (typeof direct === "object") return [direct];
+
+  return arr(direct);
 }
 
 function getMimeTypeFromPath(path = "") {
@@ -670,7 +703,7 @@ async function readBcfZip(fileName: string, buffer: Buffer) {
           comment,
         };
       })
-      .filter((c: any) => c.comment || c.author || c.date);
+      .filter((c: any) => c.comment);
 
     bcfTopics.push({
       sourceFile: fileName,
@@ -1091,47 +1124,19 @@ export async function POST(req: Request) {
     const uniqueBcfComments = uniqueComments(bcfComments);
     const commentsByTopic = new Map<string, any[]>();
 
-    function addCommentTopicKey(keyValue: any, comment: any, raw = false) {
-      const key = raw ? cleanText(keyValue || "") : normalize(keyValue || "");
-      if (!key) return;
-
-      if (!commentsByTopic.has(key)) commentsByTopic.set(key, []);
-      commentsByTopic.get(key)!.push(comment);
-    }
-
     for (const c of uniqueBcfComments) {
-      addCommentTopicKey(c.topicTitle, c);
-      addCommentTopicKey(c.topicGuid, c);
-      addCommentTopicKey(String(c.topicTitle || "").replace(/\.pdf/gi, ""), c);
-      addCommentTopicKey(c.topicDescription, c);
-      addCommentTopicKey(c.topicMatchKey || buildTopicMatchKey(c.topicTitle, c.topicDescription), c, true);
+      const keys = Array.from(new Set([
+        normalize(c.topicTitle),
+        normalize(c.topicGuid),
+        normalize(String(c.topicTitle || "").replace(/\.pdf/gi, "")),
+        normalize(c.topicDescription),
+        c.topicMatchKey || buildTopicMatchKey(c.topicTitle, c.topicDescription),
+      ].filter(Boolean)));
 
-      const combinedKey = [
-        c.topicGuid,
-        c.topicTitle,
-        c.topicDescription,
-      ]
-        .map((v) => normalize(v || ""))
-        .filter(Boolean)
-        .join(" ");
-
-      addCommentTopicKey(combinedKey, c, true);
-    }
-
-
-    const commentsByTitle = new Map<string, any[]>();
-
-    function addCommentsByTitle(titleValue: any, comments: any[]) {
-      const key = normalize(titleValue || "");
-      if (!key || !comments?.length) return;
-      if (!commentsByTitle.has(key)) commentsByTitle.set(key, []);
-      commentsByTitle.get(key)!.push(...comments);
-    }
-
-    for (const topic of bcfTopicRows) {
-      const topicComments = uniqueComments(Array.isArray(topic.comments) ? topic.comments : []);
-      addCommentsByTitle(topic.Title, topicComments);
-      addCommentsByTitle(String(topic.Title || "").replace(/\.pdf/gi, ""), topicComments);
+      for (const key of keys) {
+        if (!commentsByTopic.has(key)) commentsByTopic.set(key, []);
+        commentsByTopic.get(key)!.push(c);
+      }
     }
 
     const topicsByKey = new Map<string, any>();
@@ -1181,12 +1186,8 @@ export async function POST(req: Request) {
       const createdOn = getCreatedOn(todo) || getCreatedOn(matchedBcfTopic);
       const modifiedOn = getModifiedOn(todo) || getModifiedOn(matchedBcfTopic);
       const ispettore = createdBy;
-      const titleKeyForComments = normalize(title);
-      const titleComments = titleKeyForComments ? (commentsByTitle.get(titleKeyForComments) || []) : [];
-      const matchedTopicComments = Array.isArray(matchedBcfTopic?.comments) ? matchedBcfTopic.comments : [];
       const comments = uniqueComments([
-        ...matchedTopicComments,
-        ...titleComments,
+        ...(Array.isArray(matchedBcfTopic?.comments) ? matchedBcfTopic.comments : []),
         ...findBestComments(todo, commentsByTopic, matchedBcfTopic),
       ]).sort((a, b) => String(a.date).localeCompare(String(b.date)));
       const prgComments = comments.filter((c) => c.role === "PRG");
@@ -1291,7 +1292,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       ok: true,
-      parserVersion: BCF_PARSER_VERSION,
+      bcfParserVersion: BCF_PARSER_VERSION,
       importedFiles,
       excelRowCount: excelRows.length,
       bcfTopicCount: bcfTopicRows.length,
