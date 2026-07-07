@@ -160,7 +160,24 @@ function roleFromText(text = "") {
   return m ? m[1].toUpperCase() : "";
 }
 
-const BCF_PARSER_VERSION = "2026-07-07_v5_trimble_comment_object_fix";
+const BCF_PARSER_VERSION = "2026-07-07_v6_created_by_discipline_only";
+
+
+const ISPETTORI_DISCIPLINE_ITS: Record<string, string> = {
+  "Arch. Veronica Laino": "Progetto Architettonico",
+  "Arch. Arianna Brunetti": "Progetto Architettonico",
+  "Ing. Salvatore Grimaldi": "Progetto Strutturale",
+  "Ing. Bruno Gabrielli": "Geotecnica",
+  "Ing. Carlo Renda": "Impianti meccanici e relativa documentazione economica",
+  "Ing. Gianluca Biaggioli": "Impianti elettrici e relativa documentazione economica",
+  "Ing. Marta Dominijanni": "BIM",
+  "P.I. Mauro Garofalo": "Documentazione economica opere civili",
+  "Arch. Riccardo Hoops": "CAM e DNSH",
+  "Ing. Marcello Caccialupi": "Acustica",
+  "Geom. Massimo Tamberi": "Sicurezza e Cantierizzazione",
+  "Arch. Stefano Arcangellelli": "Progetto Architettonico",
+  "Ing. Edoardo Oddo Casano": "Progetto Strutturale",
+};
 
 const ISPETTORI_ITS = [
   "Arch. Veronica Laino",
@@ -188,6 +205,21 @@ function normalizePersonName(value = "") {
     .replace(/\bdr\b/g, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+
+function getIspettoreDisciplineFromCreatedBy(author = "") {
+  const authorKey = normalizePersonName(author);
+  if (!authorKey) return "";
+
+  for (const [name, discipline] of Object.entries(ISPETTORI_DISCIPLINE_ITS)) {
+    const key = normalizePersonName(name);
+    if (key && (authorKey === key || authorKey.includes(key) || key.includes(authorKey))) {
+      return discipline;
+    }
+  }
+
+  return "";
 }
 
 function roleFromAuthor(author = "", text = "") {
@@ -1176,16 +1208,17 @@ export async function POST(req: Request) {
         isSolibriCheckingFile(todo.sourceFile || matchedBcfTopic?.sourceFile || "")
       );
 
-      const disciplina = isSolibriCheckingRow
-        ? "BIM"
-        : getTodoAssignees(todo) || "";
-      const statoOriginale = matchedBcfTopic?.Status || todo.Status || "";
-      const statoTradotto = translateStatus(statoOriginale);
       const createdBy = getCreatedBy(todo);
       const modifiedBy = getModifiedBy(todo);
       const createdOn = getCreatedOn(todo);
       const modifiedOn = getModifiedOn(todo);
       const ispettore = createdBy;
+      const disciplinaDaCreatore = getIspettoreDisciplineFromCreatedBy(createdBy);
+      const disciplina = isSolibriCheckingRow
+        ? "BIM"
+        : disciplinaDaCreatore || getTodoAssignees(todo) || "";
+      const statoOriginale = matchedBcfTopic?.Status || todo.Status || "";
+      const statoTradotto = translateStatus(statoOriginale);
       const comments = uniqueComments([
         ...(Array.isArray(matchedBcfTopic?.comments) ? matchedBcfTopic.comments : []),
         ...findBestComments(todo, commentsByTopic, matchedBcfTopic),
