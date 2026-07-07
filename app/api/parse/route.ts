@@ -160,7 +160,7 @@ function roleFromText(text = "") {
   return m ? m[1].toUpperCase() : "";
 }
 
-const BCF_PARSER_VERSION = "2026-07-07_v7_trimble_status_workflow";
+const BCF_PARSER_VERSION = "2026-07-07_v8_no_duplicate_comments_alert_missing_prg";
 
 
 const ISPETTORI_DISCIPLINE_ITS: Record<string, string> = {
@@ -341,6 +341,30 @@ function uniqueComments(comments: any[] = []) {
 
   for (const c of comments || []) {
     const key = normalizeCommentKey(c);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(c);
+  }
+
+  return result;
+}
+
+function normalizeIssueCommentKey(comment: any) {
+  // Deduplica i commenti nella singola issue senza usare la data.
+  // Serve a evitare duplicazioni quando lo stesso commento BCF viene agganciato sia dal topic sia dai fallback di match.
+  return [
+    normalize(comment?.role || ""),
+    normalize(comment?.author || ""),
+    normalize(comment?.comment || ""),
+  ].join("|");
+}
+
+function uniqueIssueComments(comments: any[] = []) {
+  const seen = new Set<string>();
+  const result: any[] = [];
+
+  for (const c of comments || []) {
+    const key = normalizeIssueCommentKey(c);
     if (!key || seen.has(key)) continue;
     seen.add(key);
     result.push(c);
@@ -1219,16 +1243,21 @@ export async function POST(req: Request) {
         : disciplinaDaCreatore || getTodoAssignees(todo) || "";
       const statoOriginale = todo.Status || matchedBcfTopic?.Status || "";
       const statoTradotto = translateStatus(statoOriginale);
-      const comments = uniqueComments([
-        ...(Array.isArray(matchedBcfTopic?.comments) ? matchedBcfTopic.comments : []),
-        ...findBestComments(todo, commentsByTopic, matchedBcfTopic),
-      ]).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+      const topicDirectComments = Array.isArray(matchedBcfTopic?.comments) ? matchedBcfTopic.comments : [];
+      const commentsSource = topicDirectComments.length
+        ? topicDirectComments
+        : findBestComments(todo, commentsByTopic, matchedBcfTopic);
+      const comments = uniqueIssueComments(commentsSource).sort((a, b) => String(a.date).localeCompare(String(b.date)));
       const prgComments = comments.filter((c) => c.role === "PRG");
       const ispComments = comments.filter((c) => c.role === "ISP");
       const last = comments[comments.length - 1];
       const hasPrgComment = prgComments.length > 0;
       const hasIspComment = ispComments.length > 0;
       const ultimoRuolo = last?.role || "";
+      const isRilievoApertoSenzaRiscontro =
+        (tipo === "NC" || tipo === "OSS" || tipo === "Da NC a OSS") &&
+        statoTradotto === "Aperta" &&
+        prgComments.length === 0;
 
       let chiDeveAgire = "";
       let statoRisoluzione = "Non applicabile";
@@ -1314,6 +1343,8 @@ export async function POST(req: Request) {
         ultimaDataCommento: last?.date || "",
         chiDeveAgire,
         statoRisoluzione,
+        isRilievoApertoSenzaRiscontro,
+        gestioneRilievoAlert: isRilievoApertoSenzaRiscontro ? "Manca riscontro del progettista" : "",
         nCommenti: comments.length,
         comments,
         sourceFile: todo.sourceFile || matchedBcfTopic?.sourceFile || "",
