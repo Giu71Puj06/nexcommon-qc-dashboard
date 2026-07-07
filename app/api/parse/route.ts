@@ -239,8 +239,18 @@ function findBestComments(todo: any, commentsByTopic: Map<string, any[]>, matche
   const collected: any[] = [];
   const usedKeys = new Set<string>();
 
-  function addFromKey(value: any, isAlreadyNormalized = false) {
-    const key = isAlreadyNormalized ? String(value || "") : normalize(value || "");
+  function addCandidate(value: any) {
+    const key = normalize(value || "");
+    if (!key || usedKeys.has(key)) return;
+    usedKeys.add(key);
+
+    if (commentsByTopic.has(key)) {
+      collected.push(...(commentsByTopic.get(key) || []));
+    }
+  }
+
+  function addRawCandidate(value: any) {
+    const key = cleanText(value || "");
     if (!key || usedKeys.has(key)) return;
     usedKeys.add(key);
 
@@ -251,70 +261,56 @@ function findBestComments(todo: any, commentsByTopic: Map<string, any[]>, matche
 
   const todoTitle = todo?.Title || todo?.title || todo?.titolo || todo?.elaborato || "";
   const todoDescription = todo?.Description || todo?.description || todo?.descrizione || "";
-  const bcfTitle = matchedBcfTopic?.Title || matchedBcfTopic?.title || "";
-  const bcfDescription = matchedBcfTopic?.Description || matchedBcfTopic?.description || "";
+  const bcfTitle = matchedBcfTopic?.Title || "";
+  const bcfDescription = matchedBcfTopic?.Description || "";
 
-  // 1. Match diretto tramite GUID / ID / Label.
   [
     matchedBcfTopic?.Guid,
     matchedBcfTopic?.GUID,
     matchedBcfTopic?.ID,
     matchedBcfTopic?.Label,
-    todo?.Label,
-    todo?.ID,
     todo?.Guid,
     todo?.GUID,
-  ].forEach((value) => addFromKey(value));
-
-  // 2. Match diretto tramite Title.
-  [
+    todo?.ID,
+    todo?.Label,
+    getTodoLabel(todo),
     todoTitle,
     bcfTitle,
     String(todoTitle || "").replace(/\.pdf/gi, ""),
     String(bcfTitle || "").replace(/\.pdf/gi, ""),
-  ].forEach((value) => addFromKey(value));
+    todoDescription,
+    bcfDescription,
+  ].forEach(addCandidate);
 
-  // 3. Match diretto tramite Description.
-  [todoDescription, bcfDescription].forEach((value) => addFromKey(value));
-
-  // 4. Match combinato Title + Description.
   [
-    buildTopicMatchKey(todoTitle, todoDescription),
     buildTopicMatchKey(bcfTitle, bcfDescription),
+    buildTopicMatchKey(todoTitle, todoDescription),
     buildTopicMatchKey(todoTitle, bcfDescription),
     buildTopicMatchKey(bcfTitle, todoDescription),
-  ]
-    .filter(Boolean)
-    .forEach((value) => addFromKey(value, true));
+  ].forEach(addRawCandidate);
 
-  // 5. Se il topic BCF è stato individuato, usa direttamente i commenti del topic.
-  if (Array.isArray(matchedBcfTopic?.comments)) {
-    collected.push(...matchedBcfTopic.comments);
-  }
+  // Ultimo tentativo: associa per somiglianza fra Title/Description.
+  // Utile quando il BCFZIP non conserva lo stesso ID visibile del ToDo Trimble.
+  const normalizedTodoTitle = normalize(todoTitle);
+  const normalizedBcfTitle = normalize(bcfTitle);
+  const normalizedTodoDescription = normalize(todoDescription);
+  const normalizedBcfDescription = normalize(bcfDescription);
 
-  // 6. Fallback robusto: scorre tutti i commenti BCF e associa per similarità Title + Description.
-  // Serve quando Trimble non esporta nel ToDo lo stesso GUID del BCF.
-  const todoTitleNorm = normalize(todoTitle);
-  const todoDescriptionNorm = normalize(todoDescription);
-  const bcfTitleNorm = normalize(bcfTitle);
-  const bcfDescriptionNorm = normalize(bcfDescription);
+  for (const [key, comments] of commentsByTopic.entries()) {
+    if (!key) continue;
 
-  for (const comments of commentsByTopic.values()) {
-    for (const comment of comments || []) {
-      const ct = normalize(comment?.topicTitle || "");
-      const cd = normalize(comment?.topicDescription || "");
+    const keyNorm = normalize(key);
 
-      const titleOk =
-        Boolean(todoTitleNorm && ct && (todoTitleNorm === ct || similarity(todoTitleNorm, ct) >= 0.92)) ||
-        Boolean(bcfTitleNorm && ct && (bcfTitleNorm === ct || similarity(bcfTitleNorm, ct) >= 0.92));
+    const titleMatch =
+      (normalizedTodoTitle && keyNorm.includes(normalizedTodoTitle)) ||
+      (normalizedBcfTitle && keyNorm.includes(normalizedBcfTitle));
 
-      const descriptionOk =
-        Boolean(todoDescriptionNorm && cd && (todoDescriptionNorm === cd || similarity(todoDescriptionNorm, cd) >= 0.75)) ||
-        Boolean(bcfDescriptionNorm && cd && (bcfDescriptionNorm === cd || similarity(bcfDescriptionNorm, cd) >= 0.75));
+    const descriptionMatch =
+      (normalizedTodoDescription && keyNorm.includes(normalizedTodoDescription.slice(0, 120))) ||
+      (normalizedBcfDescription && keyNorm.includes(normalizedBcfDescription.slice(0, 120)));
 
-      if (titleOk && descriptionOk) {
-        collected.push(comment);
-      }
+    if (titleMatch || descriptionMatch) {
+      collected.push(...comments);
     }
   }
 
@@ -582,26 +578,6 @@ async function readBcfZip(fileName: string, buffer: Buffer) {
     const topicData = extractTopic(markup, folderGuid);
     const snapshot = await extractSnapshotDataUrl(zip, path);
 
-    const comments = extractComments(markup);
-    const topicComments = comments.map((c: any) => {
-      const text = getXmlText(getAny(c, ["Comment", "comment", "Text", "text"]));
-      const detectedRole = roleFromText(text);
-
-      return {
-        sourceFile: fileName,
-        markupPath: path,
-        topicGuid: topicData.topicGuid,
-        topicTitle: topicData.topicTitle,
-        topicDescription: topicData.topicDescription,
-        topicKey: normalize(topicData.topicTitle),
-        topicMatchKey: buildTopicMatchKey(topicData.topicTitle, topicData.topicDescription),
-        author: getXmlText(getAny(c, ["Author", "author", "ModifiedAuthor"])) || "Autore non indicato",
-        date: getXmlText(getAny(c, ["Date", "date", "ModifiedDate"])) || "",
-        role: detectedRole || "PRG",
-        comment: cleanText(text),
-      };
-    }).filter((c: any) => c.comment || c.author || c.date);
-
     bcfTopics.push({
       sourceFile: fileName,
       origine: origineFile,
@@ -628,10 +604,28 @@ async function readBcfZip(fileName: string, buffer: Buffer) {
       disciplina: isSolibriChecking ? "BIM" : "",
       Type: "BCF Topic",
       __source: fileName.toLowerCase().endsWith(".bcf") ? "bcf" : "bcfzip",
-      comments: topicComments,
     });
 
-    bcfComments.push(...topicComments);
+    const comments = extractComments(markup);
+
+    for (const c of comments) {
+      const text = getXmlText(getAny(c, ["Comment", "comment", "Text", "text"]));
+      const role = roleFromText(text);
+
+      bcfComments.push({
+        sourceFile: fileName,
+        markupPath: path,
+        topicGuid: topicData.topicGuid,
+        topicTitle: topicData.topicTitle,
+        topicDescription: topicData.topicDescription,
+        topicKey: normalize(topicData.topicTitle),
+        topicMatchKey: buildTopicMatchKey(topicData.topicTitle, topicData.topicDescription),
+        author: getXmlText(getAny(c, ["Author", "author", "ModifiedAuthor"])) || "Autore non indicato",
+        date: getXmlText(getAny(c, ["Date", "date", "ModifiedDate"])) || "",
+        role,
+        comment: cleanText(text),
+      });
+    }
   }
 
   return { bcfTopics, bcfComments, markupCount: markupPaths.length };
@@ -1021,19 +1015,31 @@ export async function POST(req: Request) {
     const uniqueBcfComments = uniqueComments(bcfComments);
     const commentsByTopic = new Map<string, any[]>();
 
-    for (const c of uniqueBcfComments) {
-      const keys = Array.from(new Set([
-        normalize(c.topicTitle),
-        normalize(c.topicGuid),
-        normalize(String(c.topicTitle || "").replace(/\.pdf/gi, "")),
-        normalize(c.topicDescription),
-        c.topicMatchKey || buildTopicMatchKey(c.topicTitle, c.topicDescription),
-      ].filter(Boolean)));
+    function addCommentTopicKey(keyValue: any, comment: any, raw = false) {
+      const key = raw ? cleanText(keyValue || "") : normalize(keyValue || "");
+      if (!key) return;
 
-      for (const key of keys) {
-        if (!commentsByTopic.has(key)) commentsByTopic.set(key, []);
-        commentsByTopic.get(key)!.push(c);
-      }
+      if (!commentsByTopic.has(key)) commentsByTopic.set(key, []);
+      commentsByTopic.get(key)!.push(comment);
+    }
+
+    for (const c of uniqueBcfComments) {
+      addCommentTopicKey(c.topicTitle, c);
+      addCommentTopicKey(c.topicGuid, c);
+      addCommentTopicKey(String(c.topicTitle || "").replace(/\.pdf/gi, ""), c);
+      addCommentTopicKey(c.topicDescription, c);
+      addCommentTopicKey(c.topicMatchKey || buildTopicMatchKey(c.topicTitle, c.topicDescription), c, true);
+
+      const combinedKey = [
+        c.topicGuid,
+        c.topicTitle,
+        c.topicDescription,
+      ]
+        .map((v) => normalize(v || ""))
+        .filter(Boolean)
+        .join(" ");
+
+      addCommentTopicKey(combinedKey, c, true);
     }
 
     const topicsByKey = new Map<string, any>();
@@ -1083,10 +1089,7 @@ export async function POST(req: Request) {
       const createdOn = getCreatedOn(todo) || getCreatedOn(matchedBcfTopic);
       const modifiedOn = getModifiedOn(todo) || getModifiedOn(matchedBcfTopic);
       const ispettore = createdBy;
-      const comments = uniqueComments([
-        ...(Array.isArray(matchedBcfTopic?.comments) ? matchedBcfTopic.comments : []),
-        ...findBestComments(todo, commentsByTopic, matchedBcfTopic),
-      ]).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+      const comments = uniqueComments(findBestComments(todo, commentsByTopic, matchedBcfTopic)).sort((a, b) => String(a.date).localeCompare(String(b.date)));
       const prgComments = comments.filter((c) => c.role === "PRG");
       const ispComments = comments.filter((c) => c.role === "ISP");
       const last = comments[comments.length - 1];
