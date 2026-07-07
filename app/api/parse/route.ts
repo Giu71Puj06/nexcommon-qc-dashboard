@@ -1178,13 +1178,13 @@ export async function POST(req: Request) {
 
       const disciplina = isSolibriCheckingRow
         ? "BIM"
-        : getTodoAssignees(todo) || matchedBcfTopic?.["Assignee(s)"] || "";
+        : getTodoAssignees(todo) || "";
       const statoOriginale = matchedBcfTopic?.Status || todo.Status || "";
       const statoTradotto = translateStatus(statoOriginale);
-      const createdBy = getCreatedBy(todo) || getCreatedBy(matchedBcfTopic);
-      const modifiedBy = getModifiedBy(todo) || getModifiedBy(matchedBcfTopic);
-      const createdOn = getCreatedOn(todo) || getCreatedOn(matchedBcfTopic);
-      const modifiedOn = getModifiedOn(todo) || getModifiedOn(matchedBcfTopic);
+      const createdBy = getCreatedBy(todo);
+      const modifiedBy = getModifiedBy(todo);
+      const createdOn = getCreatedOn(todo);
+      const modifiedOn = getModifiedOn(todo);
       const ispettore = createdBy;
       const comments = uniqueComments([
         ...(Array.isArray(matchedBcfTopic?.comments) ? matchedBcfTopic.comments : []),
