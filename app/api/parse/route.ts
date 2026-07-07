@@ -160,7 +160,7 @@ function roleFromText(text = "") {
   return m ? m[1].toUpperCase() : "";
 }
 
-const BCF_PARSER_VERSION = "2026-07-07_v6_created_by_discipline_only";
+const BCF_PARSER_VERSION = "2026-07-07_v7_trimble_status_workflow";
 
 
 const ISPETTORI_DISCIPLINE_ITS: Record<string, string> = {
@@ -436,18 +436,18 @@ function findBestComments(todo: any, commentsByTopic: Map<string, any[]>, matche
 }
 
 function translateStatus(status = "") {
-  const s = String(status || "").trim();
+  const s = String(status || "").trim().toLowerCase();
 
-  if (/^closed$/i.test(s)) return "Chiusa";
-  if (/^new$/i.test(s)) return "Aperta";
-  if (/^waiting$/i.test(s)) return "In attesa";
-  if (/^unknown$/i.test(s)) return "Non definito";
-  if (/^chiuso$/i.test(s)) return "Chiusa";
-  if (/^chiusa$/i.test(s)) return "Chiusa";
-  if (/^aperto$/i.test(s)) return "Aperta";
-  if (/^aperta$/i.test(s)) return "Aperta";
+  if (s === "new") return "Aperta";
+  if (s === "waiting") return "In attesa";
+  if (s === "closed") return "Chiusa";
+  if (s === "unknown") return "Non definito";
 
-  return s;
+  if (s === "aperto" || s === "aperta") return "Aperta";
+  if (s === "in attesa") return "In attesa";
+  if (s === "chiuso" || s === "chiusa") return "Chiusa";
+
+  return String(status || "").trim();
 }
 
 function getFirstColumnValue(row: any) {
@@ -1217,7 +1217,7 @@ export async function POST(req: Request) {
       const disciplina = isSolibriCheckingRow
         ? "BIM"
         : disciplinaDaCreatore || getTodoAssignees(todo) || "";
-      const statoOriginale = matchedBcfTopic?.Status || todo.Status || "";
+      const statoOriginale = todo.Status || matchedBcfTopic?.Status || "";
       const statoTradotto = translateStatus(statoOriginale);
       const comments = uniqueComments([
         ...(Array.isArray(matchedBcfTopic?.comments) ? matchedBcfTopic.comments : []),
@@ -1234,7 +1234,16 @@ export async function POST(req: Request) {
       let statoRisoluzione = "Non applicabile";
 
       if (tipo === "NC" || tipo === "OSS" || tipo === "Da NC a OSS") {
-        if (!hasPrgComment) {
+        if (statoTradotto === "Aperta") {
+          chiDeveAgire = "PRG";
+          statoRisoluzione = "Aperta - in attesa del progettista";
+        } else if (statoTradotto === "In attesa") {
+          chiDeveAgire = "ISP";
+          statoRisoluzione = "Risposta del progettista - verifica ispettore";
+        } else if (statoTradotto === "Chiusa") {
+          chiDeveAgire = "";
+          statoRisoluzione = "Chiusa";
+        } else if (!hasPrgComment) {
           chiDeveAgire = "PRG";
           statoRisoluzione = "In attesa riscontro progettista";
         } else if (ultimoRuolo === "PRG") {
