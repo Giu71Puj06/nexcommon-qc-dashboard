@@ -236,35 +236,81 @@ function uniqueComments(comments: any[] = []) {
 }
 
 function findBestComments(todo: any, commentsByTopic: Map<string, any[]>, matchedBcfTopic?: any) {
-  const candidates = [
-    matchedBcfTopic?.Guid,
-    matchedBcfTopic?.GUID,
-    matchedBcfTopic?.ID,
-    matchedBcfTopic?.Label,
-    buildTopicMatchKey(matchedBcfTopic?.Title, matchedBcfTopic?.Description),
-    buildTopicMatchKey(todo?.Title, todo?.Description),
-    buildTopicMatchKey(todo?.Title, matchedBcfTopic?.Description),
-    buildTopicMatchKey(matchedBcfTopic?.Title, todo?.Description),
-    todo?.Label,
-    todo?.ID,
-    todo?.Guid,
-    todo?.GUID,
-    todo?.Title,
-    matchedBcfTopic?.Title,
-    String(todo?.Title || "").replace(/\.pdf/gi, ""),
-    String(matchedBcfTopic?.Title || "").replace(/\.pdf/gi, ""),
-  ].filter(Boolean);
-
   const collected: any[] = [];
   const usedKeys = new Set<string>();
 
-  for (const c of candidates) {
-    const key = String(c).includes("__") ? String(c) : normalize(c);
-    if (!key || usedKeys.has(key)) continue;
+  function addCandidate(value: any) {
+    const key = normalize(value || "");
+    if (!key || usedKeys.has(key)) return;
     usedKeys.add(key);
 
     if (commentsByTopic.has(key)) {
       collected.push(...(commentsByTopic.get(key) || []));
+    }
+  }
+
+  function addRawCandidate(value: any) {
+    const key = cleanText(value || "");
+    if (!key || usedKeys.has(key)) return;
+    usedKeys.add(key);
+
+    if (commentsByTopic.has(key)) {
+      collected.push(...(commentsByTopic.get(key) || []));
+    }
+  }
+
+  const todoTitle = todo?.Title || todo?.title || todo?.titolo || todo?.elaborato || "";
+  const todoDescription = todo?.Description || todo?.description || todo?.descrizione || "";
+  const bcfTitle = matchedBcfTopic?.Title || "";
+  const bcfDescription = matchedBcfTopic?.Description || "";
+
+  [
+    matchedBcfTopic?.Guid,
+    matchedBcfTopic?.GUID,
+    matchedBcfTopic?.ID,
+    matchedBcfTopic?.Label,
+    todo?.Guid,
+    todo?.GUID,
+    todo?.ID,
+    todo?.Label,
+    getTodoLabel(todo),
+    todoTitle,
+    bcfTitle,
+    String(todoTitle || "").replace(/\.pdf/gi, ""),
+    String(bcfTitle || "").replace(/\.pdf/gi, ""),
+    todoDescription,
+    bcfDescription,
+  ].forEach(addCandidate);
+
+  [
+    buildTopicMatchKey(bcfTitle, bcfDescription),
+    buildTopicMatchKey(todoTitle, todoDescription),
+    buildTopicMatchKey(todoTitle, bcfDescription),
+    buildTopicMatchKey(bcfTitle, todoDescription),
+  ].forEach(addRawCandidate);
+
+  // Ultimo tentativo: associa per somiglianza fra Title/Description.
+  // Utile quando il BCFZIP non conserva lo stesso ID visibile del ToDo Trimble.
+  const normalizedTodoTitle = normalize(todoTitle);
+  const normalizedBcfTitle = normalize(bcfTitle);
+  const normalizedTodoDescription = normalize(todoDescription);
+  const normalizedBcfDescription = normalize(bcfDescription);
+
+  for (const [key, comments] of commentsByTopic.entries()) {
+    if (!key) continue;
+
+    const keyNorm = normalize(key);
+
+    const titleMatch =
+      (normalizedTodoTitle && keyNorm.includes(normalizedTodoTitle)) ||
+      (normalizedBcfTitle && keyNorm.includes(normalizedBcfTitle));
+
+    const descriptionMatch =
+      (normalizedTodoDescription && keyNorm.includes(normalizedTodoDescription.slice(0, 120))) ||
+      (normalizedBcfDescription && keyNorm.includes(normalizedBcfDescription.slice(0, 120)));
+
+    if (titleMatch || descriptionMatch) {
+      collected.push(...comments);
     }
   }
 
@@ -574,10 +620,10 @@ async function readBcfZip(fileName: string, buffer: Buffer) {
         topicDescription: topicData.topicDescription,
         topicKey: normalize(topicData.topicTitle),
         topicMatchKey: buildTopicMatchKey(topicData.topicTitle, topicData.topicDescription),
-        author: getXmlText(getAny(c, ["Author", "author", "ModifiedAuthor"])) || "",
+        author: getXmlText(getAny(c, ["Author", "author", "ModifiedAuthor"])) || "Autore non indicato",
         date: getXmlText(getAny(c, ["Date", "date", "ModifiedDate"])) || "",
         role,
-        comment: text,
+        comment: cleanText(text),
       });
     }
   }
@@ -969,18 +1015,31 @@ export async function POST(req: Request) {
     const uniqueBcfComments = uniqueComments(bcfComments);
     const commentsByTopic = new Map<string, any[]>();
 
-    for (const c of uniqueBcfComments) {
-      const keys = Array.from(new Set([
-        normalize(c.topicTitle),
-        normalize(c.topicGuid),
-        normalize(String(c.topicTitle || "").replace(/\.pdf/gi, "")),
-        c.topicMatchKey || buildTopicMatchKey(c.topicTitle, c.topicDescription),
-      ].filter(Boolean)));
+    function addCommentTopicKey(keyValue: any, comment: any, raw = false) {
+      const key = raw ? cleanText(keyValue || "") : normalize(keyValue || "");
+      if (!key) return;
 
-      for (const key of keys) {
-        if (!commentsByTopic.has(key)) commentsByTopic.set(key, []);
-        commentsByTopic.get(key)!.push(c);
-      }
+      if (!commentsByTopic.has(key)) commentsByTopic.set(key, []);
+      commentsByTopic.get(key)!.push(comment);
+    }
+
+    for (const c of uniqueBcfComments) {
+      addCommentTopicKey(c.topicTitle, c);
+      addCommentTopicKey(c.topicGuid, c);
+      addCommentTopicKey(String(c.topicTitle || "").replace(/\.pdf/gi, ""), c);
+      addCommentTopicKey(c.topicDescription, c);
+      addCommentTopicKey(c.topicMatchKey || buildTopicMatchKey(c.topicTitle, c.topicDescription), c, true);
+
+      const combinedKey = [
+        c.topicGuid,
+        c.topicTitle,
+        c.topicDescription,
+      ]
+        .map((v) => normalize(v || ""))
+        .filter(Boolean)
+        .join(" ");
+
+      addCommentTopicKey(combinedKey, c, true);
     }
 
     const topicsByKey = new Map<string, any>();
