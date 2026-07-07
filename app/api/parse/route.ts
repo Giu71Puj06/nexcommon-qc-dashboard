@@ -3,6 +3,8 @@ import * as XLSX from "xlsx";
 import JSZip from "jszip";
 import { XMLParser } from "fast-xml-parser";
 
+const BCF_PARSER_VERSION = "2026-07-07_v4_title_author_direct_comments";
+
 function arr<T>(v: T | T[] | undefined): T[] {
   if (!v) return [];
   return Array.isArray(v) ? v : [v];
@@ -158,6 +160,74 @@ function extractBcfLabels(value: any): string {
 function roleFromText(text = "") {
   const m = String(text).match(/\((ISP|PRG)\)/i);
   return m ? m[1].toUpperCase() : "";
+}
+
+const ISPETTORI_ITS = [
+  "Arch. Veronica Laino",
+  "Arch. Arianna Brunetti",
+  "Ing. Salvatore Grimaldi",
+  "Ing. Bruno Gabrielli",
+  "Ing. Carlo Renda",
+  "Ing. Gianluca Biaggioli",
+  "Ing. Marta Dominijanni",
+  "P.I. Mauro Garofalo",
+  "Arch. Riccardo Hoops",
+  "Ing. Marcello Caccialupi",
+  "Geom. Massimo Tamberi",
+  "Arch. Stefano Arcangellelli",
+  "Ing. Edoardo Oddo Casano",
+];
+
+function normalizePersonName(value = "") {
+  return normalize(value)
+    .replace(/\barch\b/g, "")
+    .replace(/\bing\b/g, "")
+    .replace(/\bgeom\b/g, "")
+    .replace(/\bp\s*i\b/g, "")
+    .replace(/\bdott\b/g, "")
+    .replace(/\bdr\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function roleFromAuthor(author = "", text = "") {
+  const explicit = roleFromText(text);
+  if (explicit) return explicit;
+
+  const authorKey = normalizePersonName(author);
+  if (!authorKey || authorKey === "autore non indicato") return "PRG";
+
+  const isIspettore = ISPETTORI_ITS.some((name) => {
+    const key = normalizePersonName(name);
+    return Boolean(key && (authorKey === key || authorKey.includes(key) || key.includes(authorKey)));
+  });
+
+  return isIspettore ? "ISP" : "PRG";
+}
+
+function getCommentTextFromBcfComment(c: any) {
+  return cleanText(
+    getXmlText(getAny(c, ["Comment", "comment", "CommentText", "commentText", "Text", "text", "Description", "description"])) ||
+    getXmlText(c?.Comment) ||
+    getXmlText(c?.comment) ||
+    getXmlText(c?.CommentText) ||
+    getXmlText(c?.commentText) ||
+    ""
+  );
+}
+
+function getCommentAuthorFromBcfComment(c: any) {
+  return cleanText(
+    getXmlText(getAny(c, ["Author", "author", "ModifiedAuthor", "modifiedAuthor", "CreatedBy", "createdBy"])) ||
+    "Autore non indicato"
+  );
+}
+
+function getCommentDateFromBcfComment(c: any) {
+  return cleanText(
+    getXmlText(getAny(c, ["Date", "date", "ModifiedDate", "modifiedDate", "CreationDate", "creationDate"])) ||
+    ""
+  );
 }
 
 function detectTipo(tags = "", description = "") {
@@ -578,6 +648,30 @@ async function readBcfZip(fileName: string, buffer: Buffer) {
     const topicData = extractTopic(markup, folderGuid);
     const snapshot = await extractSnapshotDataUrl(zip, path);
 
+    const comments = extractComments(markup);
+    const topicComments = comments
+      .map((c: any) => {
+        const comment = getCommentTextFromBcfComment(c);
+        const author = getCommentAuthorFromBcfComment(c);
+        const date = getCommentDateFromBcfComment(c);
+        const role = roleFromAuthor(author, comment);
+
+        return {
+          sourceFile: fileName,
+          markupPath: path,
+          topicGuid: topicData.topicGuid,
+          topicTitle: topicData.topicTitle,
+          topicDescription: topicData.topicDescription,
+          topicKey: normalize(topicData.topicTitle),
+          topicMatchKey: buildTopicMatchKey(topicData.topicTitle, topicData.topicDescription),
+          author,
+          date,
+          role,
+          comment,
+        };
+      })
+      .filter((c: any) => c.comment || c.author || c.date);
+
     bcfTopics.push({
       sourceFile: fileName,
       origine: origineFile,
@@ -604,28 +698,10 @@ async function readBcfZip(fileName: string, buffer: Buffer) {
       disciplina: isSolibriChecking ? "BIM" : "",
       Type: "BCF Topic",
       __source: fileName.toLowerCase().endsWith(".bcf") ? "bcf" : "bcfzip",
+      comments: topicComments,
     });
 
-    const comments = extractComments(markup);
-
-    for (const c of comments) {
-      const text = getXmlText(getAny(c, ["Comment", "comment", "Text", "text"]));
-      const role = roleFromText(text);
-
-      bcfComments.push({
-        sourceFile: fileName,
-        markupPath: path,
-        topicGuid: topicData.topicGuid,
-        topicTitle: topicData.topicTitle,
-        topicDescription: topicData.topicDescription,
-        topicKey: normalize(topicData.topicTitle),
-        topicMatchKey: buildTopicMatchKey(topicData.topicTitle, topicData.topicDescription),
-        author: getXmlText(getAny(c, ["Author", "author", "ModifiedAuthor"])) || "Autore non indicato",
-        date: getXmlText(getAny(c, ["Date", "date", "ModifiedDate"])) || "",
-        role,
-        comment: cleanText(text),
-      });
-    }
+    bcfComments.push(...topicComments);
   }
 
   return { bcfTopics, bcfComments, markupCount: markupPaths.length };
@@ -1042,6 +1118,22 @@ export async function POST(req: Request) {
       addCommentTopicKey(combinedKey, c, true);
     }
 
+
+    const commentsByTitle = new Map<string, any[]>();
+
+    function addCommentsByTitle(titleValue: any, comments: any[]) {
+      const key = normalize(titleValue || "");
+      if (!key || !comments?.length) return;
+      if (!commentsByTitle.has(key)) commentsByTitle.set(key, []);
+      commentsByTitle.get(key)!.push(...comments);
+    }
+
+    for (const topic of bcfTopicRows) {
+      const topicComments = uniqueComments(Array.isArray(topic.comments) ? topic.comments : []);
+      addCommentsByTitle(topic.Title, topicComments);
+      addCommentsByTitle(String(topic.Title || "").replace(/\.pdf/gi, ""), topicComments);
+    }
+
     const topicsByKey = new Map<string, any>();
 
     for (const topic of bcfTopicRows) {
@@ -1089,7 +1181,14 @@ export async function POST(req: Request) {
       const createdOn = getCreatedOn(todo) || getCreatedOn(matchedBcfTopic);
       const modifiedOn = getModifiedOn(todo) || getModifiedOn(matchedBcfTopic);
       const ispettore = createdBy;
-      const comments = uniqueComments(findBestComments(todo, commentsByTopic, matchedBcfTopic)).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+      const titleKeyForComments = normalize(title);
+      const titleComments = titleKeyForComments ? (commentsByTitle.get(titleKeyForComments) || []) : [];
+      const matchedTopicComments = Array.isArray(matchedBcfTopic?.comments) ? matchedBcfTopic.comments : [];
+      const comments = uniqueComments([
+        ...matchedTopicComments,
+        ...titleComments,
+        ...findBestComments(todo, commentsByTopic, matchedBcfTopic),
+      ]).sort((a, b) => String(a.date).localeCompare(String(b.date)));
       const prgComments = comments.filter((c) => c.role === "PRG");
       const ispComments = comments.filter((c) => c.role === "ISP");
       const last = comments[comments.length - 1];
@@ -1192,6 +1291,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       ok: true,
+      parserVersion: BCF_PARSER_VERSION,
       importedFiles,
       excelRowCount: excelRows.length,
       bcfTopicCount: bcfTopicRows.length,
