@@ -17,6 +17,57 @@ function normalize(v = "") {
     .trim();
 }
 
+function buildTopicMatchKey(title: any, description: any) {
+  const titleKey = normalize(title);
+  const descriptionKey = normalize(cleanText(description)).slice(0, 300);
+
+  return [titleKey, descriptionKey].filter(Boolean).join("__");
+}
+
+function getCreatedBy(row: any) {
+  return cleanText(getAny(row, [
+    "Created by",
+    "Created By",
+    "CreationAuthor",
+    "Creation Author",
+    "Creation author",
+    "Creator",
+    "Owner",
+  ]));
+}
+
+function getCreatedOn(row: any) {
+  return cleanText(getAny(row, [
+    "Created on",
+    "Created On",
+    "CreationDate",
+    "Creation Date",
+    "Creation date",
+  ]));
+}
+
+function getModifiedBy(row: any) {
+  return cleanText(getAny(row, [
+    "Last modified by",
+    "Last Modified By",
+    "ModifiedAuthor",
+    "Modified Author",
+    "ModificationAuthor",
+    "Modification Author",
+  ]));
+}
+
+function getModifiedOn(row: any) {
+  return cleanText(getAny(row, [
+    "Last modified on",
+    "Last Modified On",
+    "ModifiedDate",
+    "Modified Date",
+    "ModificationDate",
+    "Modification Date",
+  ]));
+}
+
 function normalizeElaboratoCode(v = "") {
   return String(v || "")
     .toUpperCase()
@@ -185,18 +236,30 @@ function uniqueComments(comments: any[] = []) {
 }
 
 function findBestComments(todo: any, commentsByTopic: Map<string, any[]>, matchedBcfTopic?: any) {
-  const matchedGuid = normalize(matchedBcfTopic?.Guid || matchedBcfTopic?.GUID || matchedBcfTopic?.ID || matchedBcfTopic?.Label || "");
+  const candidates = [
+    matchedBcfTopic?.Guid,
+    matchedBcfTopic?.GUID,
+    matchedBcfTopic?.ID,
+    matchedBcfTopic?.Label,
+    buildTopicMatchKey(matchedBcfTopic?.Title, matchedBcfTopic?.Description),
+    buildTopicMatchKey(todo?.Title, todo?.Description),
+    buildTopicMatchKey(todo?.Title, matchedBcfTopic?.Description),
+    buildTopicMatchKey(matchedBcfTopic?.Title, todo?.Description),
+    todo?.Label,
+    todo?.ID,
+    todo?.Guid,
+    todo?.GUID,
+    todo?.Title,
+    matchedBcfTopic?.Title,
+    String(todo?.Title || "").replace(/\.pdf/gi, ""),
+    String(matchedBcfTopic?.Title || "").replace(/\.pdf/gi, ""),
+  ].filter(Boolean);
 
-  if (matchedGuid && commentsByTopic.has(matchedGuid)) {
-    return uniqueComments(commentsByTopic.get(matchedGuid) || []);
-  }
-
-  const candidates = [todo.Label, todo.ID, todo.Guid, todo.GUID].filter(Boolean);
   const collected: any[] = [];
   const usedKeys = new Set<string>();
 
   for (const c of candidates) {
-    const key = normalize(c);
+    const key = String(c).includes("__") ? String(c) : normalize(c);
     if (!key || usedKeys.has(key)) continue;
     usedKeys.add(key);
 
@@ -508,7 +571,9 @@ async function readBcfZip(fileName: string, buffer: Buffer) {
         markupPath: path,
         topicGuid: topicData.topicGuid,
         topicTitle: topicData.topicTitle,
+        topicDescription: topicData.topicDescription,
         topicKey: normalize(topicData.topicTitle),
+        topicMatchKey: buildTopicMatchKey(topicData.topicTitle, topicData.topicDescription),
         author: getXmlText(getAny(c, ["Author", "author", "ModifiedAuthor"])) || "",
         date: getXmlText(getAny(c, ["Date", "date", "ModifiedDate"])) || "",
         role,
@@ -905,7 +970,12 @@ export async function POST(req: Request) {
     const commentsByTopic = new Map<string, any[]>();
 
     for (const c of uniqueBcfComments) {
-      const keys = Array.from(new Set([normalize(c.topicTitle), normalize(c.topicGuid), normalize(String(c.topicTitle || "").replace(/\.pdf/gi, ""))].filter(Boolean)));
+      const keys = Array.from(new Set([
+        normalize(c.topicTitle),
+        normalize(c.topicGuid),
+        normalize(String(c.topicTitle || "").replace(/\.pdf/gi, "")),
+        c.topicMatchKey || buildTopicMatchKey(c.topicTitle, c.topicDescription),
+      ].filter(Boolean)));
 
       for (const key of keys) {
         if (!commentsByTopic.has(key)) commentsByTopic.set(key, []);
@@ -916,7 +986,14 @@ export async function POST(req: Request) {
     const topicsByKey = new Map<string, any>();
 
     for (const topic of bcfTopicRows) {
-      const keys = Array.from(new Set([normalize(topic.Label), normalize(topic.ID), normalize(topic.Guid), normalize(topic.Title), normalize(String(topic.Title || "").replace(/\.pdf/gi, ""))].filter(Boolean)));
+      const keys = Array.from(new Set([
+        normalize(topic.Label),
+        normalize(topic.ID),
+        normalize(topic.Guid),
+        normalize(topic.Title),
+        normalize(String(topic.Title || "").replace(/\.pdf/gi, "")),
+        buildTopicMatchKey(topic.Title, topic.Description),
+      ].filter(Boolean)));
 
       for (const key of keys) {
         if (!topicsByKey.has(key)) topicsByKey.set(key, topic);
@@ -948,7 +1025,11 @@ export async function POST(req: Request) {
         : getTodoAssignees(todo) || matchedBcfTopic?.["Assignee(s)"] || "";
       const statoOriginale = matchedBcfTopic?.Status || todo.Status || "";
       const statoTradotto = translateStatus(statoOriginale);
-      const ispettore = todo["Created by"] || todo["Last modified by"] || todo.Owner || "";
+      const createdBy = getCreatedBy(todo) || getCreatedBy(matchedBcfTopic);
+      const modifiedBy = getModifiedBy(todo) || getModifiedBy(matchedBcfTopic);
+      const createdOn = getCreatedOn(todo) || getCreatedOn(matchedBcfTopic);
+      const modifiedOn = getModifiedOn(todo) || getModifiedOn(matchedBcfTopic);
+      const ispettore = createdBy;
       const comments = uniqueComments(findBestComments(todo, commentsByTopic, matchedBcfTopic)).sort((a, b) => String(a.date).localeCompare(String(b.date)));
       const prgComments = comments.filter((c) => c.role === "PRG");
       const ispComments = comments.filter((c) => c.role === "ISP");
@@ -1015,10 +1096,10 @@ export async function POST(req: Request) {
         completamento: todo.Completion || "",
         scadenza: todo["Due date"] || "",
         ispettore,
-        creatoDa: todo["Created by"] || "",
-        creatoIl: todo["Created on"] || "",
-        modificatoDa: todo["Last modified by"] || "",
-        modificatoIl: todo["Last modified on"] || "",
+        creatoDa: createdBy,
+        creatoIl: createdOn,
+        modificatoDa: modifiedBy,
+        modificatoIl: modifiedOn,
         controlloIspettoreCompleto,
         campiMancantiControllo,
         statoCompilazioneIspettore: controlloIspettoreCompleto ? "Completo" : "Incompleto",
