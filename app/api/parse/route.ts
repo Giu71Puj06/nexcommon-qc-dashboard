@@ -160,7 +160,7 @@ function roleFromText(text = "") {
   return m ? m[1].toUpperCase() : "";
 }
 
-const BCF_PARSER_VERSION = "2026-07-07_v8_no_duplicate_comments_alert_missing_prg";
+const BCF_PARSER_VERSION = "2026-07-07_v9_strict_bcf_comment_match";
 
 
 const ISPETTORI_DISCIPLINE_ITS: Record<string, string> = {
@@ -392,7 +392,7 @@ function findBestComments(todo: any, commentsByTopic: Map<string, any[]>, matche
   const bcfTitle = matchedBcfTopic?.Title || matchedBcfTopic?.title || "";
   const bcfDescription = matchedBcfTopic?.Description || matchedBcfTopic?.description || "";
 
-  // 1. Match diretto tramite GUID / ID / Label.
+  // Match diretto tramite GUID / ID / Label.
   [
     matchedBcfTopic?.Guid,
     matchedBcfTopic?.GUID,
@@ -404,7 +404,7 @@ function findBestComments(todo: any, commentsByTopic: Map<string, any[]>, matche
     todo?.GUID,
   ].forEach((value) => addFromKey(value));
 
-  // 2. Match diretto tramite Title.
+  // Match diretto tramite Title.
   [
     todoTitle,
     bcfTitle,
@@ -412,48 +412,20 @@ function findBestComments(todo: any, commentsByTopic: Map<string, any[]>, matche
     String(bcfTitle || "").replace(/\.pdf/gi, ""),
   ].forEach((value) => addFromKey(value));
 
-  // 3. Match diretto tramite Description.
+  // Match diretto tramite Description.
   [todoDescription, bcfDescription].forEach((value) => addFromKey(value));
 
-  // 4. Match combinato Title + Description.
+  // Match combinato Title + Description solo su chiavi esatte, senza fallback per similarità.
   [
     buildTopicMatchKey(todoTitle, todoDescription),
     buildTopicMatchKey(bcfTitle, bcfDescription),
-    buildTopicMatchKey(todoTitle, bcfDescription),
-    buildTopicMatchKey(bcfTitle, todoDescription),
   ]
     .filter(Boolean)
     .forEach((value) => addFromKey(value, true));
 
-  // 5. Se il topic BCF è stato individuato, usa direttamente i commenti del topic.
+  // Se il topic BCF è stato individuato, usa direttamente i commenti del topic.
   if (Array.isArray(matchedBcfTopic?.comments)) {
     collected.push(...matchedBcfTopic.comments);
-  }
-
-  // 6. Fallback robusto: scorre tutti i commenti BCF e associa per similarità Title + Description.
-  // Serve quando Trimble non esporta nel ToDo lo stesso GUID del BCF.
-  const todoTitleNorm = normalize(todoTitle);
-  const todoDescriptionNorm = normalize(todoDescription);
-  const bcfTitleNorm = normalize(bcfTitle);
-  const bcfDescriptionNorm = normalize(bcfDescription);
-
-  for (const comments of commentsByTopic.values()) {
-    for (const comment of comments || []) {
-      const ct = normalize(comment?.topicTitle || "");
-      const cd = normalize(comment?.topicDescription || "");
-
-      const titleOk =
-        Boolean(todoTitleNorm && ct && (todoTitleNorm === ct || similarity(todoTitleNorm, ct) >= 0.92)) ||
-        Boolean(bcfTitleNorm && ct && (bcfTitleNorm === ct || similarity(bcfTitleNorm, ct) >= 0.92));
-
-      const descriptionOk =
-        Boolean(todoDescriptionNorm && cd && (todoDescriptionNorm === cd || similarity(todoDescriptionNorm, cd) >= 0.75)) ||
-        Boolean(bcfDescriptionNorm && cd && (bcfDescriptionNorm === cd || similarity(bcfDescriptionNorm, cd) >= 0.75));
-
-      if (titleOk && descriptionOk) {
-        collected.push(comment);
-      }
-    }
   }
 
   return uniqueComments(collected);
