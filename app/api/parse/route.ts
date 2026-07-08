@@ -160,7 +160,7 @@ function roleFromText(text = "") {
   return m ? m[1].toUpperCase() : "";
 }
 
-const BCF_PARSER_VERSION = "2026-07-07_v9_strict_bcf_comment_match";
+const BCF_PARSER_VERSION = "2026-07-08_v10_strict_title_description_match";
 
 
 const ISPETTORI_DISCIPLINE_ITS: Record<string, string> = {
@@ -392,30 +392,20 @@ function findBestComments(todo: any, commentsByTopic: Map<string, any[]>, matche
   const bcfTitle = matchedBcfTopic?.Title || matchedBcfTopic?.title || "";
   const bcfDescription = matchedBcfTopic?.Description || matchedBcfTopic?.description || "";
 
-  // Match diretto tramite GUID / ID / Label.
+  // Regola rigida Trimble:
+  // i commenti vengono associati solo al topic BCF effettivamente individuato
+  // tramite Title + Description oppure tramite GUID/ID/Label.
+  // Non si usano più fallback per solo Title o similarità, perché più rilievi
+  // possono riferirsi allo stesso elaborato ma avere descrizioni diverse.
   [
     matchedBcfTopic?.Guid,
     matchedBcfTopic?.GUID,
     matchedBcfTopic?.ID,
     matchedBcfTopic?.Label,
-    todo?.Label,
-    todo?.ID,
     todo?.Guid,
     todo?.GUID,
   ].forEach((value) => addFromKey(value));
 
-  // Match diretto tramite Title.
-  [
-    todoTitle,
-    bcfTitle,
-    String(todoTitle || "").replace(/\.pdf/gi, ""),
-    String(bcfTitle || "").replace(/\.pdf/gi, ""),
-  ].forEach((value) => addFromKey(value));
-
-  // Match diretto tramite Description.
-  [todoDescription, bcfDescription].forEach((value) => addFromKey(value));
-
-  // Match combinato Title + Description solo su chiavi esatte, senza fallback per similarità.
   [
     buildTopicMatchKey(todoTitle, todoDescription),
     buildTopicMatchKey(bcfTitle, bcfDescription),
@@ -423,7 +413,6 @@ function findBestComments(todo: any, commentsByTopic: Map<string, any[]>, matche
     .filter(Boolean)
     .forEach((value) => addFromKey(value, true));
 
-  // Se il topic BCF è stato individuato, usa direttamente i commenti del topic.
   if (Array.isArray(matchedBcfTopic?.comments)) {
     collected.push(...matchedBcfTopic.comments);
   }
@@ -466,16 +455,30 @@ function findBestBcfTopic(todo: any, topicsByKey: Map<string, any>, allTopics: a
   const guidKey = normalize(todo.Guid || todo.GUID);
   const titleKey = normalize(todo.Title);
   const descriptionKey = normalize(todo.Description);
+  const titleDescriptionKey = buildTopicMatchKey(todo.Title, todo.Description);
 
+  // 1. Match principale: stesso elaborato (Title) + stessa descrizione del rilievo.
+  if (titleDescriptionKey && topicsByKey.has(titleDescriptionKey)) {
+    return topicsByKey.get(titleDescriptionKey);
+  }
+
+  // 2. Match tramite GUID/ID/Label se disponibile.
   for (const key of [labelKey, idKey, guidKey].filter(Boolean)) {
     if (topicsByKey.has(key)) return topicsByKey.get(key);
   }
 
-  const sameTitleTopics = allTopics.filter((topic) => normalize(topic.Title) === titleKey);
+  // 3. Match per solo Title consentito solo se quel Title è univoco nel BCF.
+  // Se lo stesso elaborato ha più rilievi, il solo Title non è affidabile.
+  if (titleKey && topicsByKey.has(titleKey)) {
+    const candidate = topicsByKey.get(titleKey);
+    const sameTitleCount = allTopics.filter((topic) => normalize(topic.Title) === titleKey).length;
+    if (sameTitleCount === 1) return candidate;
+  }
 
-  if (sameTitleTopics.length === 1) return sameTitleTopics[0];
-
-  if (sameTitleTopics.length > 1 && descriptionKey) {
+  // 4. Ultima sicurezza: se il title è uguale e la descrizione è molto simile.
+  // Non trasferisce commenti da altri rilievi con descrizione diversa.
+  if (titleKey && descriptionKey) {
+    const sameTitleTopics = allTopics.filter((topic) => normalize(topic.Title) === titleKey);
     let bestScore = 0;
     let bestTopic: any = null;
 
@@ -487,31 +490,7 @@ function findBestBcfTopic(todo: any, topicsByKey: Map<string, any>, allTopics: a
       }
     }
 
-    if (bestScore >= 0.75) return bestTopic;
-
-    const todoInt = String(todo.Description || "").match(/\bINT[_\s-]*\d+/i)?.[0];
-    if (todoInt) {
-      const normalizedTodoInt = normalize(todoInt);
-      const byInt = sameTitleTopics.find((topic) => normalize(topic.Description).includes(normalizedTodoInt));
-      if (byInt) return byInt;
-    }
-
-    return null;
-  }
-
-  if (descriptionKey) {
-    let bestScore = 0;
-    let bestTopic: any = null;
-
-    for (const topic of allTopics) {
-      const score = similarity(todo.Description, topic.Description);
-      if (score > bestScore) {
-        bestScore = score;
-        bestTopic = topic;
-      }
-    }
-
-    if (bestScore >= 0.9) return bestTopic;
+    if (bestScore >= 0.92) return bestTopic;
   }
 
   return null;
@@ -528,14 +507,24 @@ function buildBcfTopicUniqueKey(topic: any) {
 
 function buildBcfTopicsByKey(topics: any[]) {
   const map = new Map<string, any>();
+  const titleCounts = new Map<string, number>();
 
   for (const topic of topics) {
+    const titleKey = normalize(topic.Title);
+    if (!titleKey) continue;
+    titleCounts.set(titleKey, (titleCounts.get(titleKey) || 0) + 1);
+  }
+
+  for (const topic of topics) {
+    const titleKey = normalize(topic.Title);
+    const titleDescriptionKey = buildTopicMatchKey(topic.Title, topic.Description);
+
     const keys = Array.from(new Set([
       normalize(topic.Label),
       normalize(topic.ID),
       normalize(topic.Guid),
-      normalize(topic.Title),
-      normalize(String(topic.Title || "").replace(/\.pdf/gi, "")),
+      titleDescriptionKey,
+      titleKey && titleCounts.get(titleKey) === 1 ? titleKey : "",
     ].filter(Boolean)));
 
     for (const key of keys) {
@@ -1154,10 +1143,7 @@ export async function POST(req: Request) {
 
     for (const c of uniqueBcfComments) {
       const keys = Array.from(new Set([
-        normalize(c.topicTitle),
         normalize(c.topicGuid),
-        normalize(String(c.topicTitle || "").replace(/\.pdf/gi, "")),
-        normalize(c.topicDescription),
         c.topicMatchKey || buildTopicMatchKey(c.topicTitle, c.topicDescription),
       ].filter(Boolean)));
 
@@ -1167,22 +1153,7 @@ export async function POST(req: Request) {
       }
     }
 
-    const topicsByKey = new Map<string, any>();
-
-    for (const topic of bcfTopicRows) {
-      const keys = Array.from(new Set([
-        normalize(topic.Label),
-        normalize(topic.ID),
-        normalize(topic.Guid),
-        normalize(topic.Title),
-        normalize(String(topic.Title || "").replace(/\.pdf/gi, "")),
-        buildTopicMatchKey(topic.Title, topic.Description),
-      ].filter(Boolean)));
-
-      for (const key of keys) {
-        if (!topicsByKey.has(key)) topicsByKey.set(key, topic);
-      }
-    }
+    const topicsByKey = buildBcfTopicsByKey(bcfTopicRows);
 
     const todoRows = buildTodoRowsWithStandaloneBcf(excelRows, bcfTopicRows);
 
