@@ -566,8 +566,27 @@ function buildBcfTopicsByKey(topics: any[]) {
   return map;
 }
 
+function normalizeStandaloneBcfTopic(topic: any) {
+  const topicAuthor =
+    getCreatedBy(topic) ||
+    cleanText(topic?.topicCreationAuthor || "") ||
+    cleanText(topic?.CreationAuthor || "") ||
+    cleanText(topic?.creationAuthor || "") ||
+    cleanText(topic?.comments?.[0]?.author || "");
+
+  return {
+    ...topic,
+    __standaloneBcf: true,
+    disciplina: "BIM",
+    gruppoTrimble: "BIM",
+    assegnatari: "BIM",
+    "Assignee(s)": "BIM",
+    "Created by": topicAuthor,
+  };
+}
+
 function buildTodoRowsWithStandaloneBcf(excelRows: any[], bcfTopicRows: any[]) {
-  if (!excelRows.length) return bcfTopicRows;
+  if (!excelRows.length) return bcfTopicRows.map((topic) => normalizeStandaloneBcfTopic(topic));
 
   const topicsByKeyForMatch = buildBcfTopicsByKey(bcfTopicRows);
   const matchedTopicKeys = new Set<string>();
@@ -577,10 +596,12 @@ function buildTodoRowsWithStandaloneBcf(excelRows: any[], bcfTopicRows: any[]) {
     if (matched) matchedTopicKeys.add(buildBcfTopicUniqueKey(matched));
   }
 
-  const standaloneBcfTopics = bcfTopicRows.filter((topic) => {
-    const key = buildBcfTopicUniqueKey(topic);
-    return key && !matchedTopicKeys.has(key);
-  });
+  const standaloneBcfTopics = bcfTopicRows
+    .filter((topic) => {
+      const key = buildBcfTopicUniqueKey(topic);
+      return key && !matchedTopicKeys.has(key);
+    })
+    .map((topic) => normalizeStandaloneBcfTopic(topic));
 
   return [...excelRows, ...standaloneBcfTopics];
 }
@@ -1213,13 +1234,16 @@ export async function POST(req: Request) {
         isSolibriCheckingFile(todo.sourceFile || matchedBcfTopic?.sourceFile || "")
       );
 
+      const isStandaloneBcfRow = Boolean(todo.__standaloneBcf);
       const createdBy = getCreatedBy(todo);
-      const modifiedBy = getModifiedBy(todo);
+      const modifiedBy = isStandaloneBcfRow ? "" : getModifiedBy(todo);
       const createdOn = getCreatedOn(todo);
-      const modifiedOn = getModifiedOn(todo);
-      const ispettore = createdBy;
+      const modifiedOn = isStandaloneBcfRow ? "" : getModifiedOn(todo);
+      const ispettore = isStandaloneBcfRow
+        ? createdBy || cleanText(matchedBcfTopic?.comments?.[0]?.author || "")
+        : createdBy;
       const disciplinaDaCreatore = getIspettoreDisciplineFromCreatedBy(createdBy);
-      const disciplina = isSolibriCheckingRow
+      const disciplina = isSolibriCheckingRow || isStandaloneBcfRow
         ? "BIM"
         : disciplinaDaCreatore || getTodoAssignees(todo) || "";
       const statoOriginale = todo.Status || matchedBcfTopic?.Status || "";
