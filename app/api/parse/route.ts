@@ -75,6 +75,37 @@ function normalizeElaboratoCode(v = "") {
     .replace(/[^A-Z0-9]/g, "");
 }
 
+
+function normalizeElaboratoForTrimble(value: any) {
+  const raw = cleanText(value);
+  const normalized = normalize(raw);
+
+  const isRilievoGenerale = normalized === "rilievo generale";
+
+  const parts = raw
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  const isValidCodeOrCodes =
+    parts.length > 0 &&
+    parts.every((part) => /^[A-Z0-9]+(?:_[A-Z0-9]+){2,}/i.test(part));
+
+  if (isRilievoGenerale || isValidCodeOrCodes) {
+    return {
+      elaborato: raw,
+      anomaliaElaborato: "",
+    };
+  }
+
+  return {
+    elaborato: "Rilievo Generale",
+    anomaliaElaborato: raw
+      ? `Elaborato non ammesso corretto in Rilievo Generale: ${raw}`
+      : "Elaborato mancante corretto in Rilievo Generale",
+  };
+}
+
 function cleanText(v: any) {
   return String(v ?? "")
     .replace(/\r/g, "")
@@ -160,7 +191,7 @@ function roleFromText(text = "") {
   return m ? m[1].toUpperCase() : "";
 }
 
-const BCF_PARSER_VERSION = "2026-07-08_v10_strict_title_description_match";
+const BCF_PARSER_VERSION = "2026-07-08_v11_elaborato_normalization";
 
 
 const ISPETTORI_DISCIPLINE_ITS: Record<string, string> = {
@@ -918,6 +949,7 @@ async function readDocxInspection(fileName: string, buffer: Buffer) {
       issueCodes.add(normalize(codiceElaborato));
 
       const tipologiaNcOss = detectTipologiaNcOss(tipo, rilievoOdi, titoloElaborato, tipo);
+      const elaboratoNormalizzato = normalizeElaboratoForTrimble(codiceElaborato);
 
       const hasPrgComment = comments.some((c) => c.role === "PRG");
       const hasIspComment = comments.some((c) => c.role === "ISP");
@@ -952,9 +984,11 @@ async function readDocxInspection(fileName: string, buffer: Buffer) {
         id,
         idTodo: id,
         tr,
-        elaborato: codiceElaborato,
-        codiceElaborato,
-        titolo: codiceElaborato,
+        elaborato: elaboratoNormalizzato.elaborato,
+        codiceElaborato: elaboratoNormalizzato.elaborato,
+        titolo: elaboratoNormalizzato.elaborato,
+        elaboratoOriginale: codiceElaborato,
+        anomaliaElaborato: elaboratoNormalizzato.anomaliaElaborato,
         titoloElaborato,
         descrizione: rilievoOdi,
         tipo,
@@ -1010,13 +1044,17 @@ async function readDocxInspection(fileName: string, buffer: Buffer) {
       if (issueCodes.has(normalize(codiceElaborato))) continue;
       if (!assenza && (presenzaNc || presenzaOss)) continue;
 
+      const elaboratoNormalizzato = normalizeElaboratoForTrimble(codiceElaborato);
+
       rows.push({
         idRecord: `DOCX-${fileName}-ELAB-${rows.length + 1}`,
         id: `NESSUN RILIEVO - ${codiceElaborato}`,
         idTodo: `NESSUN RILIEVO - ${codiceElaborato}`,
-        elaborato: codiceElaborato,
-        codiceElaborato,
-        titolo: codiceElaborato,
+        elaborato: elaboratoNormalizzato.elaborato,
+        codiceElaborato: elaboratoNormalizzato.elaborato,
+        titolo: elaboratoNormalizzato.elaborato,
+        elaboratoOriginale: codiceElaborato,
+        anomaliaElaborato: elaboratoNormalizzato.anomaliaElaborato,
         titoloElaborato,
         descrizione: titoloElaborato || "Nessun rilievo",
         tipo: "Nessun rilievo",
@@ -1230,6 +1268,7 @@ export async function POST(req: Request) {
         }
       }
 
+      const elaboratoNormalizzato = normalizeElaboratoForTrimble(title);
       const esitoCompilato = tipo === "NC" || tipo === "OSS" || tipo === "Nessun rilievo" || tipo === "Da NC a OSS";
       const titleCompilato = Boolean(String(title).trim());
       const disciplinaCompilata = Boolean(String(disciplina).trim());
@@ -1237,6 +1276,7 @@ export async function POST(req: Request) {
 
       if (!esitoCompilato) campiMancantiControllo.push("Tags / Esito verifica mancante o non coerente");
       if (!titleCompilato) campiMancantiControllo.push("Title / Codice elaborato mancante");
+      if (elaboratoNormalizzato.anomaliaElaborato) campiMancantiControllo.push(elaboratoNormalizzato.anomaliaElaborato);
       if (!disciplinaCompilata) campiMancantiControllo.push("Gruppo / Disciplina mancante");
 
       const controlloIspettoreCompleto = esitoCompilato && titleCompilato && disciplinaCompilata;
@@ -1245,8 +1285,10 @@ export async function POST(req: Request) {
         idRecord: `IMPORT-${index + 1}`,
         id: label,
         idTodo: label,
-        elaborato: title,
-        titolo: title,
+        elaborato: elaboratoNormalizzato.elaborato,
+        titolo: elaboratoNormalizzato.elaborato,
+        elaboratoOriginale: title,
+        anomaliaElaborato: elaboratoNormalizzato.anomaliaElaborato,
         descrizione: description,
         tipo,
         tipoOriginale: todo.Type || "",
