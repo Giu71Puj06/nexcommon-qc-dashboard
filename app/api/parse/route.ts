@@ -1242,10 +1242,12 @@ export async function POST(req: Request) {
       const ispettore = isStandaloneBcfRow
         ? createdBy || cleanText(matchedBcfTopic?.comments?.[0]?.author || "")
         : createdBy;
-      const disciplinaDaCreatore = getIspettoreDisciplineFromCreatedBy(createdBy);
-      const disciplina = isSolibriCheckingRow || isStandaloneBcfRow
-        ? "BIM"
-        : disciplinaDaCreatore || getTodoAssignees(todo) || "";
+      const disciplinaDaAssignee = cleanText(getTodoAssignees(todo));
+const disciplinaDaCreatore = getIspettoreDisciplineFromCreatedBy(createdBy);
+
+const disciplina = isSolibriCheckingRow
+  ? "BIM"
+  : disciplinaDaAssignee || disciplinaDaCreatore || "";
       const statoOriginale = todo.Status || matchedBcfTopic?.Status || "";
       const statoTradotto = translateStatus(statoOriginale);
       const topicDirectComments = Array.isArray(matchedBcfTopic?.comments) ? matchedBcfTopic.comments : [];
