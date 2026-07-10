@@ -191,7 +191,7 @@ function roleFromText(text = "") {
   return m ? m[1].toUpperCase() : "";
 }
 
-const BCF_PARSER_VERSION = "2026-07-10_v12_standalone_bcf_author_fix";
+const BCF_PARSER_VERSION = "2026-07-10_v13_author_email_normalization";
 
 
 const ISPETTORI_DISCIPLINE_ITS: Record<string, string> = {
@@ -225,6 +225,39 @@ const ISPETTORI_ITS = [
   "Arch. Stefano Arcangellelli",
   "Ing. Edoardo Oddo Casano",
 ];
+
+const AUTHOR_NAME_MAP: Record<string, string> = {
+  "m.dominijanni@itscontrollitecnici.it": "Ing. Marta Dominijanni",
+  "marta.dominijanni@itscontrollitecnici.it": "Ing. Marta Dominijanni",
+  "v.laino@itscontrollitecnici.it": "Arch. Veronica Laino",
+  "veronica.laino@itscontrollitecnici.it": "Arch. Veronica Laino",
+  "a.brunetti@itscontrollitecnici.it": "Arch. Arianna Brunetti",
+  "s.grimaldi@itscontrollitecnici.it": "Ing. Salvatore Grimaldi",
+  "b.gabrielli@itscontrollitecnici.it": "Ing. Bruno Gabrielli",
+  "c.renda@itscontrollitecnici.it": "Ing. Carlo Renda",
+  "g.biaggioli@itscontrollitecnici.it": "Ing. Gianluca Biaggioli",
+  "m.garofalo@itscontrollitecnici.it": "P.I. Mauro Garofalo",
+  "r.hoops@itscontrollitecnici.it": "Arch. Riccardo Hoops",
+  "m.caccialupi@itscontrollitecnici.it": "Ing. Marcello Caccialupi",
+  "m.tamberi@itscontrollitecnici.it": "Geom. Massimo Tamberi",
+  "s.arcangellelli@itscontrollitecnici.it": "Arch. Stefano Arcangellelli",
+  "e.cassano@itscontrollitecnici.it": "Ing. Edoardo Oddo Casano",
+};
+
+function normalizeAuthorName(value = "") {
+  const raw = cleanText(value);
+  if (!raw) return "";
+
+  const key = raw.toLowerCase().trim();
+  if (AUTHOR_NAME_MAP[key]) return AUTHOR_NAME_MAP[key];
+
+  const emailMatch = key.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i);
+  if (emailMatch && AUTHOR_NAME_MAP[emailMatch[0]]) {
+    return AUTHOR_NAME_MAP[emailMatch[0]];
+  }
+
+  return raw;
+}
 
 function normalizePersonName(value = "") {
   return normalize(value)
@@ -567,12 +600,13 @@ function buildBcfTopicsByKey(topics: any[]) {
 }
 
 function normalizeStandaloneBcfTopic(topic: any) {
-  const topicAuthor =
+  const topicAuthor = normalizeAuthorName(
     getCreatedBy(topic) ||
     cleanText(topic?.topicCreationAuthor || "") ||
     cleanText(topic?.CreationAuthor || "") ||
     cleanText(topic?.creationAuthor || "") ||
-    cleanText(topic?.comments?.[0]?.author || "");
+    cleanText(topic?.comments?.[0]?.author || "")
+  );
 
   return {
     ...topic,
@@ -791,9 +825,9 @@ async function readBcfZip(fileName: string, buffer: Buffer) {
       Tags: topicData.topicLabels,
       Status: normalizeBcfTopicStatus(topicData.topicStatus),
       Priority: topicData.topicPriority,
-      topicCreationAuthor: topicData.topicCreationAuthor,
+      topicCreationAuthor: normalizeAuthorName(topicData.topicCreationAuthor),
       topicCreationDate: topicData.topicCreationDate,
-      "Created by": topicData.topicCreationAuthor,
+      "Created by": normalizeAuthorName(topicData.topicCreationAuthor),
       "Created on": topicData.topicCreationDate,
       "Last modified by": topicData.topicModifiedAuthor,
       "Last modified on": topicData.topicModifiedDate,
@@ -1238,19 +1272,21 @@ export async function POST(req: Request) {
 
       const isStandaloneBcfRow = Boolean(todo.__standaloneBcf);
 
-      const createdBy = isStandaloneBcfRow
-        ? (
-            getCreatedBy(todo) ||
-            cleanText(todo?.topicCreationAuthor || "") ||
-            cleanText(todo?.CreationAuthor || "") ||
-            cleanText(todo?.creationAuthor || "") ||
-            cleanText(todo?.["Created by"] || "") ||
-            cleanText(matchedBcfTopic?.topicCreationAuthor || "") ||
-            cleanText(matchedBcfTopic?.CreationAuthor || "") ||
-            cleanText(matchedBcfTopic?.creationAuthor || "") ||
-            cleanText(matchedBcfTopic?.["Created by"] || "")
-          )
-        : getCreatedBy(todo);
+      const createdBy = normalizeAuthorName(
+        isStandaloneBcfRow
+          ? (
+              getCreatedBy(todo) ||
+              cleanText(todo?.topicCreationAuthor || "") ||
+              cleanText(todo?.CreationAuthor || "") ||
+              cleanText(todo?.creationAuthor || "") ||
+              cleanText(todo?.["Created by"] || "") ||
+              cleanText(matchedBcfTopic?.topicCreationAuthor || "") ||
+              cleanText(matchedBcfTopic?.CreationAuthor || "") ||
+              cleanText(matchedBcfTopic?.creationAuthor || "") ||
+              cleanText(matchedBcfTopic?.["Created by"] || "")
+            )
+          : getCreatedBy(todo)
+      );
 
       const modifiedBy = isStandaloneBcfRow ? "" : getModifiedBy(todo);
       const createdOn = getCreatedOn(todo);
