@@ -191,7 +191,7 @@ function roleFromText(text = "") {
   return m ? m[1].toUpperCase() : "";
 }
 
-const BCF_PARSER_VERSION = "2026-07-08_v11_elaborato_normalization";
+const BCF_PARSER_VERSION = "2026-07-10_v12_standalone_bcf_author_fix";
 
 
 const ISPETTORI_DISCIPLINE_ITS: Record<string, string> = {
@@ -791,6 +791,8 @@ async function readBcfZip(fileName: string, buffer: Buffer) {
       Tags: topicData.topicLabels,
       Status: normalizeBcfTopicStatus(topicData.topicStatus),
       Priority: topicData.topicPriority,
+      topicCreationAuthor: topicData.topicCreationAuthor,
+      topicCreationDate: topicData.topicCreationDate,
       "Created by": topicData.topicCreationAuthor,
       "Created on": topicData.topicCreationDate,
       "Last modified by": topicData.topicModifiedAuthor,
@@ -1235,19 +1237,37 @@ export async function POST(req: Request) {
       );
 
       const isStandaloneBcfRow = Boolean(todo.__standaloneBcf);
-      const createdBy = getCreatedBy(todo);
+
+      const createdBy = isStandaloneBcfRow
+        ? (
+            getCreatedBy(todo) ||
+            cleanText(todo?.topicCreationAuthor || "") ||
+            cleanText(todo?.CreationAuthor || "") ||
+            cleanText(todo?.creationAuthor || "") ||
+            cleanText(todo?.["Created by"] || "") ||
+            cleanText(matchedBcfTopic?.topicCreationAuthor || "") ||
+            cleanText(matchedBcfTopic?.CreationAuthor || "") ||
+            cleanText(matchedBcfTopic?.creationAuthor || "") ||
+            cleanText(matchedBcfTopic?.["Created by"] || "")
+          )
+        : getCreatedBy(todo);
+
       const modifiedBy = isStandaloneBcfRow ? "" : getModifiedBy(todo);
       const createdOn = getCreatedOn(todo);
       const modifiedOn = isStandaloneBcfRow ? "" : getModifiedOn(todo);
-      const ispettore = isStandaloneBcfRow
-        ? createdBy || cleanText(matchedBcfTopic?.comments?.[0]?.author || "")
-        : createdBy;
-      const disciplinaDaAssignee = cleanText(getTodoAssignees(todo));
-const disciplinaDaCreatore = getIspettoreDisciplineFromCreatedBy(createdBy);
 
-const disciplina = isSolibriCheckingRow
-  ? "BIM"
-  : disciplinaDaAssignee || disciplinaDaCreatore || "";
+      // Per i Topic BCF standalone il redattore/ispettore coincide
+      // esclusivamente con l'autore del Topic BCF.
+      const ispettore = createdBy;
+
+      const disciplinaDaAssignee = cleanText(getTodoAssignees(todo));
+      const disciplinaDaCreatore = getIspettoreDisciplineFromCreatedBy(createdBy);
+
+      const disciplina = isStandaloneBcfRow
+        ? "BIM"
+        : isSolibriCheckingRow
+          ? "BIM"
+          : disciplinaDaAssignee || disciplinaDaCreatore || "";
       const statoOriginale = todo.Status || matchedBcfTopic?.Status || "";
       const statoTradotto = translateStatus(statoOriginale);
       const topicDirectComments = Array.isArray(matchedBcfTopic?.comments) ? matchedBcfTopic.comments : [];
@@ -1337,6 +1357,7 @@ const disciplina = isSolibriCheckingRow
         completamento: todo.Completion || "",
         scadenza: todo["Due date"] || "",
         ispettore,
+        redattore: ispettore,
         creatoDa: createdBy,
         creatoIl: createdOn,
         modificatoDa: modifiedBy,
