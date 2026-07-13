@@ -191,7 +191,7 @@ function roleFromText(text = "") {
   return m ? m[1].toUpperCase() : "";
 }
 
-const BCF_PARSER_VERSION = "2026-07-13_v15_standalone_bcf_inspector_discipline";
+const BCF_PARSER_VERSION = "2026-07-13_v16_done_and_gp_fallback";
 
 
 const ISPETTORI_DISCIPLINE_ITS: Record<string, string> = {
@@ -489,11 +489,13 @@ function translateStatus(status = "") {
 
   if (s === "new") return "Aperta";
   if (s === "waiting") return "In attesa";
+  if (s === "done") return "Fatto";
   if (s === "closed") return "Chiusa";
   if (s === "unknown") return "Non definito";
 
   if (s === "aperto" || s === "aperta") return "Aperta";
   if (s === "in attesa") return "In attesa";
+  if (s === "fatto" || s === "fatta") return "Fatto";
   if (s === "chiuso" || s === "chiusa") return "Chiusa";
 
   return String(status || "").trim();
@@ -628,6 +630,19 @@ function getStandaloneBcfInspectorAuthor(topic: any) {
     return inspectorCommentAuthors[inspectorCommentAuthors.length - 1];
   }
 
+  // Giuseppe Pizzi non deve essere utilizzato come redattore delle schede ispettive.
+  // Nei Topic BCF standalone privi di un autore ispettore riconoscibile,
+  // il rilievo viene attribuito al referente BIM ITS.
+  const normalizedTopicAuthor = normalizePersonName(topicAuthor);
+  if (
+    !topicAuthor ||
+    normalizedTopicAuthor === "giuseppe pizzi" ||
+    normalizedTopicAuthor === "g pizzi" ||
+    normalizedTopicAuthor === "gp"
+  ) {
+    return "Ing. Marta Dominijanni";
+  }
+
   return topicAuthor;
 }
 
@@ -636,7 +651,8 @@ function normalizeStandaloneBcfTopic(topic: any) {
   const disciplinaDaIspettore = getIspettoreDisciplineFromCreatedBy(inspectorAuthor);
   const disciplinaStandalone =
     disciplinaDaIspettore ||
-    (topic?.isSolibriChecking ? "BIM" : cleanText(topic?.disciplina || topic?.["Assignee(s)"] || ""));
+    cleanText(topic?.disciplina || topic?.["Assignee(s)"] || "") ||
+    "BIM";
 
   return {
     ...topic,
