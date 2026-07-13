@@ -191,7 +191,7 @@ function roleFromText(text = "") {
   return m ? m[1].toUpperCase() : "";
 }
 
-const BCF_PARSER_VERSION = "2026-07-13_v17_done_solibri_bim_md";
+const BCF_PARSER_VERSION = "2026-07-13_v18_trimble_chronology_dedup";
 
 
 const ISPETTORI_DISCIPLINE_ITS: Record<string, string> = {
@@ -1010,6 +1010,113 @@ function getElaboratoUnivocoKey(row: any) {
   return normalizeElaboratoCode(value);
 }
 
+function isTrimbleChronologicalId(value: any) {
+  return /^IT\d{2}-\d+/i.test(cleanText(value));
+}
+
+function isInvalidDiscipline(value: any) {
+  const n = normalize(cleanText(value));
+  return !n || n === "null" || n === "null null" || n === "undefined" || n === "non assegnata";
+}
+
+function buildIssueMergeKey(row: any) {
+  const elaborato = cleanText(
+    row?.elaboratoOriginale ||
+    row?.codiceElaborato ||
+    row?.elaborato ||
+    row?.titolo ||
+    row?.Title ||
+    ""
+  );
+  const descrizione = cleanText(row?.descrizione || row?.Description || "");
+
+  if (!elaborato || !descrizione) return "";
+  return `${normalize(elaborato)}__${normalize(descrizione).slice(0, 500)}`;
+}
+
+function recomputeCommentFields(row: any, comments: any[]) {
+  const ordered = uniqueIssueComments(comments || [])
+    .sort((a, b) => String(a?.date || "").localeCompare(String(b?.date || "")));
+  const prgComments = ordered.filter((c) => c?.role === "PRG");
+  const ispComments = ordered.filter((c) => c?.role === "ISP");
+  const last = ordered[ordered.length - 1];
+
+  return {
+    ...row,
+    comments: ordered,
+    nCommenti: ordered.length,
+    hasPrgComment: prgComments.length > 0,
+    hasIspComment: ispComments.length > 0,
+    numeroCommentiPrg: prgComments.length,
+    numeroCommentiIsp: ispComments.length,
+    ultimoRuolo: last?.role || "",
+    ultimoCommento: last?.comment || "",
+    ultimoAutore: last?.author || "",
+    ultimaDataCommento: last?.date || "",
+  };
+}
+
+function consolidateRowsKeepingTrimbleChronology(rows: any[]) {
+  const groups = new Map<string, any[]>();
+  const ungrouped: any[] = [];
+
+  for (const row of rows || []) {
+    const key = buildIssueMergeKey(row);
+    if (!key) {
+      ungrouped.push(row);
+      continue;
+    }
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(row);
+  }
+
+  const consolidated: any[] = [];
+
+  for (const group of groups.values()) {
+    const trimbleRow = group.find((row) =>
+      isTrimbleChronologicalId(row?.idTodo || row?.id)
+    );
+
+    if (!trimbleRow) {
+      consolidated.push(...group);
+      continue;
+    }
+
+    const mergedComments = group.flatMap((row) =>
+      Array.isArray(row?.comments) ? row.comments : []
+    );
+
+    // La riga con cronologico ITxx-xxx resta sempre la riga principale.
+    // I Topic BCF servono solo ad arricchirla con commenti, snapshot e metadati.
+    let merged = recomputeCommentFields(trimbleRow, mergedComments);
+
+    for (const row of group) {
+      if (row === trimbleRow) continue;
+      if (!merged.snapshotDataUrl && row?.snapshotDataUrl) merged.snapshotDataUrl = row.snapshotDataUrl;
+      if (!merged.snapshotPath && row?.snapshotPath) merged.snapshotPath = row.snapshotPath;
+    }
+
+    consolidated.push(merged);
+  }
+
+  return [...ungrouped, ...consolidated];
+}
+
+function removeInvalidStandaloneNoIssueRows(rows: any[]) {
+  return (rows || []).filter((row) => {
+    const isStandaloneGuid = Boolean(row?.sourceType === "bcf" || row?.sourceType === "bcfzip") &&
+      !isTrimbleChronologicalId(row?.idTodo || row?.id);
+    const isNoIssue = normalize(row?.tipo || row?.descrizione || "") === "nessun rilievo";
+    const isGp = normalizePersonName(row?.redattore || row?.ispettore || row?.creatoDa || "") === "giuseppe pizzi" ||
+      normalize(row?.redattore || "") === "gp";
+    const invalidDiscipline = isInvalidDiscipline(row?.disciplina);
+
+    // Topic residui del BCF Trimble privi di cronologico, disciplina e rilievo reale.
+    // Non devono essere mostrati come righe autonome nella dashboard.
+    return !(isStandaloneGuid && isNoIssue && isGp && invalidDiscipline);
+  });
+}
+
 async function readDocxInspection(fileName: string, buffer: Buffer) {
   const zip = await JSZip.loadAsync(buffer);
   const documentXml = await zip.files["word/document.xml"]?.async("text");
@@ -1477,7 +1584,10 @@ export async function POST(req: Request) {
       };
     });
 
-    const rows = [...rowsFromTodoOrBcf, ...docxRows];
+    const rowsBeforeConsolidation = [...rowsFromTodoOrBcf, ...docxRows];
+    const rows = removeInvalidStandaloneNoIssueRows(
+      consolidateRowsKeepingTrimbleChronology(rowsBeforeConsolidation)
+    );
 
     const elaboratiEsaminatiKeys = new Set<string>();
 
