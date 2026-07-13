@@ -191,7 +191,7 @@ function roleFromText(text = "") {
   return m ? m[1].toUpperCase() : "";
 }
 
-const BCF_PARSER_VERSION = "2026-07-13_v16_done_and_gp_fallback";
+const BCF_PARSER_VERSION = "2026-07-13_v17_done_solibri_bim_md";
 
 
 const ISPETTORI_DISCIPLINE_ITS: Record<string, string> = {
@@ -612,6 +612,12 @@ function isKnownIspettore(author = "") {
 }
 
 function getStandaloneBcfInspectorAuthor(topic: any) {
+  // I Topic provenienti da Solibri appartengono alla verifica BIM ITS
+  // e il redattore responsabile è Marta Dominijanni.
+  if (topic?.isSolibriChecking || isSolibriCheckingFile(topic?.sourceFile || "")) {
+    return "Ing. Marta Dominijanni";
+  }
+
   const topicAuthor = normalizeAuthorName(
     getCreatedBy(topic) ||
     cleanText(topic?.topicCreationAuthor || "") ||
@@ -630,29 +636,20 @@ function getStandaloneBcfInspectorAuthor(topic: any) {
     return inspectorCommentAuthors[inspectorCommentAuthors.length - 1];
   }
 
-  // Giuseppe Pizzi non deve essere utilizzato come redattore delle schede ispettive.
-  // Nei Topic BCF standalone privi di un autore ispettore riconoscibile,
-  // il rilievo viene attribuito al referente BIM ITS.
-  const normalizedTopicAuthor = normalizePersonName(topicAuthor);
-  if (
-    !topicAuthor ||
-    normalizedTopicAuthor === "giuseppe pizzi" ||
-    normalizedTopicAuthor === "g pizzi" ||
-    normalizedTopicAuthor === "gp"
-  ) {
-    return "Ing. Marta Dominijanni";
-  }
-
   return topicAuthor;
 }
 
 function normalizeStandaloneBcfTopic(topic: any) {
-  const inspectorAuthor = getStandaloneBcfInspectorAuthor(topic);
+  const isSolibriTopic = Boolean(
+    topic?.isSolibriChecking || isSolibriCheckingFile(topic?.sourceFile || "")
+  );
+  const inspectorAuthor = isSolibriTopic
+    ? "Ing. Marta Dominijanni"
+    : getStandaloneBcfInspectorAuthor(topic);
   const disciplinaDaIspettore = getIspettoreDisciplineFromCreatedBy(inspectorAuthor);
-  const disciplinaStandalone =
-    disciplinaDaIspettore ||
-    cleanText(topic?.disciplina || topic?.["Assignee(s)"] || "") ||
-    "BIM";
+  const disciplinaStandalone = isSolibriTopic
+    ? "BIM"
+    : disciplinaDaIspettore || cleanText(topic?.disciplina || topic?.["Assignee(s)"] || "");
 
   return {
     ...topic,
@@ -758,7 +755,14 @@ function getFolderFromPath(path = "") {
 
 function isSolibriCheckingFile(fileName = "") {
   const baseName = String(fileName || "").split("/").pop() || "";
-  return /^solibri[_\s-]/i.test(baseName) || /solibri/i.test(baseName);
+
+  // Nel workflow ITS i file con estensione .bcf sono esportazioni Solibri.
+  // I pacchetti Trimble vengono invece normalmente forniti come .bcfzip.
+  return (
+    /\.bcf$/i.test(baseName) ||
+    /^solibri[_\s-]/i.test(baseName) ||
+    /solibri/i.test(baseName)
+  );
 }
 
 function extractSolibriCheckingRevision(fileName = "") {
@@ -1340,13 +1344,17 @@ export async function POST(req: Request) {
 
       // Per i Topic BCF standalone il redattore/ispettore coincide
       // esclusivamente con l'autore del Topic BCF.
-      const ispettore = createdBy;
+      const ispettore = isStandaloneBcfRow && isSolibriCheckingRow
+        ? "Ing. Marta Dominijanni"
+        : createdBy;
 
       const disciplinaDaAssignee = cleanText(getTodoAssignees(todo));
       const disciplinaDaCreatore = getIspettoreDisciplineFromCreatedBy(createdBy);
 
       const disciplina = isStandaloneBcfRow
-        ? cleanText(todo?.disciplina || todo?.["Assignee(s)"] || "") || disciplinaDaCreatore || (isSolibriCheckingRow ? "BIM" : "")
+        ? isSolibriCheckingRow
+          ? "BIM"
+          : cleanText(todo?.disciplina || todo?.["Assignee(s)"] || "") || disciplinaDaCreatore || ""
         : isSolibriCheckingRow
           ? "BIM"
           : disciplinaDaAssignee || disciplinaDaCreatore || "";
@@ -1434,7 +1442,10 @@ export async function POST(req: Request) {
         gruppoTrimble: disciplina || "",
         assegnatari: disciplina || "",
         stato: statoTradotto,
-        statoOriginale,
+        status: statoTradotto,
+        Status: statoTradotto,
+        statoOriginale: statoTradotto,
+        statusOriginale: statoOriginale,
         priorita: todo.Priority || "",
         completamento: todo.Completion || "",
         scadenza: todo["Due date"] || "",
