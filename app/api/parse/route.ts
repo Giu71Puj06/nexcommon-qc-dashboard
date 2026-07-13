@@ -191,7 +191,7 @@ function roleFromText(text = "") {
   return m ? m[1].toUpperCase() : "";
 }
 
-const BCF_PARSER_VERSION = "2026-07-10_v13_author_email_normalization";
+const BCF_PARSER_VERSION = "2026-07-13_v14_done_status";
 
 
 const ISPETTORI_DISCIPLINE_ITS: Record<string, string> = {
@@ -489,11 +489,13 @@ function translateStatus(status = "") {
 
   if (s === "new") return "Aperta";
   if (s === "waiting") return "In attesa";
+  if (s === "done") return "Fatto";
   if (s === "closed") return "Chiusa";
   if (s === "unknown") return "Non definito";
 
   if (s === "aperto" || s === "aperta") return "Aperta";
   if (s === "in attesa") return "In attesa";
+  if (s === "fatto" || s === "fatta") return "Fatto";
   if (s === "chiuso" || s === "chiusa") return "Chiusa";
 
   return String(status || "").trim();
