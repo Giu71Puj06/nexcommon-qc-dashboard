@@ -191,7 +191,7 @@ function roleFromText(text = "") {
   return m ? m[1].toUpperCase() : "";
 }
 
-const BCF_PARSER_VERSION = "2026-07-13_v14_done_status";
+const BCF_PARSER_VERSION = "2026-07-13_v15_standalone_bcf_inspector_discipline";
 
 
 const ISPETTORI_DISCIPLINE_ITS: Record<string, string> = {
@@ -489,13 +489,11 @@ function translateStatus(status = "") {
 
   if (s === "new") return "Aperta";
   if (s === "waiting") return "In attesa";
-  if (s === "done") return "Fatto";
   if (s === "closed") return "Chiusa";
   if (s === "unknown") return "Non definito";
 
   if (s === "aperto" || s === "aperta") return "Aperta";
   if (s === "in attesa") return "In attesa";
-  if (s === "fatto" || s === "fatta") return "Fatto";
   if (s === "chiuso" || s === "chiusa") return "Chiusa";
 
   return String(status || "").trim();
@@ -601,23 +599,53 @@ function buildBcfTopicsByKey(topics: any[]) {
   return map;
 }
 
-function normalizeStandaloneBcfTopic(topic: any) {
+function isKnownIspettore(author = "") {
+  const authorKey = normalizePersonName(normalizeAuthorName(author));
+  if (!authorKey) return false;
+
+  return ISPETTORI_ITS.some((name) => {
+    const key = normalizePersonName(name);
+    return Boolean(key && (authorKey === key || authorKey.includes(key) || key.includes(authorKey)));
+  });
+}
+
+function getStandaloneBcfInspectorAuthor(topic: any) {
   const topicAuthor = normalizeAuthorName(
     getCreatedBy(topic) ||
     cleanText(topic?.topicCreationAuthor || "") ||
     cleanText(topic?.CreationAuthor || "") ||
-    cleanText(topic?.creationAuthor || "") ||
-    cleanText(topic?.comments?.[0]?.author || "")
+    cleanText(topic?.creationAuthor || "")
   );
+
+  if (isKnownIspettore(topicAuthor)) return topicAuthor;
+
+  const inspectorCommentAuthors = (Array.isArray(topic?.comments) ? topic.comments : [])
+    .filter((comment: any) => comment?.role === "ISP" || isKnownIspettore(comment?.author || ""))
+    .map((comment: any) => normalizeAuthorName(comment?.author || ""))
+    .filter((author: string) => isKnownIspettore(author));
+
+  if (inspectorCommentAuthors.length) {
+    return inspectorCommentAuthors[inspectorCommentAuthors.length - 1];
+  }
+
+  return topicAuthor;
+}
+
+function normalizeStandaloneBcfTopic(topic: any) {
+  const inspectorAuthor = getStandaloneBcfInspectorAuthor(topic);
+  const disciplinaDaIspettore = getIspettoreDisciplineFromCreatedBy(inspectorAuthor);
+  const disciplinaStandalone =
+    disciplinaDaIspettore ||
+    (topic?.isSolibriChecking ? "BIM" : cleanText(topic?.disciplina || topic?.["Assignee(s)"] || ""));
 
   return {
     ...topic,
     __standaloneBcf: true,
-    disciplina: "BIM",
-    gruppoTrimble: "BIM",
-    assegnatari: "BIM",
-    "Assignee(s)": "BIM",
-    "Created by": topicAuthor,
+    disciplina: disciplinaStandalone,
+    gruppoTrimble: disciplinaStandalone,
+    assegnatari: disciplinaStandalone,
+    "Assignee(s)": disciplinaStandalone,
+    "Created by": inspectorAuthor,
   };
 }
 
@@ -1302,7 +1330,7 @@ export async function POST(req: Request) {
       const disciplinaDaCreatore = getIspettoreDisciplineFromCreatedBy(createdBy);
 
       const disciplina = isStandaloneBcfRow
-        ? "BIM"
+        ? cleanText(todo?.disciplina || todo?.["Assignee(s)"] || "") || disciplinaDaCreatore || (isSolibriCheckingRow ? "BIM" : "")
         : isSolibriCheckingRow
           ? "BIM"
           : disciplinaDaAssignee || disciplinaDaCreatore || "";
