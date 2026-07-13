@@ -191,7 +191,7 @@ function roleFromText(text = "") {
   return m ? m[1].toUpperCase() : "";
 }
 
-const BCF_PARSER_VERSION = "2026-07-13_v19_waiting_status_fix";
+const BCF_PARSER_VERSION = "2026-07-13_v20_waiting_dedup_trimble";
 
 
 const ISPETTORI_DISCIPLINE_ITS: Record<string, string> = {
@@ -485,16 +485,20 @@ function findBestComments(todo: any, commentsByTopic: Map<string, any[]>, matche
 }
 
 function translateStatus(status = "") {
-  const raw = String(status || "").trim();
-  const s = raw.toUpperCase();
+  const s = String(status || "").trim().toLowerCase();
 
-  if (s === "NEW" || s === "APERTO" || s === "APERTA") return "Aperta";
-  if (s === "WAITING" || s === "IN ATTESA" || s === "IN ATTESA ATTESA") return "In attesa";
-  if (s === "DONE" || s === "FATTO" || s === "FATTA") return "Fatto";
-  if (s === "CLOSED" || s === "CHIUSO" || s === "CHIUSA") return "Chiusa";
-  if (s === "UNKNOWN" || s === "NON DEFINITO") return "Non definito";
+  if (s === "new") return "Aperta";
+  if (s === "waiting") return "In attesa";
+  if (s === "done") return "Fatto";
+  if (s === "closed") return "Chiusa";
+  if (s === "unknown") return "Non definito";
 
-  return raw;
+  if (s === "aperto" || s === "aperta") return "Aperta";
+  if (s === "in attesa") return "In attesa";
+  if (s === "fatto" || s === "fatta") return "Fatto";
+  if (s === "chiuso" || s === "chiusa") return "Chiusa";
+
+  return String(status || "").trim();
 }
 
 function getFirstColumnValue(row: any) {
@@ -1216,6 +1220,114 @@ async function readDocxInspection(fileName: string, buffer: Buffer) {
   };
 }
 
+
+function isTrimbleChronologyId(value = "") {
+  return /^IT\d{2}-\d+$/i.test(cleanText(value));
+}
+
+function hasMeaningfulDiscipline(value = "") {
+  const normalized = normalize(value);
+  return Boolean(
+    normalized &&
+    normalized !== "null" &&
+    normalized !== "null null" &&
+    normalized !== "non assegnata"
+  );
+}
+
+function buildFinalIssueMergeKey(row: any) {
+  const elaborato = normalize(
+    row?.elaboratoOriginale ||
+    row?.elaborato ||
+    row?.titolo ||
+    ""
+  );
+  const descrizione = normalize(row?.descrizione || "");
+  const tipo = normalize(row?.tipo || "");
+
+  if (!elaborato || !descrizione) return "";
+  return [elaborato, descrizione, tipo].join("__");
+}
+
+function mergeRowsPreservingTrimbleChronology(rows: any[]) {
+  const grouped = new Map<string, any[]>();
+  const ungrouped: any[] = [];
+
+  for (const row of rows) {
+    const key = buildFinalIssueMergeKey(row);
+
+    if (!key) {
+      ungrouped.push(row);
+      continue;
+    }
+
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key)!.push(row);
+  }
+
+  const mergedRows: any[] = [];
+
+  for (const group of grouped.values()) {
+    const trimbleRow = group.find((row) =>
+      isTrimbleChronologyId(row?.idTodo || row?.id || "")
+    );
+
+    // Se esiste il cronologico Trimble, questo rimane la riga principale.
+    // I Topic BCF con GUID servono soltanto per integrare commenti e allegati.
+    const primary = trimbleRow || group[0];
+
+    const mergedComments = uniqueIssueComments(
+      group.flatMap((row) => Array.isArray(row?.comments) ? row.comments : [])
+    ).sort((a, b) => String(a?.date || "").localeCompare(String(b?.date || "")));
+
+    const prgComments = mergedComments.filter((comment) => comment?.role === "PRG");
+    const ispComments = mergedComments.filter((comment) => comment?.role === "ISP");
+    const last = mergedComments[mergedComments.length - 1];
+
+    mergedRows.push({
+      ...primary,
+      snapshotPath:
+        primary?.snapshotPath ||
+        group.find((row) => row?.snapshotPath)?.snapshotPath ||
+        "",
+      snapshotDataUrl:
+        primary?.snapshotDataUrl ||
+        group.find((row) => row?.snapshotDataUrl)?.snapshotDataUrl ||
+        "",
+      comments: mergedComments,
+      nCommenti: mergedComments.length,
+      hasPrgComment: prgComments.length > 0,
+      hasIspComment: ispComments.length > 0,
+      numeroCommentiPrg: prgComments.length,
+      numeroCommentiIsp: ispComments.length,
+      ultimoRuolo: last?.role || "",
+      ultimoCommento: last?.comment || "",
+      ultimoAutore: last?.author || "",
+      ultimaDataCommento: last?.date || "",
+    });
+  }
+
+  return [...mergedRows, ...ungrouped].filter((row) => {
+    const id = cleanText(row?.idTodo || row?.id || "");
+    const isGuidOnly = !isTrimbleChronologyId(id);
+    const isNoIssue = normalize(row?.tipo || "") === "nessun rilievo";
+    const noDiscipline = !hasMeaningfulDiscipline(row?.disciplina || "");
+    const author = normalizePersonName(
+      row?.ispettore ||
+      row?.redattore ||
+      row?.creatoDa ||
+      ""
+    );
+    const isGiuseppePizzi =
+      author === "giuseppe pizzi" ||
+      author === "gp";
+
+    // Esclude soltanto i Topic residui del BCF Trimble senza cronologico,
+    // senza disciplina affidabile e creati dall'account tecnico GP.
+    return !(isGuidOnly && isNoIssue && noDiscipline && isGiuseppePizzi);
+  });
+}
+
 export async function POST(req: Request) {
   try {
     const formData = await req.formData();
@@ -1473,7 +1585,10 @@ export async function POST(req: Request) {
       };
     });
 
-    const rows = [...rowsFromTodoOrBcf, ...docxRows];
+    const rows = [
+      ...mergeRowsPreservingTrimbleChronology(rowsFromTodoOrBcf),
+      ...docxRows,
+    ];
 
     const elaboratiEsaminatiKeys = new Set<string>();
 
