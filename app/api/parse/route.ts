@@ -191,7 +191,7 @@ function roleFromText(text = "") {
   return m ? m[1].toUpperCase() : "";
 }
 
-const BCF_PARSER_VERSION = "2026-07-13_v20_waiting_dedup_trimble";
+const BCF_PARSER_VERSION = "2026-07-20_v23_its_domain_roles";
 
 
 const ISPETTORI_DISCIPLINE_ITS: Record<string, string> = {
@@ -209,6 +209,24 @@ const ISPETTORI_DISCIPLINE_ITS: Record<string, string> = {
   "Arch. Stefano Arcangellelli": "Progetto Architettonico",
   "Ing. Edoardo Oddo Casano": "Progetto Strutturale",
 };
+
+const INSPECTOR_DOMAINS = [
+  "itscontrollitecnici.it",
+];
+
+function hasInspectorDomain(value = "") {
+  const raw = cleanText(value).toLowerCase();
+  if (!raw) return false;
+
+  const emailMatches = raw.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi) || [];
+
+  return emailMatches.some((email) => {
+    const domain = email.split("@")[1] || "";
+    return INSPECTOR_DOMAINS.some(
+      (allowedDomain) => domain === allowedDomain || domain.endsWith(`.${allowedDomain}`)
+    );
+  });
+}
 
 const ISPETTORI_ITS = [
   "Arch. Veronica Laino",
@@ -286,16 +304,26 @@ function getIspettoreDisciplineFromCreatedBy(author = "") {
   return "";
 }
 
-function roleFromAuthor(author = "", text = "") {
-  const explicit = roleFromText(text);
-  if (explicit) return explicit;
+function roleFromAuthor(author = "", _text = "") {
+  // Regola ITS:
+  // 1. qualunque account del dominio ITS e sempre classificato come ISP;
+  // 2. in assenza dell'e-mail, restano validi i nominativi dell'anagrafica;
+  // 3. tutti gli altri autori sono PRG.
+  // Le sigle ISP/PRG eventualmente presenti nel testo del commento
+  // non modificano la classificazione basata sull'autore.
+  if (hasInspectorDomain(author)) return "ISP";
 
-  const authorKey = normalizePersonName(author);
+  const normalizedAuthor = normalizeAuthorName(author);
+  const authorKey = normalizePersonName(normalizedAuthor);
+
   if (!authorKey || authorKey === "autore non indicato") return "PRG";
 
   const isIspettore = ISPETTORI_ITS.some((name) => {
     const key = normalizePersonName(name);
-    return Boolean(key && (authorKey === key || authorKey.includes(key) || key.includes(authorKey)));
+    return Boolean(
+      key &&
+      (authorKey === key || authorKey.includes(key) || key.includes(authorKey))
+    );
   });
 
   return isIspettore ? "ISP" : "PRG";
@@ -1265,34 +1293,33 @@ function mergeRowsPreservingTrimbleChronology(rows: any[]) {
     grouped.get(key)!.push(row);
   }
 
-  const mergedRows: any[] = [];
-
-  for (const group of grouped.values()) {
-    const trimbleRow = group.find((row) =>
-      isTrimbleChronologyId(row?.idTodo || row?.id || "")
+  function mergeCommentsIntoRow(primary: any, additionalRows: any[]) {
+    const mergedComments = uniqueIssueComments([
+      ...(Array.isArray(primary?.comments) ? primary.comments : []),
+      ...additionalRows.flatMap((row) =>
+        Array.isArray(row?.comments) ? row.comments : []
+      ),
+    ]).sort((a, b) =>
+      String(a?.date || "").localeCompare(String(b?.date || ""))
     );
 
-    // Se esiste il cronologico Trimble, questo rimane la riga principale.
-    // I Topic BCF con GUID servono soltanto per integrare commenti e allegati.
-    const primary = trimbleRow || group[0];
-
-    const mergedComments = uniqueIssueComments(
-      group.flatMap((row) => Array.isArray(row?.comments) ? row.comments : [])
-    ).sort((a, b) => String(a?.date || "").localeCompare(String(b?.date || "")));
-
-    const prgComments = mergedComments.filter((comment) => comment?.role === "PRG");
-    const ispComments = mergedComments.filter((comment) => comment?.role === "ISP");
+    const prgComments = mergedComments.filter(
+      (comment) => comment?.role === "PRG"
+    );
+    const ispComments = mergedComments.filter(
+      (comment) => comment?.role === "ISP"
+    );
     const last = mergedComments[mergedComments.length - 1];
 
-    mergedRows.push({
+    return {
       ...primary,
       snapshotPath:
         primary?.snapshotPath ||
-        group.find((row) => row?.snapshotPath)?.snapshotPath ||
+        additionalRows.find((row) => row?.snapshotPath)?.snapshotPath ||
         "",
       snapshotDataUrl:
         primary?.snapshotDataUrl ||
-        group.find((row) => row?.snapshotDataUrl)?.snapshotDataUrl ||
+        additionalRows.find((row) => row?.snapshotDataUrl)?.snapshotDataUrl ||
         "",
       comments: mergedComments,
       nCommenti: mergedComments.length,
@@ -1304,6 +1331,79 @@ function mergeRowsPreservingTrimbleChronology(rows: any[]) {
       ultimoCommento: last?.comment || "",
       ultimoAutore: last?.author || "",
       ultimaDataCommento: last?.date || "",
+    };
+  }
+
+  function commentFingerprints(row: any) {
+    return new Set(
+      (Array.isArray(row?.comments) ? row.comments : [])
+        .map((comment: any) => normalizeIssueCommentKey(comment))
+        .filter(Boolean)
+    );
+  }
+
+  const mergedRows: any[] = [];
+
+  for (const group of grouped.values()) {
+    const trimbleRows = group.filter((row) =>
+      isTrimbleChronologyId(row?.idTodo || row?.id || "")
+    );
+    const topicRows = group.filter(
+      (row) => !isTrimbleChronologyId(row?.idTodo || row?.id || "")
+    );
+
+    // Nessun cronologico Trimble: conserva i Topic autonomi.
+    if (!trimbleRows.length) {
+      mergedRows.push(...topicRows);
+      continue;
+    }
+
+    // Un solo ToDo Trimble: integra tutti i Topic BCF corrispondenti.
+    if (trimbleRows.length === 1) {
+      mergedRows.push(mergeCommentsIntoRow(trimbleRows[0], topicRows));
+      continue;
+    }
+
+    // Più ToDo Trimble possono avere lo stesso elaborato e la stessa descrizione.
+    // Non devono mai essere accorpati tra loro, perché possono avere status diversi
+    // (NEW, WAITING, DONE, CLOSED) e cronologici IT25 differenti.
+    const topicRowsByTrimbleIndex = new Map<number, any[]>();
+
+    for (const topicRow of topicRows) {
+      const topicKeys = commentFingerprints(topicRow);
+      let bestIndex = -1;
+      let bestOverlap = 0;
+
+      trimbleRows.forEach((trimbleRow, index) => {
+        const trimbleKeys = commentFingerprints(trimbleRow);
+        const overlap = [...topicKeys].filter((key) =>
+          trimbleKeys.has(key)
+        ).length;
+
+        if (overlap > bestOverlap) {
+          bestOverlap = overlap;
+          bestIndex = index;
+        }
+      });
+
+      // Il Topic viene integrato soltanto quando i commenti permettono
+      // di individuare senza ambiguità il ToDo corrispondente.
+      // In caso contrario non genera una riga GUID duplicata.
+      if (bestIndex >= 0 && bestOverlap > 0) {
+        if (!topicRowsByTrimbleIndex.has(bestIndex)) {
+          topicRowsByTrimbleIndex.set(bestIndex, []);
+        }
+        topicRowsByTrimbleIndex.get(bestIndex)!.push(topicRow);
+      }
+    }
+
+    trimbleRows.forEach((trimbleRow, index) => {
+      mergedRows.push(
+        mergeCommentsIntoRow(
+          trimbleRow,
+          topicRowsByTrimbleIndex.get(index) || []
+        )
+      );
     });
   }
 
@@ -1322,8 +1422,6 @@ function mergeRowsPreservingTrimbleChronology(rows: any[]) {
       author === "giuseppe pizzi" ||
       author === "gp";
 
-    // Esclude soltanto i Topic residui del BCF Trimble senza cronologico,
-    // senza disciplina affidabile e creati dall'account tecnico GP.
     return !(isGuidOnly && isNoIssue && noDiscipline && isGiuseppePizzi);
   });
 }
