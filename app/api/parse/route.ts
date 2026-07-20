@@ -191,7 +191,7 @@ function roleFromText(text = "") {
   return m ? m[1].toUpperCase() : "";
 }
 
-const BCF_PARSER_VERSION = "2026-07-20_v24_flavia_della_torre_isp";
+const BCF_PARSER_VERSION = "2026-07-20_v25_all_its_inspectors_isp";
 
 
 const ISPETTORI_DISCIPLINE_ITS: Record<string, string> = {
@@ -241,8 +241,10 @@ const ISPETTORI_ITS = [
   "Ing. Marcello Caccialupi",
   "Geom. Massimo Tamberi",
   "Arch. Stefano Arcangellelli",
+  "Arch. Stefano Arcangelelli",
   "Ing. Edoardo Oddo Casano",
   "Flavia Della Torre",
+  "Clara Soliman",
 ];
 
 const AUTHOR_NAME_MAP: Record<string, string> = {
@@ -260,9 +262,12 @@ const AUTHOR_NAME_MAP: Record<string, string> = {
   "m.caccialupi@itscontrollitecnici.it": "Ing. Marcello Caccialupi",
   "m.tamberi@itscontrollitecnici.it": "Geom. Massimo Tamberi",
   "s.arcangellelli@itscontrollitecnici.it": "Arch. Stefano Arcangellelli",
+  "s.arcangelelli@itscontrollitecnici.it": "Arch. Stefano Arcangelelli",
   "e.cassano@itscontrollitecnici.it": "Ing. Edoardo Oddo Casano",
   "f.dellatorre@itscontrollitecnici.it": "Flavia Della Torre",
   "flavia.dellatorre@itscontrollitecnici.it": "Flavia Della Torre",
+  "c.soliman@itscontrollitecnici.it": "Clara Soliman",
+  "clara.soliman@itscontrollitecnici.it": "Clara Soliman",
 };
 
 function normalizeAuthorName(value = "") {
