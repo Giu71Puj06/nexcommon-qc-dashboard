@@ -191,7 +191,7 @@ function roleFromText(text = "") {
   return m ? m[1].toUpperCase() : "";
 }
 
-const BCF_PARSER_VERSION = "2026-07-20_v23_its_domain_roles";
+const BCF_PARSER_VERSION = "2026-07-20_v24_flavia_della_torre_isp";
 
 
 const ISPETTORI_DISCIPLINE_ITS: Record<string, string> = {
@@ -242,6 +242,7 @@ const ISPETTORI_ITS = [
   "Geom. Massimo Tamberi",
   "Arch. Stefano Arcangellelli",
   "Ing. Edoardo Oddo Casano",
+  "Flavia Della Torre",
 ];
 
 const AUTHOR_NAME_MAP: Record<string, string> = {
@@ -260,6 +261,8 @@ const AUTHOR_NAME_MAP: Record<string, string> = {
   "m.tamberi@itscontrollitecnici.it": "Geom. Massimo Tamberi",
   "s.arcangellelli@itscontrollitecnici.it": "Arch. Stefano Arcangellelli",
   "e.cassano@itscontrollitecnici.it": "Ing. Edoardo Oddo Casano",
+  "f.dellatorre@itscontrollitecnici.it": "Flavia Della Torre",
+  "flavia.dellatorre@itscontrollitecnici.it": "Flavia Della Torre",
 };
 
 function normalizeAuthorName(value = "") {
