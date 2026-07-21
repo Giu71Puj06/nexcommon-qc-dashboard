@@ -96,6 +96,10 @@ ${comments}
 
 export async function GET(req: NextRequest) {
   const projectId = (req.nextUrl.searchParams.get("project_id") || "").trim();
+  // format opzionale: "xlsx" o "bcf" -> scarica SOLO quel file come allegato.
+  // Senza format resta il comportamento originale (JSON con i due base64), usato
+  // dal pulsante "Importa ToDo" della dashboard.
+  const format = (req.nextUrl.searchParams.get("format") || "").trim().toLowerCase();
   if (!projectId) {
     return NextResponse.json(
       { ok: false, error: "Parametro project_id mancante" },
@@ -168,11 +172,40 @@ export async function GET(req: NextRequest) {
     }
     const bcfBuf: Buffer = await zip.generateAsync({ type: "nodebuffer" });
 
+    const baseName = `trimble_todo_${projectId}`;
+
+    // Download separato: ?format=xlsx  oppure  ?format=bcf
+    if (format === "xlsx" || format === "excel") {
+      return new NextResponse(new Uint8Array(xlsxBuf), {
+        status: 200,
+        headers: {
+          "Content-Type":
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "Content-Disposition": `attachment; filename="${baseName}.xlsx"`,
+          "X-Todo-Count": String(todos.length),
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+
+    if (format === "bcf" || format === "bcfzip") {
+      return new NextResponse(new Uint8Array(bcfBuf), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/zip",
+          "Content-Disposition": `attachment; filename="${baseName}.bcfzip"`,
+          "X-Todo-Count": String(todos.length),
+          "X-Comment-Count": String(commentsTotal),
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+
     return NextResponse.json({
       ok: true,
       count: todos.length,
       comments_total: commentsTotal,
-      base_name: `trimble_todo_${projectId}`,
+      base_name: baseName,
       xlsx_base64: Buffer.from(xlsxBuf).toString("base64"),
       bcfzip_base64: Buffer.from(bcfBuf).toString("base64"),
     });
