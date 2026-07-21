@@ -2761,12 +2761,73 @@ export default function AppProgettiUpload() {
       });
 
       setTcMessage(
-        `Importati ${count || "i"} ToDo da "${proj?.name || tcProjectId}". ` +
+        `Importati ${count || "i"} BCF Topics (Solibri) da "${proj?.name || tcProjectId}". ` +
           `Premi "Analizza" per generare la dashboard.`
       );
     } catch (e) {
       setTcMessage(
-        e instanceof Error ? e.message : "Errore importazione da Trimble"
+        e instanceof Error ? e.message : "Errore importazione BCF Topics da Trimble"
+      );
+    } finally {
+      setTcImporting(false);
+    }
+  }
+
+  function _b64ToFile(b64: string, name: string, mime: string): File {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new File([bytes], name, { type: mime });
+  }
+
+  async function importTrimbleTodos() {
+    if (!tcProjectId) return;
+    setTcMessage("");
+    setTcImporting(true);
+    try {
+      const res = await fetch(
+        `/api/tc/todos-package?project_id=${encodeURIComponent(tcProjectId)}`
+      );
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        throw new Error(
+          data?.error || `Errore importazione ToDo (${res.status})`
+        );
+      }
+
+      const proj = tcProjects.find((p) => p.id === tcProjectId);
+      const safeName = (proj?.name || tcProjectId).replace(/[^\w.-]+/g, "_");
+
+      // I ToDo arrivano come DUE file (come l'export manuale): .xlsx + .bcf.
+      const xlsxFile = _b64ToFile(
+        data.xlsx_base64,
+        `${safeName}_ToDo.xlsx`,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      );
+      const bcfFile = _b64ToFile(
+        data.bcfzip_base64,
+        `${safeName}_ToDo.bcfzip`,
+        "application/zip"
+      );
+
+      setFiles((prev) => {
+        const byKey = new Map<string, File>();
+        prev.forEach((f) =>
+          byKey.set(`${f.name}__${f.size}__${f.lastModified}`, f)
+        );
+        [xlsxFile, bcfFile].forEach((f) =>
+          byKey.set(`${f.name}__${f.size}__${f.lastModified}`, f)
+        );
+        return Array.from(byKey.values());
+      });
+
+      setTcMessage(
+        `Importati ${data.count} ToDo (${data.comments_total} commenti) da ` +
+          `"${proj?.name || tcProjectId}" come .xlsx + .bcf. Premi "Analizza".`
+      );
+    } catch (e) {
+      setTcMessage(
+        e instanceof Error ? e.message : "Errore importazione ToDo da Trimble"
       );
     } finally {
       setTcImporting(false);
@@ -3131,8 +3192,10 @@ export default function AppProgettiUpload() {
                 Oppure: Progetto Trimble
               </div>
               <div style={{ color: "#64748b", fontSize: 12, marginBottom: 8 }}>
-                Scarica i ToDo (con i commenti di progettisti e ispettori)
-                direttamente da Trimble Connect, senza esportare i BCF a mano.
+                Scarica direttamente da Trimble Connect, senza export manuali.
+                <b> Importa ToDo</b>: verifiche elaborati (NC/OSS con disciplina e
+                commenti progettista/ispettore) come .xlsx + .bcf.
+                <b> Importa BCF Topics</b>: i topic Solibri (clash / model checking).
               </div>
 
               <div
@@ -3188,8 +3251,9 @@ export default function AppProgettiUpload() {
 
                 <button
                   type="button"
-                  onClick={importTrimbleProject}
+                  onClick={importTrimbleTodos}
                   disabled={!tcProjectId || tcImporting}
+                  title="Verifiche elaborati (NC/OSS con disciplina e commenti). Genera ToDo .xlsx + .bcf."
                   style={{
                     padding: "8px 12px",
                     background: !tcProjectId || tcImporting ? "#94a3b8" : "#0f172a",
@@ -3201,7 +3265,26 @@ export default function AppProgettiUpload() {
                     whiteSpace: "nowrap",
                   }}
                 >
-                  {tcImporting ? "Importo..." : "Importa ToDo da Trimble"}
+                  {tcImporting ? "Importo..." : "Importa ToDo"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={importTrimbleProject}
+                  disabled={!tcProjectId || tcImporting}
+                  title="BCF Topics collegati a Solibri (clash / model checking)."
+                  style={{
+                    padding: "8px 12px",
+                    background: "white",
+                    color: "#0f172a",
+                    borderRadius: 8,
+                    border: "1px solid #cbd5e1",
+                    cursor: !tcProjectId || tcImporting ? "not-allowed" : "pointer",
+                    fontWeight: 700,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {tcImporting ? "..." : "Importa BCF Topics (Solibri)"}
                 </button>
               </div>
 
