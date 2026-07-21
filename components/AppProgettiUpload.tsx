@@ -2640,6 +2640,14 @@ export default function AppProgettiUpload() {
   const [dashboardModules, setDashboardModules] = useState<any[]>(defaultDashboardModules);
   const [error, setError] = useState("");
 
+  // Integrazione Trimble (Progetto Trimble): scarica i ToDo via API invece di
+  // esportare/caricare i BCF a mano. Vedi app/api/tc/projects e app/api/tc/bcfzip.
+  const [tcProjects, setTcProjects] = useState<{ id: string; name: string }[]>([]);
+  const [tcProjectId, setTcProjectId] = useState("");
+  const [tcLoadingProjects, setTcLoadingProjects] = useState(false);
+  const [tcImporting, setTcImporting] = useState(false);
+  const [tcMessage, setTcMessage] = useState("");
+
   React.useEffect(() => {
     async function loadDashboardModules() {
       const { data, error } = await supabase
@@ -2688,6 +2696,81 @@ export default function AppProgettiUpload() {
 
   function removeLoadedFile(indexToRemove: number) {
     setFiles((prev) => prev.filter((_, index) => index !== indexToRemove));
+  }
+
+  async function loadTrimbleProjects() {
+    setTcMessage("");
+    setTcLoadingProjects(true);
+    try {
+      const res = await fetch("/api/tc/projects");
+      const data = await res.json();
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.error || "Errore caricamento progetti Trimble");
+      }
+      const list = Array.isArray(data.projects) ? data.projects : [];
+      setTcProjects(list);
+      setTcMessage(
+        list.length
+          ? `${list.length} progetti caricati. Seleziona un progetto.`
+          : "Nessun progetto Trimble trovato."
+      );
+    } catch (e) {
+      setTcMessage(
+        e instanceof Error ? e.message : "Errore caricamento progetti Trimble"
+      );
+    } finally {
+      setTcLoadingProjects(false);
+    }
+  }
+
+  async function importTrimbleProject() {
+    if (!tcProjectId) return;
+    setTcMessage("");
+    setTcImporting(true);
+    try {
+      const res = await fetch(
+        `/api/tc/bcfzip?project_id=${encodeURIComponent(tcProjectId)}`
+      );
+      if (!res.ok) {
+        let msg = `Errore importazione da Trimble (${res.status})`;
+        try {
+          const j = await res.json();
+          if (j?.error) msg = j.error;
+        } catch {
+          // risposta non JSON: mantieni il messaggio generico
+        }
+        throw new Error(msg);
+      }
+
+      const count = res.headers.get("X-Topic-Count") || "";
+      const blob = await res.blob();
+      const proj = tcProjects.find((p) => p.id === tcProjectId);
+      const safeName = (proj?.name || tcProjectId).replace(/[^\w.-]+/g, "_");
+      const file = new File([blob], `${safeName}.bcfzip`, {
+        type: "application/zip",
+      });
+
+      // Inserisce il BCFZIP generato tra i file caricati (stessa dedup del caricamento manuale).
+      setFiles((prev) => {
+        const byKey = new Map<string, File>();
+        prev.forEach((f) =>
+          byKey.set(`${f.name}__${f.size}__${f.lastModified}`, f)
+        );
+        byKey.set(`${file.name}__${file.size}__${file.lastModified}`, file);
+        return Array.from(byKey.values());
+      });
+
+      setTcMessage(
+        `Importati ${count || "i"} ToDo da "${proj?.name || tcProjectId}". ` +
+          `Premi "Analizza" per generare la dashboard.`
+      );
+    } catch (e) {
+      setTcMessage(
+        e instanceof Error ? e.message : "Errore importazione da Trimble"
+      );
+    } finally {
+      setTcImporting(false);
+    }
   }
 
   async function generaDashboard() {
@@ -3036,6 +3119,98 @@ export default function AppProgettiUpload() {
                 e.currentTarget.value = "";
               }}
             />
+
+            <div
+              style={{
+                marginTop: 14,
+                paddingTop: 14,
+                borderTop: "1px solid #e2e8f0",
+              }}
+            >
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>
+                Oppure: Progetto Trimble
+              </div>
+              <div style={{ color: "#64748b", fontSize: 12, marginBottom: 8 }}>
+                Scarica i ToDo (con i commenti di progettisti e ispettori)
+                direttamente da Trimble Connect, senza esportare i BCF a mano.
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={loadTrimbleProjects}
+                  disabled={tcLoadingProjects}
+                  style={{
+                    padding: "8px 12px",
+                    background: "#0284c7",
+                    color: "white",
+                    borderRadius: 8,
+                    border: "none",
+                    cursor: tcLoadingProjects ? "not-allowed" : "pointer",
+                    fontWeight: 700,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {tcLoadingProjects ? "Carico..." : "Carica progetti"}
+                </button>
+
+                <select
+                  value={tcProjectId}
+                  onChange={(e) => setTcProjectId(e.target.value)}
+                  disabled={!tcProjects.length}
+                  style={{
+                    flex: 1,
+                    minWidth: 220,
+                    padding: 8,
+                    borderRadius: 8,
+                    border: "1px solid #cbd5e1",
+                    background: "white",
+                  }}
+                >
+                  <option value="">
+                    {tcProjects.length
+                      ? "Seleziona progetto Trimble..."
+                      : "Premi prima 'Carica progetti'"}
+                  </option>
+                  {tcProjects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+
+                <button
+                  type="button"
+                  onClick={importTrimbleProject}
+                  disabled={!tcProjectId || tcImporting}
+                  style={{
+                    padding: "8px 12px",
+                    background: !tcProjectId || tcImporting ? "#94a3b8" : "#0f172a",
+                    color: "white",
+                    borderRadius: 8,
+                    border: "none",
+                    cursor: !tcProjectId || tcImporting ? "not-allowed" : "pointer",
+                    fontWeight: 700,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {tcImporting ? "Importo..." : "Importa ToDo da Trimble"}
+                </button>
+              </div>
+
+              {tcMessage && (
+                <div style={{ marginTop: 8, fontSize: 12, color: "#0f172a" }}>
+                  {tcMessage}
+                </div>
+              )}
+            </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 160px", gap: 10, marginTop: 10 }}>
               <button
