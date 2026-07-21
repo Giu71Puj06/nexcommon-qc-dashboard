@@ -5,6 +5,7 @@ import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { supabase } from "../lib/supabase";
+import { isNcTipo, isOssTipo, isNessunRilievoTipo, isRilievo } from "../lib/parse/tipo";
 
 function getElaboratoKey(r: any) {
   return (
@@ -1803,6 +1804,10 @@ async function exportCorrectedTrimbleTodoWorkbook(rows: any[], sourceFiles: File
   const arrayBuffer = await todoFile.arrayBuffer();
   const wb = XLSX.read(arrayBuffer, { type: "array" });
   const sheetName = wb.SheetNames[0];
+  if (!sheetName) {
+    alert("Il file ToDo Excel risulta vuoto o non leggibile.");
+    return;
+  }
   const ws = wb.Sheets[sheetName];
   const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }) as any[][];
 
@@ -2138,6 +2143,7 @@ function DetailPanel({ rows, title, onReset, sourceFiles = [] }: any) {
           new Promise<string>((resolve) => {
             const reader = new FileReader();
             reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+            reader.onerror = () => resolve("");
             reader.readAsDataURL(file);
           })
       )
@@ -2687,27 +2693,34 @@ export default function AppProgettiUpload() {
   async function generaDashboard() {
     setError("");
 
-    const fd = new FormData();
-    files.forEach((f) => fd.append("files", f));
+    try {
+      const fd = new FormData();
+      files.forEach((f) => fd.append("files", f));
 
-    const res = await fetch("/api/parse", {
-      method: "POST",
-      body: fd,
-    });
+      const res = await fetch("/api/parse", {
+        method: "POST",
+        body: fd,
+      });
 
-    const data = await res.json();
+      const data = await res.json();
 
-    if (!res.ok || data.ok === false) {
-      setError(data.error || "Errore durante la lettura dei file");
+      if (!res.ok || data.ok === false) {
+        setError(data.error || "Errore durante la lettura dei file");
+        setRows([]);
+        setImportedFiles([]);
+        setSelection(null);
+        return;
+      }
+
+      setRows(data.rows || []);
+      setImportedFiles(data.importedFiles || []);
+      setSelection(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Errore di rete o risposta non valida da /api/parse");
       setRows([]);
       setImportedFiles([]);
       setSelection(null);
-      return;
     }
-
-    setRows(data.rows || []);
-    setImportedFiles(data.importedFiles || []);
-    setSelection(null);
   }
 
   const enrichedRows = useMemo(() => {
@@ -2726,17 +2739,15 @@ export default function AppProgettiUpload() {
   }, [rows]);
 
   const elaboratiTot = new Set(enrichedRows.map((r) => r.elaboratoKey).filter(Boolean)).size;
-  const elaboratiNC = new Set(enrichedRows.filter((r) => r.tipo === "NC").map((r) => r.elaboratoKey).filter(Boolean)).size;
-  const elaboratiOSS = new Set(enrichedRows.filter((r) => r.tipo === "OSS").map((r) => r.elaboratoKey).filter(Boolean)).size;
-  const elaboratiOK = new Set(enrichedRows.filter((r) => r.tipo === "Nessun rilievo").map((r) => r.elaboratoKey).filter(Boolean)).size;
+  const elaboratiNC = new Set(enrichedRows.filter((r) => isNcTipo(r.tipo)).map((r) => r.elaboratoKey).filter(Boolean)).size;
+  const elaboratiOSS = new Set(enrichedRows.filter((r) => isOssTipo(r.tipo)).map((r) => r.elaboratoKey).filter(Boolean)).size;
+  const elaboratiOK = new Set(enrichedRows.filter((r) => isNessunRilievoTipo(r.tipo)).map((r) => r.elaboratoKey).filter(Boolean)).size;
 
-  const totaleNC = enrichedRows.filter((r) => r.tipo === "NC").length;
-  const totaleOSS = enrichedRows.filter((r) => r.tipo === "OSS").length;
+  const totaleNC = enrichedRows.filter((r) => isNcTipo(r.tipo)).length;
+  const totaleOSS = enrichedRows.filter((r) => isOssTipo(r.tipo)).length;
   const totaleNCOSS = totaleNC + totaleOSS;
 
-  const rilieviNCOSS = enrichedRows.filter(
-    (r) => r.tipo === "NC" || r.tipo === "OSS" || r.tipo === "Da NC a OSS"
-  );
+  const rilieviNCOSS = enrichedRows.filter((r) => isRilievo(r.tipo));
 
   const daVerificareISP = enrichedRows.filter((r) => r.chiDeveAgire === "ISP").length;
   const daRisponderePRG = enrichedRows.filter((r) => r.chiDeveAgire === "PRG").length;
@@ -2767,12 +2778,12 @@ export default function AppProgettiUpload() {
       };
     }
 
-    if (r.tipo === "NC") {
+    if (isNcTipo(r.tipo)) {
       rilieviPerElaborato[elaboratoKey].value += 1;
       rilieviPerElaborato[elaboratoKey].nc += 1;
     }
 
-    if (r.tipo === "OSS") {
+    if (isOssTipo(r.tipo)) {
       rilieviPerElaborato[elaboratoKey].value += 1;
       rilieviPerElaborato[elaboratoKey].oss += 1;
     }
@@ -2900,9 +2911,9 @@ export default function AppProgettiUpload() {
 
     if (selection.type === "kpi") {
       if (selection.value === "totali") result = enrichedRows;
-      else if (selection.value === "nc") result = enrichedRows.filter((r) => r.tipo === "NC");
-      else if (selection.value === "oss") result = enrichedRows.filter((r) => r.tipo === "OSS");
-      else if (selection.value === "nessun") result = enrichedRows.filter((r) => r.tipo === "Nessun rilievo");
+      else if (selection.value === "nc") result = enrichedRows.filter((r) => isNcTipo(r.tipo));
+      else if (selection.value === "oss") result = enrichedRows.filter((r) => isOssTipo(r.tipo));
+      else if (selection.value === "nessun") result = enrichedRows.filter((r) => isNessunRilievoTipo(r.tipo));
       else if (selection.value === "risoluzione-prg") result = rilieviNCOSS.filter((r) => r.hasPrgComment);
       else if (selection.value === "da-verificare-isp") result = enrichedRows.filter((r) => r.chiDeveAgire === "ISP");
       else if (selection.value === "da-rispondere-prg") result = enrichedRows.filter((r) => r.chiDeveAgire === "PRG");
@@ -2914,7 +2925,15 @@ export default function AppProgettiUpload() {
         result = enrichedRows.filter((r) => issueIds.has(r.id));
       }
     } else if (selection.type === "tipo") {
-      result = enrichedRows.filter((r) => r.tipo === selection.value);
+      result = enrichedRows.filter((r) =>
+        selection.value === "NC"
+          ? isNcTipo(r.tipo)
+          : selection.value === "OSS"
+          ? isOssTipo(r.tipo)
+          : selection.value === "Nessun rilievo"
+          ? isNessunRilievoTipo(r.tipo)
+          : r.tipo === selection.value
+      );
     } else if (selection.type === "disciplina") {
       result = enrichedRows.filter((r) => getDisciplinaDisplay(r) === selection.value);
     } else if (selection.type === "elaborato") {

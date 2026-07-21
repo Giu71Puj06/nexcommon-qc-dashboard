@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import JSZip from "jszip";
 import { XMLParser } from "fast-xml-parser";
+import { assignTopicsToTrimble } from "@/lib/parse/merge-topics";
 
 function arr<T>(v: T | T[] | undefined): T[] {
   if (!v) return [];
@@ -287,6 +288,8 @@ function normalizeAuthorName(value = "") {
 
 function normalizePersonName(value = "") {
   return normalize(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
     .replace(/\barch\b/g, "")
     .replace(/\bing\b/g, "")
     .replace(/\bgeom\b/g, "")
@@ -312,6 +315,42 @@ function getIspettoreDisciplineFromCreatedBy(author = "") {
   return "";
 }
 
+function levenshtein(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+  const dp = Array.from({ length: m + 1 }, (_, i) => i);
+  for (let j = 1; j <= n; j++) {
+    let prev = dp[0];
+    dp[0] = j;
+    for (let i = 1; i <= m; i++) {
+      const tmp = dp[i];
+      dp[i] = Math.min(dp[i] + 1, dp[i - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = tmp;
+    }
+  }
+  return dp[m];
+}
+
+function matchIspettore(authorKey: string): boolean {
+  const singleToken = authorKey.split(" ").filter(Boolean).length === 1;
+  return ISPETTORI_ITS.some((name) => {
+    const key = normalizePersonName(name);
+    if (!key) return false;
+    if (authorKey === key) return true;
+    if (singleToken) {
+      // Un solo token: valido solo se e' il COGNOME (ultimo token) dell'ispettore (fix ISP-C).
+      const keyTokens = key.split(" ").filter(Boolean);
+      const surname = keyTokens[keyTokens.length - 1] || "";
+      return authorKey === surname || levenshtein(authorKey, surname) <= 1;
+    }
+    // Piu' token: substring bidirezionale + tolleranza typo <=1 sul nome completo (fix ISP-A/B).
+    if (authorKey.includes(key) || key.includes(authorKey)) return true;
+    return levenshtein(authorKey, key) <= 1;
+  });
+}
+
 function roleFromAuthor(author = "", _text = "") {
   // Regola ITS:
   // 1. qualunque account del dominio ITS e sempre classificato come ISP;
@@ -326,15 +365,7 @@ function roleFromAuthor(author = "", _text = "") {
 
   if (!authorKey || authorKey === "autore non indicato") return "PRG";
 
-  const isIspettore = ISPETTORI_ITS.some((name) => {
-    const key = normalizePersonName(name);
-    return Boolean(
-      key &&
-      (authorKey === key || authorKey.includes(key) || key.includes(authorKey))
-    );
-  });
-
-  return isIspettore ? "ISP" : "PRG";
+  return matchIspettore(authorKey) ? "ISP" : "PRG";
 }
 
 function getCommentTextFromBcfComment(c: any) {
@@ -641,10 +672,7 @@ function isKnownIspettore(author = "") {
   const authorKey = normalizePersonName(normalizeAuthorName(author));
   if (!authorKey) return false;
 
-  return ISPETTORI_ITS.some((name) => {
-    const key = normalizePersonName(name);
-    return Boolean(key && (authorKey === key || authorKey.includes(key) || key.includes(authorKey)));
-  });
+  return matchIspettore(authorKey);
 }
 
 function getStandaloneBcfInspectorAuthor(topic: any) {
@@ -1342,8 +1370,8 @@ function mergeRowsPreservingTrimbleChronology(rows: any[]) {
     };
   }
 
-  function commentFingerprints(row: any) {
-    return new Set(
+  function commentFingerprints(row: any): Set<string> {
+    return new Set<string>(
       (Array.isArray(row?.comments) ? row.comments : [])
         .map((comment: any) => normalizeIssueCommentKey(comment))
         .filter(Boolean)
@@ -1375,44 +1403,23 @@ function mergeRowsPreservingTrimbleChronology(rows: any[]) {
     // Più ToDo Trimble possono avere lo stesso elaborato e la stessa descrizione.
     // Non devono mai essere accorpati tra loro, perché possono avere status diversi
     // (NEW, WAITING, DONE, CLOSED) e cronologici IT25 differenti.
-    const topicRowsByTrimbleIndex = new Map<number, any[]>();
-
-    for (const topicRow of topicRows) {
-      const topicKeys = commentFingerprints(topicRow);
-      let bestIndex = -1;
-      let bestOverlap = 0;
-
-      trimbleRows.forEach((trimbleRow, index) => {
-        const trimbleKeys = commentFingerprints(trimbleRow);
-        const overlap = [...topicKeys].filter((key) =>
-          trimbleKeys.has(key)
-        ).length;
-
-        if (overlap > bestOverlap) {
-          bestOverlap = overlap;
-          bestIndex = index;
-        }
-      });
-
-      // Il Topic viene integrato soltanto quando i commenti permettono
-      // di individuare senza ambiguità il ToDo corrispondente.
-      // In caso contrario non genera una riga GUID duplicata.
-      if (bestIndex >= 0 && bestOverlap > 0) {
-        if (!topicRowsByTrimbleIndex.has(bestIndex)) {
-          topicRowsByTrimbleIndex.set(bestIndex, []);
-        }
-        topicRowsByTrimbleIndex.get(bestIndex)!.push(topicRow);
-      }
-    }
+    const { byTrimbleIndex, unassigned } = assignTopicsToTrimble(
+      trimbleRows,
+      topicRows,
+      commentFingerprints
+    );
 
     trimbleRows.forEach((trimbleRow, index) => {
       mergedRows.push(
-        mergeCommentsIntoRow(
-          trimbleRow,
-          topicRowsByTrimbleIndex.get(index) || []
-        )
+        mergeCommentsIntoRow(trimbleRow, byTrimbleIndex.get(index) || [])
       );
     });
+
+    // FIX M3/B1: i topic BCF senza commenti in comune non vengono scartati,
+    // ma emessi come riga autonoma per non perdere i commenti PRG/ISP.
+    for (const topicRow of unassigned) {
+      mergedRows.push(topicRow);
+    }
   }
 
   return [...mergedRows, ...ungrouped].filter((row) => {
@@ -1446,12 +1453,18 @@ export async function POST(req: Request) {
     const importedFiles: any[] = [];
 
     for (const file of files) {
+      try {
       const buffer = Buffer.from(await file.arrayBuffer());
       const name = file.name.toLowerCase();
 
       if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
         const workbook = XLSX.read(buffer, { type: "buffer" });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const sheetName = workbook.SheetNames[0];
+        if (!sheetName) {
+          importedFiles.push({ fileName: file.name, type: "xlsx", rows: 0, error: "Foglio Excel vuoto o assente" });
+          continue;
+        }
+        const sheet = workbook.Sheets[sheetName];
         const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
 
         excelRows = [...excelRows, ...rows];
@@ -1494,6 +1507,9 @@ export async function POST(req: Request) {
           snapshots: result.bcfTopics.filter((topic) => topic.snapshotDataUrl).length,
           docx: docxEntries.length,
         });
+      }
+      } catch (err) {
+        importedFiles.push({ fileName: file.name, error: err instanceof Error ? err.message : "File non leggibile o corrotto" });
       }
     }
 
