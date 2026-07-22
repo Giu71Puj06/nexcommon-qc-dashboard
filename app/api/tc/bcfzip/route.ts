@@ -83,7 +83,7 @@ export async function GET(req: NextRequest) {
   try {
     const url =
       `${TRIMBLE_API_URL}/tc/topics?project_id=${encodeURIComponent(projectId)}` +
-      `&with_comments=true`;
+      `&with_comments=true&with_snapshots=true`;
 
     const res = await fetch(url, {
       headers: { Accept: "application/json" },
@@ -110,9 +110,20 @@ export async function GET(req: NextRequest) {
 
       zip.file(`${guid}/markup.bcf`, buildMarkup(t));
 
-      // Miniatura del viewpoint, se disponibile (i byte sono JPEG).
+      // Snapshot dei viewpoint (immagini BCF sincronizzate con Solibri), scaricati
+      // dal backend con with_snapshots: entrano nella cartella del topic così il
+      // parser li associa al rilievo e finiscono nell'Export PDF (IMMAGINI NC/OSS).
+      const snaps = Array.isArray(t?.snapshots) ? t.snapshots : [];
+      snaps.forEach((s: any, i: number) => {
+        const b64 = String(s?.image_base64 || "");
+        if (!b64) return;
+        const ext = String(s?.mime || "").toLowerCase().includes("jpeg") ? "jpg" : "png";
+        zip.file(`${guid}/snapshot_${i}.${ext}`, b64, { base64: true });
+      });
+
+      // Fallback storico: miniatura inline del viewpoint, se presente.
       const thumb = t?._raw?.viewpoint?.snapshot_thumb;
-      if (typeof thumb === "string" && thumb.length > 0) {
+      if (snaps.length === 0 && typeof thumb === "string" && thumb.length > 0) {
         zip.file(`${guid}/snapshot.jpg`, thumb, { base64: true });
       }
 
