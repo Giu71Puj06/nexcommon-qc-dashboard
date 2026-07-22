@@ -110,7 +110,7 @@ export async function GET(req: NextRequest) {
   try {
     const url =
       `${TRIMBLE_API_URL}/tc/todos?project_id=${encodeURIComponent(projectId)}` +
-      `&with_comments=true`;
+      `&with_comments=true&with_snapshots=true`;
 
     const res = await fetch(url, {
       headers: { Accept: "application/json" },
@@ -161,14 +161,27 @@ export async function GET(req: NextRequest) {
     XLSX.utils.book_append_sheet(wb, ws, "Todos");
     const xlsxBuf: Buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
 
-    // 2) BCFZIP con i commenti
+    // 2) BCFZIP con i commenti + snapshot dei markup 2D (VIEW2D)
     const zip = new JSZip();
     let commentsTotal = 0;
+    let snapshotsTotal = 0;
     for (const t of todos) {
       const guid = String(t?.id ?? "").trim();
       if (!guid) continue;
       zip.file(`${guid}/markup.bcf`, buildTodoMarkup(t));
       commentsTotal += Array.isArray(t?.comments) ? t.comments.length : 0;
+
+      // Immagini dei markup 2D (sketch) nella cartella del topic: così il parser
+      // (extractSnapshotDataUrl) le associa al rilievo NC/OSS e la dashboard le
+      // mostra come snapshotDataUrl, senza altre modifiche.
+      const snaps = Array.isArray(t?.snapshots) ? t.snapshots : [];
+      snaps.forEach((s: any, i: number) => {
+        const b64 = String(s?.image_base64 || "");
+        if (!b64) return;
+        const ext = String(s?.mime || "").toLowerCase().includes("jpeg") ? "jpg" : "png";
+        zip.file(`${guid}/snapshot_${i}.${ext}`, b64, { base64: true });
+        snapshotsTotal += 1;
+      });
     }
     const bcfBuf: Buffer = await zip.generateAsync({ type: "nodebuffer" });
 
@@ -205,6 +218,7 @@ export async function GET(req: NextRequest) {
       ok: true,
       count: todos.length,
       comments_total: commentsTotal,
+      snapshots_total: snapshotsTotal,
       base_name: baseName,
       xlsx_base64: Buffer.from(xlsxBuf).toString("base64"),
       bcfzip_base64: Buffer.from(bcfBuf).toString("base64"),
