@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import * as XLSX from "xlsx";
 
@@ -34,6 +34,7 @@ type CheckRow = {
   livello?: "OK" | "WARNING" | "ERRORE";
   warning?: string[];
   anomalie: string[];
+  images?: string[];
 };
 
 type Filters = {
@@ -60,11 +61,11 @@ type ApiSummary = {
   completezza: number;
 };
 
+type TcProject = { id: string; name: string };
 
 function esitoIcon(ok: boolean) {
   return ok ? "✅" : "❌";
 }
-
 
 function isErroreBloccante(row: CheckRow) {
   const anomalie = row.anomalie || [];
@@ -91,9 +92,6 @@ function hasDocumentiGenerali(value: string) {
 function disciplinaOkReale(row: CheckRow) {
   if (!row.disciplina) return false;
   if (hasDocumentiGenerali(row.disciplina)) return true;
-
-  // Una disciplina valorizzata è valida ai fini del report:
-  // l'eventuale mancato allineamento con ELENCO_ELABORATI resta warning.
   return true;
 }
 
@@ -102,7 +100,6 @@ function titleOkReale(row: CheckRow) {
 }
 
 function tagsOkReale(row: CheckRow) {
-  // Tags mancanti / non perfettamente riconosciuti sono warning.
   return true;
 }
 
@@ -151,6 +148,12 @@ export default function ControlloTodoIspettoriPage() {
 
   const [loading, setLoading] = useState(false);
 
+  // Import diretto da Trimble (con markup).
+  const [projects, setProjects] = useState<TcProject[]>([]);
+  const [projectId, setProjectId] = useState("");
+  const [projectsError, setProjectsError] = useState("");
+  const [lightbox, setLightbox] = useState<string | null>(null);
+
   const [filters, setFilters] = useState<Filters>({
     n: "",
     codiceReport: "",
@@ -164,6 +167,16 @@ export default function ControlloTodoIspettoriPage() {
     esito: "",
     anomalie: "",
   });
+
+  useEffect(() => {
+    fetch("/api/tc/projects")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d && Array.isArray(d.projects)) setProjects(d.projects);
+        else setProjectsError("Elenco progetti Trimble non disponibile.");
+      })
+      .catch(() => setProjectsError("Impossibile caricare i progetti Trimble."));
+  }, []);
 
   function updateFilter(key: keyof Filters, value: string) {
     setFilters((prev) => ({
@@ -197,6 +210,47 @@ export default function ControlloTodoIspettoriPage() {
 
       if (!res.ok || data.ok === false) {
         throw new Error(data.error || "Errore durante il controllo ToDo");
+      }
+
+      setChecks(data.checks || []);
+      setSummary(data.summary || null);
+      setBcfTopicsCount(data.bcfTopicsCount || 0);
+    } catch (err: any) {
+      setError(err.message || "Errore imprevisto");
+      setChecks([]);
+      setSummary(null);
+      setBcfTopicsCount(0);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function eseguiControlloTrimble() {
+    if (!projectId) {
+      alert("Seleziona un progetto Trimble.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+
+    try {
+      const fd = new FormData();
+      fd.append("project_id", projectId);
+      // Report_Completo.xlsx ed ELENCO_ELABORATI.xlsx sono facoltativi:
+      // se caricati sopra, vengono usati per i controlli incrociati.
+      if (reportFile) fd.append("report", reportFile);
+      if (elencoFile) fd.append("elenco", elencoFile);
+
+      const res = await fetch("/api/controllo-todo-ispettori/trimble", {
+        method: "POST",
+        body: fd,
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || data.ok === false) {
+        throw new Error(data.error || "Errore durante l'import da Trimble");
       }
 
       setChecks(data.checks || []);
@@ -254,6 +308,8 @@ export default function ControlloTodoIspettoriPage() {
       r.esitoStoria === "Manca il riscontro dell'ispettore"
   ).length;
 
+  const markupTotal = checks.reduce((n, r) => n + (r.images ? r.images.length : 0), 0);
+
   const completezzaColor =
     completezza === 100 ? "#16a34a" : completezza >= 80 ? "#f59e0b" : "#dc2626";
 
@@ -270,6 +326,7 @@ export default function ControlloTodoIspettoriPage() {
       "Esito Disciplina": disciplinaOkReale(row) ? "OK" : "WARNING",
       Status: row.status || "",
       "Esito Status": statusOkReale(row) ? "OK" : "WARNING",
+      "N. markup": row.images ? row.images.length : 0,
       "Description ToDo": row.description || "",
       "Titolo BCF": row.bcfTitle || "",
       "Descrizione BCF": row.bcfDescription || "",
@@ -321,6 +378,69 @@ export default function ControlloTodoIspettoriPage() {
         Verifica automatica di Title, Tags, Disciplina e Status. La storia BCF è mostrata come warning:
         non abbassa la completezza e non genera falsi errori se le schede Word sono già corrette.
       </p>
+
+      {/* Import diretto da Trimble (con markup 2D) */}
+      <div
+        style={{
+          marginTop: 20,
+          ...cardStyle,
+          borderColor: "#38bdf8",
+          background: "#f0f9ff",
+          maxWidth: 1500,
+        }}
+      >
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 16 }}>
+          <div style={{ fontWeight: 800, fontSize: 16, color: "#0369a1" }}>
+            Importa da Trimble (con markup 2D)
+          </div>
+
+          <select
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+            style={{
+              padding: "10px 12px",
+              border: "1px solid #7dd3fc",
+              borderRadius: 10,
+              minWidth: 320,
+              fontSize: 14,
+              background: "white",
+            }}
+          >
+            <option value="">— Seleziona progetto Trimble —</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+
+          <button
+            onClick={eseguiControlloTrimble}
+            disabled={loading || !projectId}
+            style={{
+              padding: "12px 20px",
+              background: loading || !projectId ? "#7dd3fc" : "#0284c7",
+              color: "white",
+              border: "none",
+              borderRadius: 12,
+              fontWeight: 700,
+              cursor: loading || !projectId ? "not-allowed" : "pointer",
+            }}
+          >
+            {loading ? "Import in corso..." : "Importa ToDo + markup"}
+          </button>
+        </div>
+
+        <div style={{ marginTop: 10, color: "#0c4a6e", fontSize: 13 }}>
+          Carica i ToDo direttamente da Trimble con i markup 2D come miniature. I file
+          Report_Completo.xlsx ed ELENCO_ELABORATI.xlsx qui sotto sono facoltativi: se presenti,
+          vengono usati per i controlli incrociati su codice elaborato e disciplina.
+        </div>
+
+        {projectsError && (
+          <div style={{ marginTop: 8, color: "#b45309", fontSize: 13 }}>{projectsError}</div>
+        )}
+      </div>
 
       <div
         style={{
@@ -395,7 +515,7 @@ export default function ControlloTodoIspettoriPage() {
           cursor: loading ? "not-allowed" : "pointer",
         }}
       >
-        {loading ? "Controllo in corso..." : "Esegui controllo ToDo"}
+        {loading ? "Controllo in corso..." : "Esegui controllo ToDo (da file)"}
       </button>
 
       {error && (
@@ -409,7 +529,7 @@ export default function ControlloTodoIspettoriPage() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(7, 1fr)",
+              gridTemplateColumns: "repeat(8, 1fr)",
               gap: 12,
               marginTop: 28,
             }}
@@ -455,6 +575,11 @@ export default function ControlloTodoIspettoriPage() {
             <div style={cardStyle}>
               <div style={kpiLabel}>Topic BCF letti</div>
               <div style={kpiValue}>{bcfTopicsCount}</div>
+            </div>
+
+            <div style={cardStyle}>
+              <div style={kpiLabel}>Markup 2D</div>
+              <div style={{ ...kpiValue, color: "#0284c7" }}>{markupTotal}</div>
             </div>
           </div>
 
@@ -502,6 +627,7 @@ export default function ControlloTodoIspettoriPage() {
                 <thead>
                   <tr style={{ background: "#f8fafc" }}>
                     <th style={th}>N.</th>
+                    <th style={th}>Markup</th>
                     <th style={th}>TR</th>
                     <th style={th}>Codice elaborato Report</th>
                     <th style={th}>Codice elaborato nel Title Trimble</th>
@@ -526,6 +652,8 @@ export default function ControlloTodoIspettoriPage() {
                         style={filterInput}
                       />
                     </th>
+
+                    <th style={th}></th>
 
                     <th style={th}>
                       <input
@@ -658,6 +786,32 @@ export default function ControlloTodoIspettoriPage() {
                         {row.label ? ` (${row.label})` : ""}
                       </td>
 
+                      <td style={td}>
+                        {row.images && row.images.length > 0 ? (
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                            {row.images.map((src, i) => (
+                              <img
+                                key={i}
+                                src={src}
+                                alt="markup 2D"
+                                onClick={() => setLightbox(src)}
+                                style={{
+                                  width: 64,
+                                  height: 64,
+                                  objectFit: "cover",
+                                  border: "1px solid #cbd5e1",
+                                  borderRadius: 6,
+                                  cursor: "zoom-in",
+                                  background: "#fff",
+                                }}
+                              />
+                            ))}
+                          </div>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
+
                       <td style={td}>{row.tr || "-"}</td>
 
                       <td style={td}>{row.codiceReport || ""}</td>
@@ -755,7 +909,7 @@ export default function ControlloTodoIspettoriPage() {
 
                   {filteredChecks.length === 0 && (
                     <tr>
-                      <td style={td} colSpan={14}>
+                      <td style={td} colSpan={15}>
                         Nessuna riga trovata con i filtri impostati.
                       </td>
                     </tr>
@@ -765,6 +919,35 @@ export default function ControlloTodoIspettoriPage() {
             </div>
           </div>
         </>
+      )}
+
+      {lightbox && (
+        <div
+          onClick={() => setLightbox(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,.8)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            cursor: "zoom-out",
+            padding: 24,
+          }}
+        >
+          <img
+            src={lightbox}
+            alt="markup 2D"
+            style={{
+              maxWidth: "92vw",
+              maxHeight: "92vh",
+              background: "#fff",
+              boxShadow: "0 8px 40px rgba(0,0,0,.5)",
+              borderRadius: 8,
+            }}
+          />
+        </div>
       )}
     </main>
   );
