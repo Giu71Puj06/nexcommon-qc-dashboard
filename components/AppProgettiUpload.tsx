@@ -1217,7 +1217,10 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
     didDrawPage: () => addPdfPageNumber(doc),
   });
 
-  const rowsWithImages = rows.filter((r: any) => Boolean(r.snapshotDataUrl));
+  const includeImages = (headerData as any)?.includeImages !== false;
+  const rowsWithImages = includeImages
+    ? rows.filter((r: any) => Boolean(r.snapshotDataUrl))
+    : [];
 
   if (rowsWithImages.length > 0) {
     const lastSummaryTable = (doc as any).lastAutoTable;
@@ -1309,7 +1312,7 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
       doc.text(tipologia.slice(0, 40), textX + 24, currentY + 12);
       doc.text(disciplina.slice(0, 40), textX + 24, currentY + 20);
 
-      const elaboratoLines = doc.splitTextToSize(elaborato || "Elaborato non identificato", contentW);
+      const elaboratoLines = doc.splitTextToSize(elaborato || "Elaborato non identificato", Math.max(20, contentW - 26));
       doc.text(elaboratoLines.slice(0, 2), textX + 24, currentY + 28);
 
       const descrizioneLines = doc.splitTextToSize(descrizione || "", contentW);
@@ -2057,6 +2060,7 @@ function TrimbleActions({ row, sourceFiles = [] }: any) {
 function DetailPanel({ rows, title, onReset, sourceFiles = [] }: any) {
   const [pdfHeader, setPdfHeader] = useState<PdfHeaderData>({});
   const [showOnlyAnomalies, setShowOnlyAnomalies] = useState(false);
+  const [includiImmaginiPdf, setIncludiImmaginiPdf] = useState(true);
   const [selectedTodoIds, setSelectedTodoIds] = useState<string[]>([]);
   const [bulkStatus, setBulkStatus] = useState("");
   const [bulkTag, setBulkTag] = useState("");
@@ -2234,12 +2238,34 @@ function DetailPanel({ rows, title, onReset, sourceFiles = [] }: any) {
           >
             Export Excel
           </ExportButton>
-          <ExportButton onClick={() => exportDetailPdf(visibleRows, title, pdfHeader)}>
+          <ExportButton onClick={() => exportDetailPdf(visibleRows, title, { ...pdfHeader, includeImages: includiImmaginiPdf } as any)}>
             Export PDF
           </ExportButton>
           <ExportButton onClick={() => exportDetailPdf(rows, title, { templateMode: true } as any)}>
             Export PDF Template Qualità
           </ExportButton>
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              fontSize: 12,
+              color: "#475569",
+              border: "1px solid #cbd5e1",
+              background: includiImmaginiPdf ? "#dcfce7" : "white",
+              borderRadius: 10,
+              padding: "8px 10px",
+              height: 38,
+            }}
+            title="Se disattivato, l'Export PDF non includerà la sezione IMMAGINI NC/OSS"
+          >
+            <input
+              type="checkbox"
+              checked={includiImmaginiPdf}
+              onChange={(e) => setIncludiImmaginiPdf(e.target.checked)}
+            />
+            Includi immagini
+          </label>
           <label
             style={{
               display: "flex",
