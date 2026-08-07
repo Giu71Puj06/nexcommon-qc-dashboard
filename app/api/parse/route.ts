@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import JSZip from "jszip";
 import { XMLParser } from "fast-xml-parser";
+import { TENANT_DOMAINS } from "@/lib/tenants";
 
 function arr<T>(v: T | T[] | undefined): T[] {
   if (!v) return [];
@@ -76,6 +77,24 @@ function normalizeElaboratoCode(v = "") {
 }
 
 
+// Un codice elaborato è una sequenza di segmenti CORTI alfanumerici (es. "920 E ENE ZZ XX RP Z 031"
+// oppure "920_E_ENE_ZZ_XX_RP_Z_013"). Separatore underscore o spazio.
+// - underscore come prefisso (formato canonico)                → codeUnderscore
+// - spazi/underscore, segmenti corti, intera stringa           → codeShortWhole
+// - stessa cosa seguita da " - descrizione"                    → codeShortPrefix
+const codeUnderscore = /^[A-Z0-9]+(?:_[A-Z0-9]+){2,}/i;
+const codeShortWhole = /^[A-Z0-9]{1,5}(?:[ _][A-Z0-9]{1,5}){2,}$/i;
+const codeShortPrefix = /^[A-Z0-9]{1,5}(?:[ _][A-Z0-9]{1,5}){2,}(?=\s*[-–—]\s)/i;
+function isElaboratoCode(part: string) {
+  return codeUnderscore.test(part) || codeShortWhole.test(part) || codeShortPrefix.test(part);
+}
+// Converte in underscore gli spazi del CODICE iniziale (alcuni ToDo Trimble hanno il codice con spazi).
+function normalizeCodeSeparators(part: string) {
+  const m = String(part).match(/^([A-Z0-9]{1,5}(?:[ _][A-Z0-9]{1,5}){2,})(.*)$/i);
+  if (!m) return String(part);
+  return m[1].replace(/[ ]+/g, "_") + (m[2] || "");
+}
+
 function normalizeElaboratoForTrimble(value: any) {
   const raw = cleanText(value);
   const normalized = normalize(raw);
@@ -88,12 +107,11 @@ function normalizeElaboratoForTrimble(value: any) {
     .filter(Boolean);
 
   const isValidCodeOrCodes =
-    parts.length > 0 &&
-    parts.every((part) => /^[A-Z0-9]+(?:_[A-Z0-9]+){2,}/i.test(part));
+    parts.length > 0 && parts.every((part) => isElaboratoCode(part));
 
   if (isRilievoGenerale || isValidCodeOrCodes) {
     return {
-      elaborato: raw,
+      elaborato: isRilievoGenerale ? raw : parts.map(normalizeCodeSeparators).join("; "),
       anomaliaElaborato: "",
     };
   }
@@ -210,9 +228,11 @@ const ISPETTORI_DISCIPLINE_ITS: Record<string, string> = {
   "Ing. Edoardo Oddo Casano": "Progetto Strutturale",
 };
 
-const INSPECTOR_DOMAINS = [
-  "itscontrollitecnici.it",
-];
+// Domini "ispettori" ricavati dal registry multi-tenant (lib/tenants.ts),
+// con fallback su ITS per retro-compatibilità.
+const INSPECTOR_DOMAINS = Array.from(
+  new Set(["itscontrollitecnici.it", ...TENANT_DOMAINS])
+);
 
 function hasInspectorDomain(value = "") {
   const raw = cleanText(value).toLowerCase();
