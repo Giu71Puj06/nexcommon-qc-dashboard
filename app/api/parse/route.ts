@@ -79,29 +79,28 @@ function normalizeElaboratoCode(v = "") {
 }
 
 
-// Un codice elaborato è una sequenza di segmenti CORTI alfanumerici (es. "920 E ENE ZZ XX RP Z 031"
-// oppure "920_E_ENE_ZZ_XX_RP_Z_013"). Separatore underscore o spazio.
-// - underscore come prefisso (formato canonico)                → codeUnderscore
-// - spazi/underscore, segmenti corti, intera stringa           → codeShortWhole
-// - stessa cosa seguita da " - descrizione"                    → codeShortPrefix
-const codeUnderscore = /^[A-Z0-9]+(?:_[A-Z0-9]+){2,}/i;
-const codeShortWhole = /^[A-Z0-9]{1,5}(?:[ _][A-Z0-9]{1,5}){2,}$/i;
-const codeShortPrefix = /^[A-Z0-9]{1,5}(?:[ _][A-Z0-9]{1,5}){2,}(?=\s*[-–—]\s)/i;
-function isElaboratoCode(part: string) {
-  return codeUnderscore.test(part) || codeShortWhole.test(part) || codeShortPrefix.test(part);
+// Un codice elaborato è una sequenza di segmenti CORTI alfanumerici, separati da underscore.
+// Nei ToDo Trimble capita che il codice sia scritto con SPAZI al posto degli underscore
+// (es. "920 E ENE ZZ XX RP Z 031") o con spazi vaganti MESCOLATI agli underscore e spazi
+// iniziali/finali (es. " 920_ E_DES_ZZ_XX_RP_ Z_104 "). Normalizziamo tutti i separatori a
+// underscore e verifichiamo il CODICE CANONICO; le descrizioni generiche non passano il test.
+function canonicalizeCode(part: string) {
+  return String(part).trim().replace(/[ _]+/g, "_").replace(/^_+|_+$/g, "");
 }
-// Converte in underscore gli spazi del CODICE iniziale (alcuni ToDo Trimble hanno il codice con spazi).
-function normalizeCodeSeparators(part: string) {
-  const m = String(part).match(/^([A-Z0-9]{1,5}(?:[ _][A-Z0-9]{1,5}){2,})(.*)$/i);
-  if (!m) return String(part);
-  return m[1].replace(/[ ]+/g, "_") + (m[2] || "");
+// Codice canonico: 4+ segmenti alfanumerici brevi (i codici ITS/UNI 11337 hanno 7-8 campi).
+const strictCode = /^[A-Z0-9]{1,6}(?:_[A-Z0-9]{1,6}){3,}$/i;
+function isElaboratoCode(part: string) {
+  return strictCode.test(canonicalizeCode(part));
 }
 
-function normalizeElaboratoForTrimble(value: any) {
+function normalizeElaboratoForTrimble(value: any, disciplina: any = "") {
   const raw = cleanText(value);
   const normalized = normalize(raw);
 
   const isRilievoGenerale = normalized === "rilievo generale";
+  // Documentazione Economica: i Title sono nomi di documenti caricati dai progettisti
+  // (es. "CME", "Riassunto", "RILIEVI GENERALI", "CME migliorie edili") → si tengono così come sono.
+  const isEconomica = /econom/i.test(String(disciplina || ""));
 
   const parts = raw
     .split(";")
@@ -111,13 +110,20 @@ function normalizeElaboratoForTrimble(value: any) {
   const isValidCodeOrCodes =
     parts.length > 0 && parts.every((part) => isElaboratoCode(part));
 
-  if (isRilievoGenerale || isValidCodeOrCodes) {
+  // Codici elaborato → sempre normalizzati con underscore.
+  if (isValidCodeOrCodes && !isRilievoGenerale) {
     return {
-      elaborato: isRilievoGenerale ? raw : parts.map(normalizeCodeSeparators).join("; "),
+      elaborato: parts.map(canonicalizeCode).join("; "),
       anomaliaElaborato: "",
     };
   }
 
+  // "Rilievo generale" esplicito, oppure QUALSIASI testo per la Documentazione Economica → così com'è.
+  if (isRilievoGenerale || (isEconomica && raw)) {
+    return { elaborato: raw, anomaliaElaborato: "" };
+  }
+
+  // Altre discipline con Title non-codice → "Rilievo Generale" (comportamento originale).
   return {
     elaborato: "Rilievo Generale",
     anomaliaElaborato: raw
@@ -1114,7 +1120,7 @@ async function readDocxInspection(fileName: string, buffer: Buffer) {
       issueCodes.add(normalize(codiceElaborato));
 
       const tipologiaNcOss = detectTipologiaNcOss(tipo, rilievoOdi, titoloElaborato, tipo);
-      const elaboratoNormalizzato = normalizeElaboratoForTrimble(codiceElaborato);
+      const elaboratoNormalizzato = normalizeElaboratoForTrimble(codiceElaborato, disciplina);
 
       const hasPrgComment = comments.some((c) => c.role === "PRG");
       const hasIspComment = comments.some((c) => c.role === "ISP");
@@ -1209,7 +1215,7 @@ async function readDocxInspection(fileName: string, buffer: Buffer) {
       if (issueCodes.has(normalize(codiceElaborato))) continue;
       if (!assenza && (presenzaNc || presenzaOss)) continue;
 
-      const elaboratoNormalizzato = normalizeElaboratoForTrimble(codiceElaborato);
+      const elaboratoNormalizzato = normalizeElaboratoForTrimble(codiceElaborato, disciplina);
 
       rows.push({
         idRecord: `DOCX-${fileName}-ELAB-${rows.length + 1}`,
@@ -1640,7 +1646,7 @@ export async function POST(req: Request) {
         }
       }
 
-      const elaboratoNormalizzato = normalizeElaboratoForTrimble(title);
+      const elaboratoNormalizzato = normalizeElaboratoForTrimble(title, disciplina);
       const esitoCompilato = tipo === "NC" || tipo === "OSS" || tipo === "Nessun rilievo" || tipo === "Da NC a OSS";
       const titleCompilato = Boolean(String(title).trim());
       const disciplinaCompilata = Boolean(String(disciplina).trim());
