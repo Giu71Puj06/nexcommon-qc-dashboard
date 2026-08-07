@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import JSZip from "jszip";
 import { XMLParser } from "fast-xml-parser";
-import { TENANT_DOMAINS } from "@/lib/tenants";
+// Domini tenant inlineati per evitare la dipendenza da "@/lib/tenants"
+// (non presente in tutti i deploy della dashboard). Estendibile qui se servono altre società.
+const TENANT_DOMAINS = ["itscontrollitecnici.it", "nexcommon.com"];
 
 function arr<T>(v: T | T[] | undefined): T[] {
   if (!v) return [];
