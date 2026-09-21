@@ -241,6 +241,8 @@ const ISPETTORI_DISCIPLINE_ITS: Record<string, string> = {
   "Geom. Massimo Tamberi": "Sicurezza e Cantierizzazione",
   "Arch. Stefano Arcangellelli": "Progetto Architettonico",
   "Ing. Edoardo Oddo Casano": "Progetto Strutturale",
+  "Ing. Filippo Morelli": "Sicurezza",
+  "Ing. Oreste Bellaroba": "Impianti meccanici e relativa documentazione economica",
 };
 
 // Domini "ispettori" ricavati dal registry multi-tenant (lib/tenants.ts),
@@ -278,6 +280,8 @@ const ISPETTORI_ITS = [
   "Arch. Stefano Arcangellelli",
   "Arch. Stefano Arcangelelli",
   "Ing. Edoardo Oddo Casano",
+  "Ing. Filippo Morelli",
+  "Ing. Oreste Bellaroba",
   "Flavia Della Torre",
   "Clara Soliman",
 ];
@@ -299,6 +303,8 @@ const AUTHOR_NAME_MAP: Record<string, string> = {
   "s.arcangellelli@itscontrollitecnici.it": "Arch. Stefano Arcangellelli",
   "s.arcangelelli@itscontrollitecnici.it": "Arch. Stefano Arcangelelli",
   "e.cassano@itscontrollitecnici.it": "Ing. Edoardo Oddo Casano",
+  "f.morelli@itscontrollitecnici.it": "Ing. Filippo Morelli",
+  "o.bellaroba@itscontrollitecnici.it": "Ing. Oreste Bellaroba",
   "f.dellatorre@itscontrollitecnici.it": "Flavia Della Torre",
   "flavia.dellatorre@itscontrollitecnici.it": "Flavia Della Torre",
   "c.soliman@itscontrollitecnici.it": "Clara Soliman",
