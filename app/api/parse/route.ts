@@ -89,8 +89,15 @@ function canonicalizeCode(part: string) {
 }
 // Codice canonico: 4+ segmenti alfanumerici brevi (i codici ITS/UNI 11337 hanno 7-8 campi).
 const strictCode = /^[A-Z0-9]{1,6}(?:_[A-Z0-9]{1,6}){3,}$/i;
+// Codici elaborato scritti con i PUNTI come separatore (es. "REL.GEN.01", "REL.CON.01",
+// "REL.GEN.01.A"): 3+ segmenti alfanumerici brevi. Senza questa regola i Title tipo
+// "REL.GEN.01" non venivano riconosciuti come codice e finivano nel fallback
+// "Rilievo Generale"; quelli di Documentazione economica (es. "REL.CON.01") si salvavano
+// solo grazie all'eccezione sulla disciplina economica.
+const dottedCode = /^[A-Z0-9]{1,8}(?:\.[A-Z0-9]{1,8}){2,}$/i;
 function isElaboratoCode(part: string) {
-  return strictCode.test(canonicalizeCode(part));
+  const canonical = canonicalizeCode(part);
+  return strictCode.test(canonical) || dottedCode.test(canonical);
 }
 
 function normalizeElaboratoForTrimble(value: any, disciplina: any = "") {
