@@ -1366,6 +1366,8 @@ function exportDetailPdf(rows: any[], title = "", headerData: PdfHeaderData = {}
 
   doc.save("Dettaglio_selezione.pdf");
 }
+// Export sintetico storico: non piu' usato dal pulsante "Export Excel" del dettaglio,
+// che ora usa toDetailExportRows (stesse colonne e stesse righe della scheda PDF).
 function toDashboardExportRows(rows: any[]) {
   return rows.map((r: any) => ({
     ID_Rilievo: r.id || "",
@@ -1378,6 +1380,99 @@ function toDashboardExportRows(rows: any[]) {
     "Immagine BCF": r.snapshotDataUrl ? "Presente" : "",
     Stato: translateStatus(r.stato),
   }));
+}
+
+// Contenuto della colonna "Gestione rilievo" per l'Excel: stessa struttura della scheda PDF
+// (ruolo, autore, data, testo del commento), ma senza la normalizzazione tipografica
+// che serve solo ai font del PDF: in Excel il testo resta quello originale, a capo compresi.
+function commentsToExcelText(comments: any[] = []) {
+  if (!Array.isArray(comments) || comments.length === 0) return "";
+
+  return comments
+    .map((c: any) => {
+      const role = c.role ? `[${String(c.role).toUpperCase()}] ` : "";
+      const author = normalizeCommentAuthor(c.author || "Autore non indicato");
+      const date = formatCommentDateIt(c.date || "");
+      const header = [role + author, date].filter(Boolean).join(" - ");
+      const comment = String(c.comment || "").replace(/\r/g, "").trim();
+      return [header, comment].filter(Boolean).join("\n");
+    })
+    .join("\n\n");
+}
+
+// Export Excel del dettaglio: stesse righe, stesso ordine e stesse colonne della scheda PDF
+// (una riga per rilievo, codici elaborato impilati, intero scambio PRG/ISP nella colonna
+// "Gestione rilievo"), piu' alcune colonne di dettaglio utili solo a foglio elettronico.
+function toDetailExportRows(rows: any[]) {
+  const prepared = sortRilieviForPdf(prepareRowsForPdfExport(rows || []));
+
+  return prepared.map((r: any, index: number) => {
+    const comments = Array.isArray(r.comments) ? r.comments : [];
+    const prgComments = comments.filter((c: any) => String(c?.role || "").toUpperCase() === "PRG");
+    const ispComments = comments.filter((c: any) => String(c?.role || "").toUpperCase() === "ISP");
+    const last = comments[comments.length - 1];
+
+    return {
+      "N.": index + 1,
+      "ID rilievo": r.id || "",
+      Tipologia: r.tipo || "",
+      Disciplina: getDisciplinaDisplay(r),
+      Redattore: getRedattoreFromRow(r),
+      Elaborato: getElaboratoForPdfCell(r),
+      Descrizione: String(r.descrizione || "").replace(/\r/g, "").trim(),
+      "Gestione rilievo": commentsToExcelText(comments),
+      Stato: translateStatus(r.stato),
+
+      // Dettaglio aggiuntivo, oltre alle colonne della scheda PDF.
+      "Redattore esteso": cleanPdfText(r.creatoDa || r["Created by"] || r.ispettore || ""),
+      "Tipologia NC/OSS": r.tipologiaNcOss || "",
+      "N. commenti": comments.length,
+      "Commenti progettista": prgComments.length,
+      "Commenti ispettore": ispComments.length,
+      "Ultimo intervento": last?.role || "",
+      "Ultimo autore": normalizeCommentAuthor(last?.author || ""),
+      "Ultima data": formatCommentDateIt(last?.date || ""),
+      "Chi deve agire": r.chiDeveAgire || "",
+      "Stato risoluzione": r.statoRisoluzione || "",
+      Origine: r.origine || "",
+      "Tipo verifica": r.tipoVerifica || "",
+      "Immagine BCF": r.snapshotDataUrl ? "Presente" : "",
+      "File di origine": r.sourceFile || "",
+    };
+  });
+}
+
+// Larghezze di colonna pensate per la lettura dello scambio PRG/ISP.
+const DETAIL_EXPORT_COLUMN_WIDTHS: Record<string, number> = {
+  "N.": 5,
+  "ID rilievo": 12,
+  Tipologia: 14,
+  Disciplina: 20,
+  Redattore: 10,
+  Elaborato: 26,
+  Descrizione: 70,
+  "Gestione rilievo": 90,
+  Stato: 12,
+};
+
+function exportDetailExcel(nomeFile: string, rows: any[]) {
+  const dati = toDetailExportRows(rows);
+  if (!dati || dati.length === 0) return;
+
+  const ws = XLSX.utils.json_to_sheet(dati);
+  const headers = Object.keys(dati[0]);
+
+  (ws as any)["!cols"] = headers.map((header) => ({ wch: DETAIL_EXPORT_COLUMN_WIDTHS[header] || 18 }));
+  (ws as any)["!autofilter"] = {
+    ref: XLSX.utils.encode_range({
+      s: { r: 0, c: 0 },
+      e: { r: dati.length, c: headers.length - 1 },
+    }),
+  };
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Rilievi");
+  XLSX.writeFile(wb, `${nomeFile}.xlsx`);
 }
 
 function toChartExportRows(rows: any[]) {
@@ -2453,14 +2548,7 @@ function DetailPanel({ rows, title, onReset, sourceFiles = [] }: any) {
           <ExportButton onClick={() => exportCorrectedTrimbleTodoWorkbook(rowsForTodoExport, sourceFiles)}>
             Export ToDo Trimble
           </ExportButton>
-          <ExportButton
-            onClick={() =>
-              exportExcel(
-                "Dettaglio_selezione",
-                toDashboardExportRows(visibleRows)
-              )
-            }
-          >
+          <ExportButton onClick={() => exportDetailExcel("Dettaglio_selezione", visibleRows)}>
             Export Excel
           </ExportButton>
           <ExportButton onClick={() => exportDetailPdf(visibleRows, title, { ...pdfHeader, includeImages: includiImmaginiPdf } as any)}>
