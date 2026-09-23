@@ -1439,21 +1439,48 @@ function KPI({ title, value, subtitle, onClick, active, colorValue }: any) {
   );
 }
 
-function BarList({ title, data, onClick, activeKey, onExport }: any) {
+function BarList({ title, data, onClick, activeKey, onExport, collapsible = false }: any) {
   const max = Math.max(...data.map((d: any) => d.value), 1);
+
+  // Riquadro richiudibile: il titolo funziona da interruttore, il contenuto sparisce
+  // e resta la sola riga di intestazione.
+  const [open, setOpen] = useState(true);
+  const collapsed = collapsible && !open;
 
   return (
     <Card>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-        <h3 style={{ marginTop: 0 }}>{title}</h3>
+        <div
+          onClick={collapsible ? () => setOpen((prev) => !prev) : undefined}
+          title={collapsible ? (open ? "Riduci" : "Espandi") : undefined}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            flex: 1,
+            minWidth: 0,
+            cursor: collapsible ? "pointer" : "default",
+            userSelect: "none",
+          }}
+        >
+          {collapsible && (
+            <span style={{ fontSize: 12, color: "#64748b", width: 12 }}>{open ? "▾" : "▸"}</span>
+          )}
+          <h3 style={{ marginTop: 0, marginBottom: collapsed ? 0 : undefined }}>{title}</h3>
+          {collapsed && (
+            <span style={{ fontSize: 12, color: "#64748b", fontWeight: 600 }}>
+              {data.length} {data.length === 1 ? "voce" : "voci"}
+            </span>
+          )}
+        </div>
         {onExport && <ExportButton onClick={onExport}>Export Excel</ExportButton>}
       </div>
 
-      {data.length === 0 && (
+      {!collapsed && data.length === 0 && (
         <div style={{ color: "#64748b", fontSize: 13 }}>Nessun dato disponibile</div>
       )}
 
-      {data.map((d: any) => {
+      {!collapsed && data.map((d: any) => {
         const itemKey = d.key || d.label;
 
         return (
@@ -1646,6 +1673,9 @@ function CommentList({ comments, emptyText = "" }: any) {
 
 
 function ElaboratiPerDisciplinaPanel({ data, activeKey, onClick, onExport }: any) {
+  // Riquadro richiudibile: il titolo funziona da interruttore.
+  const [open, setOpen] = useState(true);
+
   const grouped = (data || []).reduce((acc: Record<string, any[]>, item: any) => {
     const key = item.disciplina || "Non assegnata";
     acc[key] = acc[key] || [];
@@ -1703,15 +1733,41 @@ function ElaboratiPerDisciplinaPanel({ data, activeKey, onClick, onExport }: any
   return (
     <Card>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-        <h3 style={{ marginTop: 0 }}>Elaborati / Modelli per disciplina</h3>
+        <div
+          onClick={() => setOpen((prev) => !prev)}
+          title={open ? "Riduci" : "Espandi"}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            flex: 1,
+            minWidth: 0,
+            cursor: "pointer",
+            userSelect: "none",
+          }}
+        >
+          <span style={{ fontSize: 12, color: "#64748b", width: 12 }}>{open ? "▾" : "▸"}</span>
+          <h3 style={{ marginTop: 0, marginBottom: open ? undefined : 0 }}>Elaborati / Modelli per disciplina</h3>
+          {!open && (
+            <span style={{ fontSize: 12, color: "#64748b", fontWeight: 600 }}>
+              {discipline.length} {discipline.length === 1 ? "disciplina" : "discipline"}
+            </span>
+          )}
+        </div>
         <ExportButton onClick={onExport}>Export Excel</ExportButton>
       </div>
 
-      {discipline.length === 0 && (
+      {open && discipline.length === 0 && (
         <div style={{ color: "#64748b", fontSize: 13 }}>Nessun dato disponibile</div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: 14 }}>
+      <div
+        style={{
+          display: open ? "grid" : "none",
+          gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+          gap: 14,
+        }}
+      >
         {discipline.map((disciplina) => {
           const items = grouped[disciplina] || [];
           const modelli = items.filter((item: any) => item.tipoOggetto === "modello");
@@ -3900,7 +3956,7 @@ export default function AppProgettiUpload() {
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16 }}>
-        <BarList title="NC / OSS per elaborato" data={rilieviPerElaboratoData} activeKey={selection?.type === "elaborato" ? selection.value : ""} onClick={(value: string, valueLabel: string) => setSelection({ type: "elaborato", value, label: "Elaborato", valueLabel })} onExport={() => exportExcel("NC_OSS_per_elaborato", toChartExportRows(rilieviPerElaboratoData))} />
+        <BarList collapsible title="NC / OSS per elaborato" data={rilieviPerElaboratoData} activeKey={selection?.type === "elaborato" ? selection.value : ""} onClick={(value: string, valueLabel: string) => setSelection({ type: "elaborato", value, label: "Elaborato", valueLabel })} onExport={() => exportExcel("NC_OSS_per_elaborato", toChartExportRows(rilieviPerElaboratoData))} />
       </div>
 
       <div style={{ marginTop: 24 }}>
