@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { APP_VERSION_LABEL } from "@/lib/version";
 
 const ALLOWED_DOMAIN = "@itscontrollitecnici.it";
 
@@ -113,6 +114,10 @@ export default function LoginPage() {
 
           <div style={{ color: "#64748b", fontSize: 14 }}>
             Quality Control Platform
+          </div>
+
+          <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 6 }}>
+            {APP_VERSION_LABEL}
           </div>
         </div>
 
