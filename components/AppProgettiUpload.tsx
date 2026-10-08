@@ -6,6 +6,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { supabase } from "../lib/supabase";
 import { isNcTipo, isOssTipo, isNessunRilievoTipo, isRilievo } from "../lib/parse/tipo";
+import { APP_VERSION, APP_VERSION_DATE, APP_VERSION_LABEL } from "../lib/version";
 
 function getElaboratoKey(r: any) {
   return (
@@ -718,6 +719,17 @@ function addPdfPageNumber(doc: jsPDF) {
   doc.setFontSize(8);
   doc.setTextColor(100);
   doc.text(`Pagina ${pageCount}`, pageWidthCurrent - 10, pageHeight - 6, { align: "right" });
+
+  // Versione della piattaforma che ha generato il documento: serve a sapere,
+  // a distanza di tempo, con quale build è stata prodotta la scheda.
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7);
+  doc.setTextColor(130, 130, 130);
+  doc.text(
+    `Nexcommon Report v${APP_VERSION} (${APP_VERSION_DATE})`,
+    10,
+    pageHeight - 6
+  );
 
   // Codice qualità aziendale ITS - fisso per tutti i progetti.
   doc.setFont("helvetica", "bold");
@@ -3640,6 +3652,21 @@ export default function AppProgettiUpload() {
             <img src="/logo_nexcommon.png" alt="Nexcommon" style={{ height: 34, objectFit: "contain" }} />
             <div style={{ fontSize: 13, color: "#64748b" }}>
               Piattaforma creata da Nexcommon S.r.l.
+            </div>
+            <div
+              title={`Nexcommon Report ${APP_VERSION_LABEL}`}
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                color: "#334155",
+                background: "#e2e8f0",
+                border: "1px solid #cbd5e1",
+                borderRadius: 999,
+                padding: "3px 10px",
+                whiteSpace: "nowrap",
+              }}
+            >
+              Nexcommon Report {APP_VERSION_LABEL}
             </div>
           </div>
 
